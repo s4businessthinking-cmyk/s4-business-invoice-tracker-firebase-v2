@@ -19,7 +19,7 @@
 export const updateConfig = {
   githubOwner: "s4businessthinking-cmyk",
   githubRepo: "s4-business-invoice-tracker-firebase-v2",
-  currentVersion: "1.0.0",
+  currentVersion: "1.0.1",
   exeAssetKeyword: "",
   apkAssetKeyword: ""
 };

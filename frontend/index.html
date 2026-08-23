@@ -505,6 +505,7 @@
 <body><div id="authOverlay"><div id="authCard">
 <h2>🔐 S4-BUSINESS INVOICE TRACKER</h2>
 <p id="authSubtitle">সংযোগ পরীক্ষা করা হচ্ছে…</p>
+<p id="authHelp" style="font-size:0.75rem;color:#6b6558;margin:0 0 12px;line-height:1.45;"></p>
 <div id="setupFields">
 <input id="setupName" placeholder="দোকানের নাম"><input id="setupAddr" placeholder="ঠিকানা"><input id="setupPhone" placeholder="ফোন (অপশনাল)">
 <input id="setupPassword" type="password" placeholder="Password (কমপক্ষে 6 অক্ষর)"><input id="setupPassword2" type="password" placeholder="Confirm Password">
@@ -516,6 +517,7 @@
 
 <header>
   <div class="lang-row">
+    <button id="logoutBtn" class="lang-btn" style="margin-right:8px;display:none;">Logout</button>
     <button id="langToggleBtn" class="lang-btn">English</button>
   </div>
   <h1>🔧 S4-BUSINESS-INVOICE-TRACKER</h1>
@@ -695,6 +697,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentSingleTabManager,
+  getFirestore,
   doc, getDoc, setDoc, collection, addDoc, updateDoc, deleteDoc,
   onSnapshot, query, orderBy, writeBatch, getDocs
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -708,9 +711,12 @@ import { buildReportBundle, renderReportHtml, invoicesToCsv, downloadTextFile } 
 
 const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
-const db = initializeFirestore(fbApp, {
-  localCache: persistentLocalCache({ tabManager: persistentSingleTabManager({}) })
-});
+const isDesktopApp = typeof window !== "undefined" && !!window.s4Desktop;
+const db = isDesktopApp
+  ? getFirestore(fbApp)
+  : initializeFirestore(fbApp, {
+      localCache: persistentLocalCache({ tabManager: persistentSingleTabManager({}) })
+    });
 
 initActivityLog(db);
 
@@ -730,29 +736,107 @@ async function sha256Hex(text){
 }
 
 function showAuthMessage(x){document.getElementById('authMsg').textContent=x||'';}
-function showLogin(){setupFields.classList.remove('open');loginFields.style.display='block';authSubtitle.textContent='Password দিয়ে দোকানের shared account-এ login করুন।';}
-function showSetup(){setupFields.classList.add('open');loginFields.style.display='none';authSubtitle.textContent='প্রথমবার দোকানের নাম, details ও password সেট করুন।';}
+function authHelpText(kind){
+  const bn = {
+    setup: '👑 Owner (প্রথমবার): দোকানের নাম + একটা shared password সেট করুন। সব staff পরে এই password দিয়ে login করবে। আলাদা invite/account system নেই — invoice add করার সময় staff নিজের নাম লিখবে।',
+    login: '🔐 সব staff একই shop password দিয়ে login করে। Password ভুলে গেলে owner Shop Info থেকে বদলাতে পারবে না (Firebase admin লাগবে) — password মনে রাখুন। Invoice-এ staff name বাধ্যতামূলক।'
+  };
+  const en = {
+    setup: '👑 Owner (first time): set shop name + one shared password. All staff use the same password to login. No invite system — staff enter their name when adding invoices.',
+    login: '🔐 All staff share one shop password. There is no separate staff account or invite link. Staff name is required on each invoice action.'
+  };
+  const t = lang === 'en' ? en : bn;
+  const el = document.getElementById('authHelp');
+  if(el) el.textContent = t[kind] || '';
+}
+function showLogin(){
+  setupFields.classList.remove('open');
+  loginFields.style.display='block';
+  authSubtitle.textContent = lang==='en' ? 'Login with the shop shared password' : 'Password দিয়ে দোকানের shared account-এ login করুন।';
+  authHelpText('login');
+}
+function showSetup(){
+  setupFields.classList.add('open');
+  loginFields.style.display='none';
+  authSubtitle.textContent = lang==='en' ? 'Create shop (owner setup — first time only)' : 'প্রথমবার দোকানের নাম, details ও password সেট করুন (Owner)।';
+  authHelpText('setup');
+}
+function showAuthScreen(){
+  document.getElementById('authOverlay').style.display='flex';
+}
 function hideAuth(){authOverlay.style.display='none';}
+function setLoggedInUi(on){
+  const btn = document.getElementById('logoutBtn');
+  if(btn) btn.style.display = on ? 'inline-block' : 'none';
+}
 
 async function ensureFirebaseSignIn(){
   if(firebaseReady) return;
-  await new Promise((resolve)=>{
-    const unsub = onAuthStateChanged(auth, (user)=>{
-      if(user){ unsub(); resolve(); }
-    });
-    signInAnonymously(auth).catch(()=>{});
-  });
+  await Promise.race([
+    new Promise((resolve)=>{
+      const unsub = onAuthStateChanged(auth, (user)=>{
+        if(user){ unsub(); resolve(); }
+      });
+      signInAnonymously(auth).catch(()=>{});
+    }),
+    new Promise((_r, reject)=> setTimeout(()=> reject(new Error('Firebase sign-in timeout')), 20000))
+  ]);
   firebaseReady = true;
 }
 
+function enterAppFromShopDoc(data){
+  hideAuth();
+  setLoggedInUi(true);
+  shopInfo = { name:data.name||'', addr:data.addr||'', phone:data.phone||'' };
+  renderShopInfo();
+  ensureStaffNameOnLogin();
+  subscribeInvoices();
+  subscribeActivityFeed();
+}
+
+async function restoreUnlockedSession(){
+  if(!authToken) return false;
+  try{
+    const snap = await getDoc(shopDocRef);
+    if(!snap.exists()) return false;
+    enterAppFromShopDoc(snap.data());
+    return true;
+  }catch(e){
+    return false;
+  }
+}
+
+function clearUnlockSession(){
+  authToken = false;
+  sessionStorage.removeItem('s4_unlocked');
+  if(invoicesUnsub){ invoicesUnsub(); invoicesUnsub = null; }
+  if(activityUnsub){ activityUnsub(); activityUnsub = null; }
+  invoices = [];
+  setLoggedInUi(false);
+}
+
+function doLogout(){
+  clearUnlockSession();
+  showAuthScreen();
+  startAuth();
+}
+
 async function startAuth(){
+  showAuthScreen();
+  authSubtitle.textContent = lang==='en' ? 'Checking connection…' : 'সংযোগ পরীক্ষা করা হচ্ছে…';
+  document.getElementById('authHelp').textContent = '';
   try{
     await ensureFirebaseSignIn();
+    if(await restoreUnlockedSession()) return;
+    clearUnlockSession();
     const snap = await getDoc(shopDocRef);
     if(snap.exists()) showLogin(); else showSetup();
   }catch(e){
+    clearUnlockSession();
     showSetup();
-    showAuthMessage('Firebase সংযোগ পাওয়া যাচ্ছে না। firebase-config.js ঠিকমতো বসানো আছে কিনা দেখুন।');
+    showAuthMessage(lang==='en'
+      ? 'Cannot connect to Firebase. Check firebase-config.js and internet, then restart the app.'
+      : 'Firebase সংযোগ পাওয়া যাচ্ছে না। firebase-config.js + internet চেক করে app restart করুন।');
   }
 }
 
@@ -767,12 +851,7 @@ async function doSetup(){
     await setDoc(shopDocRef, { name, addr, phone, passwordHash, createdAt: Date.now() });
     authToken = true;
     sessionStorage.setItem('s4_unlocked','1');
-    hideAuth();
-    shopInfo = { name, addr, phone };
-    renderShopInfo();
-    ensureStaffNameOnLogin();
-    subscribeInvoices();
-    subscribeActivityFeed();
+    enterAppFromShopDoc({ name, addr, phone });
   }catch(e){ showAuthMessage(e.message||'Setup ব্যর্থ হয়েছে।'); }
 }
 
@@ -787,12 +866,7 @@ async function doLogin(){
     if(hash !== data.passwordHash) return showAuthMessage('Password ভুল হয়েছে।');
     authToken = true;
     sessionStorage.setItem('s4_unlocked','1');
-    hideAuth();
-    shopInfo = { name:data.name||'', addr:data.addr||'', phone:data.phone||'' };
-    renderShopInfo();
-    ensureStaffNameOnLogin();
-    subscribeInvoices();
-    subscribeActivityFeed();
+    enterAppFromShopDoc(data);
   }catch(e){ showAuthMessage(e.message||'Login ব্যর্থ হয়েছে।'); }
 }
 
@@ -800,9 +874,12 @@ document.addEventListener('DOMContentLoaded',()=>{
   setupBtn.addEventListener('click',doSetup);
   loginBtn.addEventListener('click',doLogin);
   loginPassword.addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+  document.getElementById('logoutBtn').addEventListener('click', doLogout);
   startAuth();
 });
-if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+if(!isDesktopApp && 'serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
 
 function ensureStaffNameOnLogin(){
   renderStaffBadge(document.getElementById('staffBadgeBtn'), lang);
@@ -1517,6 +1594,8 @@ function applyStaticLang(){
   document.getElementById('clearAllBtn').textContent = tr('clearAll');
   document.getElementById('hintText').textContent = tr('hint');
   document.getElementById('langToggleBtn').textContent = tr('langBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+  if(logoutBtn) logoutBtn.textContent = lang==='en' ? 'Logout' : 'Logout';
 }
 
 applyStaticLang();
