@@ -1,0 +1,63 @@
+{
+  "name": "s4-invoice-tracker-desktop",
+  "version": "1.0.0",
+  "description": "S4-BUSINESS Invoice Tracker — Windows desktop shell",
+  "main": "main.js",
+  "author": "S4-BUSINESS",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "release": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "electron-log": "^5.2.3"
+  },
+  "devDependencies": {
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.s4business.invoicetracker",
+    "productName": "S4 Invoice Tracker",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      {
+        "from": "../frontend",
+        "to": "frontend",
+        "filter": ["**/*", "!firebase-config.js.example"]
+      }
+    ],
+    "extraMetadata": {
+      "main": "main.js"
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "S4 Invoice Tracker"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "s4businessthinking-cmyk",
+        "repo": "s4-business-invoice-tracker-firebase-v2"
+      }
+    ]
+  }
+}
