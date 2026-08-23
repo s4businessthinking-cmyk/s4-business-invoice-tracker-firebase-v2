@@ -1,4 +1,4 @@
-const CACHE='s4-invoice-v7-google-auth';
+const CACHE='s4-invoice-v10-clean-login';
 const CORE_ASSETS=[
   './',
   './index.html',

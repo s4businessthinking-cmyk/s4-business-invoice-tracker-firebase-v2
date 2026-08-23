@@ -1,6 +1,6 @@
 {
   "appId": "com.s4business.invoicetracker",
-  "appName": "S4 Invoice Tracker",
+  "appName": "S4-BUSINESS-INVOICE TRACKER",
   "webDir": "www",
   "server": {
     "androidScheme": "https"

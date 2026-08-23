@@ -99,12 +99,12 @@ async function loadFrontend(win){
 
 function createWindow(){
   mainWindow = new BrowserWindow({
-    width: 1180,
-    height: 820,
+    width: 960,
+    height: 720,
     minWidth: 720,
     minHeight: 560,
     backgroundColor: "#1e1e2e",
-    title: "S4 Invoice Tracker",
+    title: "S4-BUSINESS-INVOICE TRACKER",
     icon: path.join(__dirname, "build", "icon.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -174,14 +174,14 @@ autoUpdater.on("error", (err) => {
 
 autoUpdater.on("download-progress", (progress) => {
   if(mainWindow){
-    mainWindow.setTitle(`S4 Invoice Tracker — ডাউনলোড হচ্ছে ${Math.round(progress.percent)}%`);
+    mainWindow.setTitle(`S4-BUSINESS-INVOICE TRACKER — ডাউনলোড হচ্ছে ${Math.round(progress.percent)}%`);
   }
 });
 
 autoUpdater.on("update-downloaded", (info) => {
   const { dialog } = require("electron");
   if(mainWindow){
-    mainWindow.setTitle("S4 Invoice Tracker");
+    mainWindow.setTitle("S4-BUSINESS-INVOICE TRACKER");
   }
   dialog.showMessageBox(mainWindow, {
     type: "info",

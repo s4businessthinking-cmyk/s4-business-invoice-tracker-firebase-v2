@@ -1,6 +1,6 @@
 {
   "name": "s4-invoice-tracker-desktop",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "S4-BUSINESS Invoice Tracker — Windows desktop shell",
   "main": "main.js",
   "author": "S4-BUSINESS",
@@ -21,7 +21,7 @@
   },
   "build": {
     "appId": "com.s4business.invoicetracker",
-    "productName": "S4 Invoice Tracker",
+    "productName": "S4-BUSINESS-INVOICE TRACKER",
     "asar": true,
     "directories": {
       "output": "release",
@@ -55,7 +55,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "S4 Invoice Tracker",
+      "shortcutName": "S4-BUSINESS-INVOICE TRACKER",
       "artifactName": "S4-Invoice-Tracker-Setup-${version}.${ext}"
     },
     "publish": [

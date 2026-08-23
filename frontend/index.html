@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>S4-BUSINESS-INVOICE-TRACKER</title>
+<title>S4-BUSINESS-INVOICE TRACKER</title>
 <style>
   :root{
     --ink:#1c1a17;
@@ -435,10 +435,21 @@
     color:#8a8375;
   }
 
-  #authCard p{margin:0 0 18px;color:#6b6558;font-size:.82rem;}
-  #authCard input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;font-size:1rem;margin-bottom:10px;}
-  #authCard button{width:100%;padding:12px;border:0;border-radius:10px;background:var(--steel-dark);color:#fff;font-weight:700;}
-  #authMsg{min-height:20px;margin:8px 0;font-size:.78rem;color:var(--red);}
+  #authCard p{margin:0 0 12px;color:#6b6558;font-size:.8rem;line-height:1.4;text-align:center;}
+  #authCard input{width:100%;padding:10px;border:1px solid var(--line);border-radius:9px;font-size:.92rem;margin-bottom:8px;box-sizing:border-box;}
+  #authCard button{width:100%;padding:11px;border:0;border-radius:10px;background:var(--steel-dark);color:#fff;font-weight:700;cursor:pointer;box-sizing:border-box;}
+  #authMsg{
+    min-height:0;margin:0;
+    font-size:.78rem;color:var(--red);
+    font-weight:700;
+  }
+  #authMsg:not(:empty){
+    margin:8px 0 0;
+    background:#fff3f0;
+    border:1px solid #f0c4bc;
+    border-radius:8px;
+    padding:8px 10px;
+  }
   #setupFields{display:none;} #setupFields.open{display:block;}
   #loginFields{display:none;} #loginFields.open{display:block;}
   #staffSignupFields{display:none;} #staffSignupFields.open{display:block;}
@@ -446,7 +457,7 @@
   .auth-tab{flex:1;padding:8px;border:1px solid var(--line);border-radius:8px;background:#f5f2ea;font-size:.78rem;font-weight:700;cursor:pointer;}
   .auth-tab.active{background:var(--steel-dark);color:#fff;border-color:var(--steel-dark);}
   .auth-secondary{background:#eee7d8!important;color:#4b463c!important;margin-top:8px;}
-  .auth-link{background:none!important;color:var(--steel-dark)!important;font-size:.76rem!important;margin-top:6px;}
+  .auth-link{background:none!important;color:var(--steel-dark)!important;font-size:.76rem!important;margin-top:6px;cursor:pointer;}
   .auth-google{
     display:flex;align-items:center;justify-content:center;gap:10px;
     background:#fff!important;color:#3c4043!important;
@@ -510,9 +521,14 @@
 
   /* Splash / loading screen */
   #s4Splash{
-    position:fixed; inset:0; z-index:2000;
+    position:fixed; inset:0; z-index:3000;
     display:flex; align-items:center; justify-content:center;
     background:#1e1e2e url('branding/background.jpg') center/cover no-repeat;
+    pointer-events:auto;
+  }
+  #s4Splash.hidden{
+    display:none !important;
+    pointer-events:none !important;
   }
   #s4Splash::before{
     content:''; position:absolute; inset:0;
@@ -566,29 +582,43 @@
 
   /* Login / setup with branded background */
   #authOverlay{
-    position:fixed; inset:0; z-index:1000;
-    display:flex; align-items:center; justify-content:center; padding:20px;
+    position:fixed; inset:0; z-index:1500;
+    display:flex; align-items:flex-start; justify-content:center;
+    padding:16px; overflow-y:auto;
     background:#eef2f6 url('branding/background.jpg') center/cover no-repeat;
+    pointer-events:auto;
   }
   #authOverlay::before{
     content:''; position:absolute; inset:0;
     background:rgba(15,22,36,.45);
+    pointer-events:none;
   }
   #authCard{
-    position:relative; z-index:1;
-    width:min(430px,100%);
-    background:rgba(255,255,255,.95);
+    position:relative; z-index:2;
+    width:min(440px, calc(100vw - 32px));
+    max-height:calc(100vh - 32px);
+    overflow-y:auto;
+    margin:auto 0;
+    background:rgba(255,255,255,.97);
     border:1px solid rgba(255,255,255,.5);
     border-radius:16px;
-    padding:24px;
+    padding:20px 18px;
     box-shadow:0 12px 40px rgba(0,0,0,.22);
+    pointer-events:auto;
   }
   .auth-logo{
-    width:120px; height:auto;
-    display:block; margin:0 auto 10px;
+    width:96px; height:auto;
+    display:block; margin:0 auto 8px;
     border-radius:10px;
   }
-  #authCard h2{margin:0 0 6px;color:var(--steel-dark);text-align:center;font-size:1rem;}
+  #authCard h2{
+    margin:0 0 6px;
+    color:var(--steel-dark);
+    text-align:center;
+    font-size:.92rem;
+    line-height:1.35;
+    word-break:break-word;
+  }
   .header-logo{
     width:34px; height:34px;
     border-radius:8px;
@@ -605,15 +635,15 @@
      home-screen behavior and needs these Apple-specific tags instead. -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="S4 Invoice">
+<meta name="apple-mobile-web-app-title" content="S4-BUSINESS-INVOICE TRACKER">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="mask-icon" href="icons/icon-512.png" color="#22344a">
 </head>
 <body>
 <div id="s4Splash">
   <div class="splash-panel">
-    <img class="splash-logo" src="branding/logo.png" alt="S4 Invoice Tracker">
-    <h2 class="splash-title">S4 BUSINESS INVOICE TRACKER</h2>
+    <img class="splash-logo" src="branding/logo.png" alt="S4-BUSINESS-INVOICE TRACKER">
+    <h2 class="splash-title">S4-BUSINESS-INVOICE TRACKER</h2>
     <p class="splash-sub">Business Management · Invoice & Payment</p>
     <progress id="s4SplashBar" max="100" value="0"></progress>
     <div id="s4SplashStatus">লোড হচ্ছে…</div>
@@ -622,39 +652,38 @@
 
 <div id="authOverlay"><div id="authCard">
 <img class="auth-logo" src="branding/logo.png" alt="S4">
-<h2>S4-BUSINESS INVOICE TRACKER</h2>
-<p id="authSubtitle">সংযোগ পরীক্ষা করা হচ্ছে…</p>
-<p id="authHelp" style="font-size:0.75rem;color:#6b6558;margin:0 0 12px;line-height:1.45;"></p>
+<h2>S4-BUSINESS-INVOICE TRACKER</h2>
+<p id="authSubtitle"></p>
 <div id="setupFields">
 <button type="button" id="setupGoogleBtn" class="auth-google"><img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt=""> Continue with Google</button>
-<p class="auth-or">— অথবা Gmail + Password —</p>
-<input id="setupEmail" type="email" placeholder="Owner Gmail * (@gmail.com)">
-<input id="setupOwnerName" placeholder="Owner নাম (আপনার নাম)">
+<p class="auth-or">— অথবা —</p>
+<input id="setupOwnerName" placeholder="আপনার নাম">
 <input id="setupName" placeholder="দোকানের নাম">
 <input id="setupAddr" placeholder="ঠিকানা">
 <input id="setupPhone" placeholder="ফোন (অপশনাল)">
-<input id="setupPassword" type="password" placeholder="Password (কমপক্ষে 6 অক্ষর)">
+<input id="setupEmail" type="email" placeholder="Gmail">
+<input id="setupPassword" type="password" placeholder="Password">
 <input id="setupPassword2" type="password" placeholder="Confirm Password">
-<button id="setupBtn">Create Shop (Owner Account)</button>
+<button id="setupBtn">Create Account</button>
 </div>
 <div id="loginFields">
 <button type="button" id="loginGoogleBtn" class="auth-google"><img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt=""> Continue with Google</button>
-<p class="auth-or">— অথবা Gmail + Password —</p>
-<input id="loginEmail" type="email" placeholder="Gmail (@gmail.com)">
+<p class="auth-or">— অথবা —</p>
+<input id="loginEmail" type="email" placeholder="Gmail">
 <input id="loginPassword" type="password" placeholder="Password">
 <button id="loginBtn">Login</button>
 <button type="button" id="forgotBtn" class="auth-link">Password ভুলে গেছেন?</button>
-<button type="button" id="showStaffSignupBtn" class="auth-link">Staff — Invite আছে? Account তৈরি করুন</button>
+<button type="button" id="showStaffSignupBtn" class="auth-link">নতুন Staff Account</button>
 </div>
 <div id="staffSignupFields">
-<button type="button" id="staffGoogleBtn" class="auth-google"><img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt=""> Continue with Google (Invite)</button>
-<p class="auth-or">— অথবা Gmail + Password —</p>
-<input id="staffEmail" type="email" placeholder="Invited Gmail * (@gmail.com)">
-<input id="staffDisplayName" placeholder="আপনার নাম (Staff Name)">
-<input id="staffPassword" type="password" placeholder="Password (নতুন)">
+<button type="button" id="staffGoogleBtn" class="auth-google"><img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt=""> Continue with Google</button>
+<p class="auth-or">— অথবা —</p>
+<input id="staffDisplayName" placeholder="আপনার নাম">
+<input id="staffEmail" type="email" placeholder="Gmail">
+<input id="staffPassword" type="password" placeholder="Password">
 <input id="staffPassword2" type="password" placeholder="Confirm Password">
-<button id="staffSignupBtn">Staff Account তৈরি করুন</button>
-<button type="button" id="showLoginBtn" class="auth-link">← Login-এ ফিরে যান</button>
+<button id="staffSignupBtn">Create Account</button>
+<button type="button" id="showLoginBtn" class="auth-link">← Login</button>
 </div>
 <div id="authMsg"></div></div></div>
 
@@ -664,7 +693,7 @@
     <button id="logoutBtn" class="lang-btn" style="margin-right:8px;display:none;">Logout</button>
     <button id="langToggleBtn" class="lang-btn">English</button>
   </div>
-  <h1><img class="header-logo" src="branding/logo.png" alt="">S4-BUSINESS-INVOICE-TRACKER</h1>
+  <h1><img class="header-logo" src="branding/logo.png" alt="">S4-BUSINESS-INVOICE TRACKER</h1>
   <p id="subtitleText">কাস্টমার, গাড়ি ও পেমেন্ট হিসাব — দোকানের সবাই একসাথে দেখবে ও এডিট করবে</p>
   <div class="shop-box" id="shopBox">
     <div class="shop-text">
@@ -895,6 +924,27 @@ let invoicesUnsub = null;
 let activityUnsub = null;
 let currentReportBundle = null;
 
+function isFirebaseConfigured(){
+  return firebaseConfig.apiKey && !String(firebaseConfig.apiKey).includes("PASTE_");
+}
+
+function updateFirebaseSetupGuide(){ /* no UI for end users */ }
+
+function requireFirebaseReady(){
+  if(isFirebaseConfigured()) return true;
+  showAuthMessage(lang==='en'
+    ? 'Service not ready. Please try again later.'
+    : 'সার্ভিস এখনো প্রস্তুত নয়। পরে আবার চেষ্টা করুন।');
+  return false;
+}
+
+function withTimeout(promise, ms, label = "TIMEOUT"){
+  return Promise.race([
+    promise,
+    new Promise((_r, reject)=> setTimeout(()=> reject(new Error(label)), ms))
+  ]);
+}
+
 function enterAppFromShopDoc(data){
   hideAuth();
   setLoggedInUi(true);
@@ -965,29 +1015,34 @@ async function doLogout(){
 async function startAuth(){
   startSplash(lang);
   showAuthScreen();
-  authSubtitle.textContent = lang==='en' ? 'Checking connection…' : 'সংযোগ পরীক্ষা করা হচ্ছে…';
-  document.getElementById('authHelp').textContent = '';
+  authSubtitle.textContent = '';
   try{
-    setSplashStatus(lang==='en' ? 'Connecting to Firebase…' : 'Firebase-এ সংযোগ হচ্ছে…');
-    if(await restoreSession()){
-      await hideSplash();
+    if(!isFirebaseConfigured()){
+      await hideSplash(lang);
+      showSetup();
       return;
     }
-    setSplashStatus(lang==='en' ? 'Checking shop account…' : 'দোকানের account চেক হচ্ছে…');
-    const snap = await getDoc(shopDocRef);
-    await hideSplash();
+    setSplashStatus(lang==='en' ? 'Connecting…' : 'সংযোগ হচ্ছে…');
+    if(await withTimeout(restoreSession(), 8000, 'AUTH_TIMEOUT')){
+      await hideSplash(lang);
+      return;
+    }
+    setSplashStatus(lang==='en' ? 'Almost ready…' : 'প্রায় প্রস্তুত…');
+    const snap = await withTimeout(getDoc(shopDocRef), 8000, 'FIRESTORE_TIMEOUT');
+    await hideSplash(lang);
     if(snap.exists()) showLogin(); else showSetup();
   }catch(e){
     clearAppSession();
-    await hideSplash();
+    await hideSplash(lang);
     showSetup();
     showAuthMessage(lang==='en'
-      ? 'Cannot connect to Firebase. Enable Email/Password auth, check firebase-config.js, publish firestore.rules, then restart.'
-      : 'Firebase সংযোগ পাওয়া যাচ্ছে না। Email/Password auth চালু করুন, firebase-config.js + firestore.rules চেক করে restart করুন।');
+      ? 'Connection failed. Check internet and try again.'
+      : 'সংযোগ ব্যর্থ। Internet চেক করে আবার চেষ্টা করুন।');
   }
 }
 
 async function doSetupGoogle(){
+  if(!requireFirebaseReady()) return;
   const name = setupName.value.trim();
   const ownerName = setupOwnerName.value.trim();
   const addr = setupAddr.value.trim();
@@ -1004,6 +1059,7 @@ async function doSetupGoogle(){
 }
 
 async function doLoginGoogle(){
+  if(!requireFirebaseReady()) return;
   try{
     showAuthMessage(lang==='en' ? 'Opening Google sign-in…' : 'Google login খোলা হচ্ছে…');
     await loginWithGoogle();
@@ -1016,6 +1072,7 @@ async function doLoginGoogle(){
 }
 
 async function doStaffSignupGoogle(){
+  if(!requireFirebaseReady()) return;
   const displayName = staffDisplayName.value.trim();
   try{
     showAuthMessage(lang==='en' ? 'Opening Google sign-in…' : 'Google login খোলা হচ্ছে…');
@@ -1150,21 +1207,7 @@ async function doInviteStaff(){
   }
 }
 function showAuthMessage(x){ document.getElementById('authMsg').textContent = x || ''; }
-function authHelpText(kind){
-  const bn = {
-    setup: '👑 Owner (প্রথমবার): **Continue with Google** চাপুন (Cursor/GitHub-এর মতো) → দোকানের তথ্য দিন → account auto তৈরি। Firebase Console-এ একবার Google Sign-In + Rules publish করতে হবে।',
-    login: '🔐 **Continue with Google** দিয়ে Owner/Staff login। Staff প্রথমবার হলে নিচে Staff Account (invite লাগবে)।',
-    staffSignup: '📨 Owner invite করা Gmail দিয়ে **Continue with Google** — password লাগবে না।'
-  };
-  const en = {
-    setup: '👑 Owner (first time): tap **Continue with Google** (like Cursor) → enter shop details → account is created. One-time: enable Google Sign-In + publish rules in Firebase Console.',
-    login: '🔐 **Continue with Google** for Owner/Staff login. New staff: Staff Account below (invite required).',
-    staffSignup: '📨 **Continue with Google** with the invited Gmail — no password needed.'
-  };
-  const t = lang === 'en' ? en : bn;
-  const el = document.getElementById('authHelp');
-  if(el) el.textContent = t[kind] || '';
-}
+function authHelpText(_kind){ /* kept minimal for users */ }
 function hideAllAuthFields(){
   setupFields.classList.remove('open');
   loginFields.classList.remove('open');
@@ -1173,20 +1216,20 @@ function hideAllAuthFields(){
 function showLogin(){
   hideAllAuthFields();
   loginFields.classList.add('open');
-  authSubtitle.textContent = lang==='en' ? 'Login with Gmail + password' : 'Gmail + password দিয়ে login করুন।';
-  authHelpText('login');
+  authSubtitle.textContent = lang==='en' ? 'Login with Google or Gmail' : 'Google বা Gmail দিয়ে Login করুন';
+  showAuthMessage('');
 }
 function showSetup(){
   hideAllAuthFields();
   setupFields.classList.add('open');
-  authSubtitle.textContent = lang==='en' ? 'Create shop (owner — first time only)' : 'প্রথমবার Owner account + দোকান সেটআপ।';
-  authHelpText('setup');
+  authSubtitle.textContent = lang==='en' ? 'Create your shop account' : 'দোকানের account তৈরি করুন';
+  showAuthMessage('');
 }
 function showStaffSignup(){
   hideAllAuthFields();
   staffSignupFields.classList.add('open');
-  authSubtitle.textContent = lang==='en' ? 'Staff account (invite required)' : 'Staff account (invite লাগবে)।';
-  authHelpText('staffSignup');
+  authSubtitle.textContent = lang==='en' ? 'Create staff account (invite required)' : 'Staff account তৈরি করুন (invite লাগবে)';
+  showAuthMessage('');
 }
 function showAuthScreen(){
   document.getElementById('authOverlay').style.display='flex';
