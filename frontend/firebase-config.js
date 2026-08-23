@@ -9,7 +9,10 @@
 // 2) Project Settings → General → "Your apps" → Web app (</>) যোগ করুন
 // 3) সেখানে যে firebaseConfig object দেখাবে, সেটা নিচে বসিয়ে দিন
 // 4) Firestore Database চালু করুন (Build → Firestore Database → Create database)
-// 5) Authentication চালু করুন → Sign-in method → Anonymous → Enable
+// 5) Authentication চালু করুন → Sign-in method:
+//    ✅ Google ON
+//    ✅ Email/Password ON (optional fallback)
+//    ❌ Anonymous OFF
 // 6) Firestore Rules ট্যাবে গিয়ে ../firestore.rules এর কনটেন্ট বসিয়ে Publish করুন
 //
 // এই ফাইলটা GitHub-এ প্রতিটা শপ-বিল্ডের জন্য আলাদা থাকবে —

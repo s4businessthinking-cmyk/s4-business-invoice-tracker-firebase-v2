@@ -6,7 +6,7 @@
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#f6f3ec",
+  "background_color": "#1e1e2e",
   "theme_color": "#22344a",
   "lang": "bn",
   "description": "S4 Business Invoice Tracker",

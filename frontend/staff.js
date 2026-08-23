@@ -1,15 +1,18 @@
 // ============================================================
 // STAFF NAME — mandatory on every invoice add/edit/delete
-// ------------------------------------------------------------
-// দোকানে একাধিক স্টাফ একই shared password দিয়ে login করে।
-// কে কোন invoice যোগ/বদল/মুছেছে সেটা track করতে প্রতিটা
-// device/session এ স্টাফের নাম localStorage এ রাখা হয় এবং
-// প্রতিটা write action এ বাধ্যতামূলকভাবে validate করা হয়।
+// Account display name (Firebase member) is primary source.
 // ============================================================
 
 const STAFF_KEY = "s4_staff_name_v1";
+let memberDisplayName = "";
+
+export function setMemberDisplayName(name){
+  memberDisplayName = String(name || "").trim();
+  if(memberDisplayName) setStaffName(memberDisplayName);
+}
 
 export function getStaffName(){
+  if(memberDisplayName) return memberDisplayName;
   try{ return (localStorage.getItem(STAFF_KEY) || "").trim(); }catch(e){ return ""; }
 }
 
@@ -48,14 +51,20 @@ export function requireStaffName(lang = "bn"){
   return promptForStaffName(lang);
 }
 
-export function renderStaffBadge(el, lang = "bn"){
+export function renderStaffBadge(el, lang = "bn", role = ""){
   if(!el) return;
   const name = getStaffName();
+  const roleLabel = role === "owner"
+    ? (lang === "en" ? "Owner" : "মালিক")
+    : role === "staff"
+      ? (lang === "en" ? "Staff" : "স্টাফ")
+      : "";
   if(!name){
-    el.textContent = lang === "en" ? "👤 Staff: not set (tap to set)" : "👤 স্টাফ: সেট করা নেই (ট্যাপ করুন)";
+    el.textContent = lang === "en" ? "👤 Account" : "👤 Account";
     el.style.opacity = "0.85";
     return;
   }
-  el.textContent = (lang === "en" ? "👤 Staff: " : "👤 স্টাফ: ") + name;
+  const prefix = roleLabel ? `${roleLabel}: ` : (lang === "en" ? "Staff: " : "স্টাফ: ");
+  el.textContent = "👤 " + prefix + name;
   el.style.opacity = "1";
 }

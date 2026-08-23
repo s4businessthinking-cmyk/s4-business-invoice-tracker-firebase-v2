@@ -1,4 +1,4 @@
-const CACHE='s4-invoice-v4-reports-staff';
+const CACHE='s4-invoice-v7-google-auth';
 const CORE_ASSETS=[
   './',
   './index.html',
@@ -9,9 +9,13 @@ const CORE_ASSETS=[
   './drive-backup-config.js',
   './drive-backup.js',
   './install-prompt.js',
+  './auth.js',
   './staff.js',
   './activity-log.js',
   './reports.js',
+  './splash.js',
+  './branding/logo.png',
+  './branding/background.jpg',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'

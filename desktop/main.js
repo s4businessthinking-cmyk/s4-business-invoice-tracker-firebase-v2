@@ -24,6 +24,9 @@ const MIME = {
   ".json": "application/json; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".jfif": "image/jpeg",
   ".ico": "image/x-icon",
   ".webmanifest": "application/manifest+json",
   ".svg": "image/svg+xml"
@@ -100,7 +103,7 @@ function createWindow(){
     height: 820,
     minWidth: 720,
     minHeight: 560,
-    backgroundColor: "#f6f3ec",
+    backgroundColor: "#1e1e2e",
     title: "S4 Invoice Tracker",
     icon: path.join(__dirname, "build", "icon.ico"),
     webPreferences: {
@@ -113,8 +116,15 @@ function createWindow(){
 
   mainWindow.setMenuBarVisibility(false);
 
-  mainWindow.webContents.setWindowOpenHandler(({ targetUrl }) => {
-    shell.openExternal(targetUrl);
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if(
+      url.includes("accounts.google.com") ||
+      url.includes("firebaseapp.com") ||
+      url.includes("__/auth/handler")
+    ){
+      return { action: "allow" };
+    }
+    shell.openExternal(url);
     return { action: "deny" };
   });
 
