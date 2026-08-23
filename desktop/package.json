@@ -44,14 +44,16 @@
         { "target": "nsis", "arch": ["x64"] }
       ],
       "icon": "build/icon.ico",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "artifactName": "S4-Invoice-Tracker-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "S4 Invoice Tracker"
+      "shortcutName": "S4 Invoice Tracker",
+      "artifactName": "S4-Invoice-Tracker-Setup-${version}.${ext}"
     },
     "publish": [
       {
