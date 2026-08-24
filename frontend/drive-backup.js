@@ -13,11 +13,42 @@ import { driveBackupConfig } from "./drive-backup-config.js";
 
 const BACKUP_FOLDER_NAME = "S4 Invoice Backups";
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
+export const DRIVE_CLIENT_STORAGE_KEY = "s4_drive_client_id_v1";
+export const BACKUP_HISTORY_KEY = "s4_backup_history_v1";
 
 let gisScriptLoading = null;
 let tokenClient = null;
 let cachedToken = null;
 let cachedTokenExpiry = 0;
+let runtimeClientId = null;
+
+export function getDriveClientId(){
+  if(runtimeClientId && !String(runtimeClientId).startsWith("PASTE_")) return runtimeClientId;
+  try{
+    const saved = localStorage.getItem(DRIVE_CLIENT_STORAGE_KEY);
+    if(saved && !saved.startsWith("PASTE_") && saved.includes("apps.googleusercontent.com")) return saved.trim();
+  }catch(_){}
+  return (driveBackupConfig.googleClientId || "").trim();
+}
+
+export function saveDriveClientId(id){
+  const v = String(id || "").trim();
+  if(!v || v.startsWith("PASTE_") || !v.includes("apps.googleusercontent.com")){
+    throw new Error("Paste a valid Google OAuth Client ID (…apps.googleusercontent.com)");
+  }
+  runtimeClientId = v;
+  localStorage.setItem(DRIVE_CLIENT_STORAGE_KEY, v);
+  tokenClient = null;
+  cachedToken = null;
+  return v;
+}
+
+export function clearDriveClientId(){
+  runtimeClientId = null;
+  try{ localStorage.removeItem(DRIVE_CLIENT_STORAGE_KEY); }catch(_){}
+  tokenClient = null;
+  cachedToken = null;
+}
 
 function loadGisScript(){
   if(window.google && window.google.accounts && window.google.accounts.oauth2){
@@ -37,7 +68,7 @@ function loadGisScript(){
 }
 
 function isConfigured(){
-  const id = driveBackupConfig.googleClientId;
+  const id = getDriveClientId();
   return !!id && !id.startsWith("PASTE_");
 }
 
@@ -51,7 +82,7 @@ async function getAccessToken(){
   await loadGisScript();
   if(!tokenClient){
     tokenClient = window.google.accounts.oauth2.initTokenClient({
-      client_id: driveBackupConfig.googleClientId,
+      client_id: getDriveClientId(),
       scope: SCOPE,
       callback: () => {} // requestAccessToken() নিচে override করবে প্রতিবার
     });
@@ -155,11 +186,38 @@ export async function listBackups(){
   const folderId = await findOrCreateBackupFolder(token);
   const q = encodeURIComponent(`'${folderId}' in parents and trashed=false and mimeType='application/json'`);
   const res = await driveFetch(
-    `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&fields=files(id,name,createdTime)&pageSize=50`,
+    `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&fields=files(id,name,createdTime,size)&pageSize=50`,
     token
   );
   const data = await res.json();
   return data.files || [];
+}
+
+export function loadBackupHistory(){
+  try{
+    return JSON.parse(localStorage.getItem(BACKUP_HISTORY_KEY) || "[]");
+  }catch{ return []; }
+}
+
+export function recordBackupHistory(entry){
+  const list = loadBackupHistory();
+  list.unshift({
+    at: entry.at || Date.now(),
+    name: entry.name || "backup.json",
+    size: entry.size || 0,
+    type: entry.type || "Manual",
+    status: entry.status || "Successful",
+    driveId: entry.driveId || ""
+  });
+  localStorage.setItem(BACKUP_HISTORY_KEY, JSON.stringify(list.slice(0, 40)));
+  return list;
+}
+
+export function formatBytes(n){
+  const b = Number(n) || 0;
+  if(b < 1024) return b + " B";
+  if(b < 1024*1024) return (b/1024).toFixed(1) + " KB";
+  return (b/(1024*1024)).toFixed(2) + " MB";
 }
 
 /**

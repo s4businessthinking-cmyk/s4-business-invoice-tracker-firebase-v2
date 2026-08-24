@@ -2,10 +2,14 @@ rules_version = '2';
 
 // ============================================================
 // S4-BUSINESS INVOICE TRACKER — Firestore Security Rules
-// Email/Password auth + Owner/Staff roles
+// Email/Password auth ONLY (no Google Sign-In, no Anonymous)
+// Every account must verify its email before it can act as an
+// active member — client (auth.js) enforces this at login time.
+// Owner/Staff roles.
 // ============================================================
 // Firebase Console → Authentication → Sign-in method:
 //   ✅ Email/Password ON
+//   ❌ Google ON/OFF doesn't matter — app no longer uses it
 //   ❌ Anonymous OFF (security)
 // ============================================================
 
@@ -22,6 +26,7 @@ service cloud.firestore {
 
     function isActiveMember() {
       return isSignedIn()
+        && request.auth.token.email_verified == true
         && exists(memberPath())
         && get(memberPath()).data.status == 'active';
     }
@@ -83,8 +88,28 @@ service cloud.firestore {
     }
 
     match /invoices/{invoiceId} {
-      allow read, create, update: if isActiveMember();
-      allow delete: if isActiveMember();
+      allow read, create, update, delete: if isActiveMember();
+    }
+    match /customers/{id} {
+      allow read, create, update, delete: if isActiveMember();
+    }
+    match /vehicles/{id} {
+      allow read, create, update, delete: if isActiveMember();
+    }
+    match /receipts/{id} {
+      allow read, create, update, delete: if isActiveMember();
+    }
+    match /creditNotes/{id} {
+      allow read, create, update, delete: if isActiveMember();
+    }
+    match /debitNotes/{id} {
+      allow read, create, update, delete: if isActiveMember();
+    }
+    match /cheques/{id} {
+      allow read, create, update, delete: if isActiveMember();
+    }
+    match /discounts/{id} {
+      allow read, create, update, delete: if isActiveMember();
     }
 
     match /activity/{activityId} {

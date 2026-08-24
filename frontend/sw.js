@@ -1,8 +1,12 @@
-const CACHE='s4-invoice-v10-clean-login';
+const CACHE='s4-invoice-v12-logo-full';
 const CORE_ASSETS=[
   './',
   './index.html',
   './manifest.webmanifest',
+  './tracker.css',
+  './boot.js',
+  './app.js',
+  './theme.js',
   './firebase-config.js',
   './update-config.js',
   './update-checker.js',
@@ -15,7 +19,9 @@ const CORE_ASSETS=[
   './reports.js',
   './splash.js',
   './branding/logo.png',
+  './branding/logo-full.png',
   './branding/background.jpg',
+  './icons/favicon.ico',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'

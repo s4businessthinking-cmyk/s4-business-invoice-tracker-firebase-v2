@@ -1,6 +1,7 @@
 // ============================================================
 // AUTH — Owner + Staff accounts
-// Google Sign-In (primary) + Email/Password (fallback)
+// Email/Password ONLY — no Google Sign-In
+// Email verification required before login is accepted
 // Owner: shop setup · Staff: owner invite → own account
 // ============================================================
 
@@ -8,10 +9,10 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
+  sendEmailVerification,
   sendPasswordResetEmail,
   onAuthStateChanged,
-  GoogleAuthProvider,
-  signInWithPopup
+  reload
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
@@ -21,8 +22,6 @@ import {
 let _auth = null;
 let _db = null;
 let currentMember = null;
-const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: "select_account" });
 
 export function initAuthModule(auth, db){
   _auth = auth;
@@ -31,11 +30,6 @@ export function initAuthModule(auth, db){
 
 export function normalizeEmail(email){
   return String(email || "").trim().toLowerCase();
-}
-
-/** Owner + staff invites must use Gmail */
-export function isGmailEmail(email){
-  return /^[^\s@]+@gmail\.com$/i.test(String(email || "").trim());
 }
 
 export function getCurrentMember(){
@@ -82,134 +76,25 @@ export async function tryRestoreSession(){
   return { user, member };
 }
 
-function requireSignedInUser(){
-  const user = _auth?.currentUser;
-  if(!user) throw new Error("NOT_SIGNED_IN");
-  return user;
-}
-
-function assertGmailUser(user){
-  const em = normalizeEmail(user.email);
-  if(!isGmailEmail(em)){
-    throw new Error("GMAIL_REQUIRED");
-  }
-  return em;
-}
-
-/** Cursor/GitHub-style Google popup login */
-export async function signInWithGoogle(){
-  const cred = await signInWithPopup(_auth, googleProvider);
-  const em = assertGmailUser(cred.user);
-  return { user: cred.user, email: em };
-}
-
-export async function ownerCompleteSetupAfterGoogle({ shopName, addr, phone, ownerDisplayName }){
-  const user = requireSignedInUser();
-  const em = assertGmailUser(user);
+// ============================================================
+// OWNER SETUP — email/password, send verification, sign out
+// ============================================================
+export async function ownerSetupShop({ email, password, shopName, addr, phone, ownerDisplayName }){
+  const em = normalizeEmail(email);
+  if(!em || !em.includes("@")) throw new Error("EMAIL_REQUIRED");
   if(!shopName?.trim()) throw new Error("SHOP_NAME_REQUIRED");
+  if(String(password || "").length < 6) throw new Error("PASSWORD_SHORT");
 
   const shopSnap = await getDoc(doc(_db, "shop", "info"));
   if(shopSnap.exists()) throw new Error("SHOP_EXISTS");
-
-  const uid = user.uid;
-  const displayName = (ownerDisplayName || user.displayName || shopName).trim();
-
-  await setDoc(doc(_db, "shop", "info"), {
-    name: shopName.trim(),
-    addr: (addr || "").trim(),
-    phone: (phone || "").trim(),
-    ownerUid: uid,
-    ownerEmail: em,
-    authProvider: "google",
-    createdAt: Date.now()
-  });
-
-  await setDoc(doc(_db, "members", uid), {
-    uid,
-    email: em,
-    displayName,
-    role: "owner",
-    status: "active",
-    authProvider: "google",
-    joinedAt: Date.now()
-  });
-
-  currentMember = { uid, email: em, displayName, role: "owner", status: "active" };
-  return currentMember;
-}
-
-export async function loginWithGoogle(){
-  if(!_auth.currentUser){
-    await signInWithGoogle();
-  }else{
-    assertGmailUser(_auth.currentUser);
-  }
-  const member = await loadMember(_auth.currentUser.uid);
-  if(!member) throw new Error("NOT_A_MEMBER");
-  return member;
-}
-
-export async function staffAcceptInviteGoogle({ displayName }){
-  if(!_auth.currentUser){
-    await signInWithGoogle();
-  }
-  const user = requireSignedInUser();
-  const em = assertGmailUser(user);
-  const name = String(displayName || user.displayName || "").trim();
-  if(!name) throw new Error("DISPLAY_NAME_REQUIRED");
-
-  const existing = await loadMember(user.uid);
-  if(existing) return existing;
-
-  const inviteSnap = await getDocs(
-    query(
-      collection(_db, "invites"),
-      where("email", "==", em),
-      where("status", "==", "pending")
-    )
-  );
-
-  if(inviteSnap.empty){
-    await signOut(_auth);
-    throw new Error("NO_INVITE");
-  }
-
-  const inviteDoc = inviteSnap.docs[0];
-  const inviteId = inviteDoc.id;
-  const uid = user.uid;
-
-  await setDoc(doc(_db, "members", uid), {
-    uid,
-    email: em,
-    displayName: name,
-    role: "staff",
-    status: "active",
-    inviteId,
-    invitedBy: inviteDoc.data().invitedBy || "",
-    authProvider: "google",
-    joinedAt: Date.now()
-  });
-
-  await updateDoc(doc(_db, "invites", inviteId), {
-    status: "accepted",
-    acceptedAt: Date.now(),
-    memberUid: uid
-  });
-
-  currentMember = { uid, email: em, displayName: name, role: "staff", status: "active" };
-  return currentMember;
-}
-
-export async function ownerSetupShop({ email, password, shopName, addr, phone, ownerDisplayName }){
-  const em = normalizeEmail(email);
-  if(!isGmailEmail(em)) throw new Error("GMAIL_REQUIRED");
-  if(!shopName?.trim()) throw new Error("SHOP_NAME_REQUIRED");
-  if(String(password || "").length < 6) throw new Error("PASSWORD_SHORT");
 
   const cred = await createUserWithEmailAndPassword(_auth, em, password);
   const uid = cred.user.uid;
   const displayName = (ownerDisplayName || shopName).trim();
 
+  // send verification email before writing to Firestore
+  await sendEmailVerification(cred.user);
+
   await setDoc(doc(_db, "shop", "info"), {
     name: shopName.trim(),
     addr: (addr || "").trim(),
@@ -228,28 +113,43 @@ export async function ownerSetupShop({ email, password, shopName, addr, phone, o
     joinedAt: Date.now()
   });
 
-  currentMember = { uid, email: em, displayName, role: "owner", status: "active" };
-  return currentMember;
+  // sign out immediately — must verify email before logging in
+  await signOut(_auth);
+  currentMember = null;
+  return { emailSent: true, email: em };
 }
 
+// ============================================================
+// LOGIN — email/password, block if not verified
+// ============================================================
 export async function loginWithEmail({ email, password }){
   const em = normalizeEmail(email);
-  if(!isGmailEmail(em)) throw new Error("GMAIL_REQUIRED");
+  if(!em || !em.includes("@")) throw new Error("EMAIL_REQUIRED");
+
   const cred = await signInWithEmailAndPassword(_auth, em, password);
+
+  // reload to get latest emailVerified status
+  await reload(cred.user);
+
+  if(!cred.user.emailVerified){
+    await signOut(_auth);
+    throw new Error("EMAIL_NOT_VERIFIED");
+  }
+
   const member = await loadMember(cred.user.uid);
   if(!member) throw new Error("NOT_A_MEMBER");
   return member;
 }
 
+// ============================================================
+// STAFF INVITE ACCEPT — email/password, send verification, sign out
+// ============================================================
 export async function staffAcceptInvite({ email, password, displayName }){
   const em = normalizeEmail(email);
   const name = String(displayName || "").trim();
-  if(!isGmailEmail(em)) throw new Error("GMAIL_REQUIRED");
+  if(!em || !em.includes("@")) throw new Error("EMAIL_REQUIRED");
   if(!name) throw new Error("DISPLAY_NAME_REQUIRED");
   if(String(password || "").length < 6) throw new Error("PASSWORD_SHORT");
-
-  const cred = await createUserWithEmailAndPassword(_auth, em, password);
-  const uid = cred.user.uid;
 
   const inviteSnap = await getDocs(
     query(
@@ -259,13 +159,14 @@ export async function staffAcceptInvite({ email, password, displayName }){
     )
   );
 
-  if(inviteSnap.empty){
-    await signOut(_auth);
-    throw new Error("NO_INVITE");
-  }
+  if(inviteSnap.empty) throw new Error("NO_INVITE");
 
-  const inviteDoc = inviteSnap.docs[0];
-  const inviteId = inviteDoc.id;
+  const cred = await createUserWithEmailAndPassword(_auth, em, password);
+  const uid = cred.user.uid;
+  const inviteDocRef = inviteSnap.docs[0];
+  const inviteId = inviteDocRef.id;
+
+  await sendEmailVerification(cred.user);
 
   await setDoc(doc(_db, "members", uid), {
     uid,
@@ -274,7 +175,8 @@ export async function staffAcceptInvite({ email, password, displayName }){
     role: "staff",
     status: "active",
     inviteId,
-    invitedBy: inviteDoc.data().invitedBy || "",
+    invitedBy: inviteDocRef.data().invitedBy || "",
+    permissions: { ...DEFAULT_STAFF_PERMISSIONS },
     joinedAt: Date.now()
   });
 
@@ -284,8 +186,25 @@ export async function staffAcceptInvite({ email, password, displayName }){
     memberUid: uid
   });
 
-  currentMember = { uid, email: em, displayName: name, role: "staff", status: "active" };
-  return currentMember;
+  // sign out immediately — must verify email before logging in
+  await signOut(_auth);
+  currentMember = null;
+  return { emailSent: true, email: em };
+}
+
+// ============================================================
+// RESEND VERIFICATION — user signs in, resend, sign out
+// ============================================================
+export async function resendVerificationEmail({ email, password }){
+  const em = normalizeEmail(email);
+  const cred = await signInWithEmailAndPassword(_auth, em, password);
+  if(cred.user.emailVerified){
+    await signOut(_auth);
+    throw new Error("ALREADY_VERIFIED");
+  }
+  await sendEmailVerification(cred.user);
+  await signOut(_auth);
+  return { emailSent: true };
 }
 
 export async function logoutUser(){
@@ -295,14 +214,14 @@ export async function logoutUser(){
 
 export async function sendPasswordReset(email){
   const em = normalizeEmail(email);
-  if(!isGmailEmail(em)) throw new Error("GMAIL_REQUIRED");
+  if(!em || !em.includes("@")) throw new Error("EMAIL_REQUIRED");
   await sendPasswordResetEmail(_auth, em);
 }
 
 export async function inviteStaff({ email, displayName, invitedByUid }){
   const em = normalizeEmail(email);
   const name = String(displayName || "").trim();
-  if(!isGmailEmail(em)) throw new Error("GMAIL_REQUIRED");
+  if(!em || !em.includes("@")) throw new Error("EMAIL_REQUIRED");
   if(!name) throw new Error("DISPLAY_NAME_REQUIRED");
 
   const existing = await getDocs(
@@ -346,24 +265,86 @@ export async function deactivateStaff(staffUid){
   await updateDoc(doc(_db, "members", staffUid), { status: "removed", removedAt: Date.now() });
 }
 
+/** Default staff module permissions (owner always has all) */
+export const DEFAULT_STAFF_PERMISSIONS = {
+  dashboard: true,
+  customers: true,
+  ledger: true,
+  statements: true,
+  aging: true,
+  invoices: true,
+  "credit-notes": true,
+  "debit-notes": true,
+  receipts: true,
+  allocation: true,
+  cheques: true,
+  discounts: true,
+  reports: true,
+  communication: true,
+  users: false,
+  audit: false,
+  settings: false
+};
+
+export const PERMISSION_LABELS = [
+  ["dashboard", "Dashboard"],
+  ["customers", "Customer Master"],
+  ["ledger", "Ledger"],
+  ["statements", "Statements"],
+  ["aging", "Aging"],
+  ["invoices", "Invoices"],
+  ["credit-notes", "Credit Notes"],
+  ["debit-notes", "Debit Notes"],
+  ["receipts", "Receipts"],
+  ["allocation", "Allocation"],
+  ["cheques", "Cheque / PDC"],
+  ["discounts", "Discounts"],
+  ["reports", "Reports"],
+  ["communication", "WhatsApp"],
+  ["users", "Users & Roles"],
+  ["audit", "Audit"],
+  ["settings", "Settings"]
+];
+
+export function resolvePermissions(member){
+  if(!member) return { ...DEFAULT_STAFF_PERMISSIONS };
+  if(member.role === "owner"){
+    const all = {};
+    PERMISSION_LABELS.forEach(([k])=> { all[k] = true; });
+    return all;
+  }
+  return { ...DEFAULT_STAFF_PERMISSIONS, ...(member.permissions || {}) };
+}
+
+export function memberCan(member, pageId){
+  return !!resolvePermissions(member)[pageId];
+}
+
+export async function updateStaffPermissions(staffUid, permissions){
+  await updateDoc(doc(_db, "members", staffUid), {
+    permissions: permissions || {},
+    permissionsUpdatedAt: Date.now()
+  });
+}
+
 export function authErrorText(code, lang = "bn"){
   const bn = {
-    GMAIL_REQUIRED: "Gmail (@gmail.com) বাধ্যতামূলক।",
+    EMAIL_REQUIRED: "সঠিক email address লিখুন।",
     SHOP_NAME_REQUIRED: "দোকানের নাম লিখুন।",
-    PASSWORD_SHORT: "Password কমপক্ষে 6 অক্ষরের হতে হবে।",
+    PASSWORD_SHORT: "Password কমপক্ষে ৬ অক্ষরের হতে হবে।",
     DISPLAY_NAME_REQUIRED: "স্টাফের নাম লিখুন।",
-    NOT_SIGNED_IN: "Google login সম্পন্ন হয়নি — আবার চেষ্টা করুন।",
     SHOP_EXISTS: "দোকান আগে থেকেই setup হয়েছে — Login করুন।",
-    NOT_A_MEMBER: "এই account দোকানের member নয়। Owner invite করেছেন কিনা বা owner setup সম্পন্ন হয়েছে কিনা দেখুন।",
-    "auth/popup-closed-by-user": "Google login বাতিল হয়েছে।",
-    "auth/popup-blocked": "Popup ব্লক হয়েছে — browser/Electron popup allow করুন।",
-    "auth/cancelled-popup-request": "Google login বাতিল হয়েছে।",
+    NOT_A_MEMBER: "এই account দোকানের member নয়।",
+    EMAIL_NOT_VERIFIED: "Email verify করা হয়নি। Inbox চেক করুন এবং verification link-এ ক্লিক করুন।",
+    ALREADY_VERIFIED: "Email আগে থেকেই verified।",
+    NO_INVITE: "এই email-এ কোনো pending invite নেই। Owner-কে আগে invite করতে বলুন।",
+    ALREADY_MEMBER: "এই email ইতিমধ্যে active member।",
+    INVITE_PENDING: "এই email-এ ইতিমধ্যে pending invite আছে।",
     "auth/invalid-api-key": "Firebase API key ভুল — firebase-config.js চেক করুন।",
-    "auth/operation-not-allowed": "Firebase Console-এ Google Sign-In enable করুন।",
-    NO_INVITE: "এই Gmail-এ কোনো pending invite নেই। Owner-কে আগে invite করতে বলুন।",
-    ALREADY_MEMBER: "এই Gmail ইতিমধ্যে active member।",
-    INVITE_PENDING: "এই Gmail-এ ইতিমধ্যে pending invite আছে।",
-    "auth/email-already-in-use": "এই Gmail দিয়ে account আগে থেকেই আছে — Login করুন।",
+    "auth/operation-not-allowed": "Firebase Console-এ Email/Password Sign-In enable করুন।",
+    "auth/configuration-not-found": "Firebase Authentication এখনো চালু হয়নি। Console → Authentication → Get started → Email/Password ON করুন।",
+    "auth/unauthorized-domain": "এই domain authorized নয়। Console → Authorized domains-এ localhost যোগ করুন।",
+    "auth/email-already-in-use": "এই email দিয়ে account আগে থেকেই আছে — Login করুন।",
     "auth/invalid-credential": "Email বা password ভুল।",
     "auth/invalid-email": "Email ঠিক নয়।",
     "auth/weak-password": "Password খুব দুর্বল।",
@@ -372,22 +353,22 @@ export function authErrorText(code, lang = "bn"){
     "auth/wrong-password": "Password ভুল।"
   };
   const en = {
-    GMAIL_REQUIRED: "Gmail address (@gmail.com) is required.",
+    EMAIL_REQUIRED: "Enter a valid email address.",
     SHOP_NAME_REQUIRED: "Enter shop name.",
     PASSWORD_SHORT: "Password must be at least 6 characters.",
     DISPLAY_NAME_REQUIRED: "Enter staff display name.",
-    NOT_SIGNED_IN: "Google sign-in did not complete — try again.",
     SHOP_EXISTS: "Shop is already set up — use Login.",
-    NOT_A_MEMBER: "This account is not a shop member. Ask the owner to send an invite first.",
-    "auth/popup-closed-by-user": "Google sign-in was cancelled.",
-    "auth/popup-blocked": "Popup blocked — allow popups in browser or Electron.",
-    "auth/cancelled-popup-request": "Google sign-in was cancelled.",
+    NOT_A_MEMBER: "This account is not a shop member.",
+    EMAIL_NOT_VERIFIED: "Email not verified. Check your inbox and click the verification link.",
+    ALREADY_VERIFIED: "Email is already verified.",
+    NO_INVITE: "No pending invite for this email. Ask the owner to invite you first.",
+    ALREADY_MEMBER: "This email is already an active member.",
+    INVITE_PENDING: "A pending invite already exists for this email.",
     "auth/invalid-api-key": "Invalid Firebase API key — check firebase-config.js.",
-    "auth/operation-not-allowed": "Enable Google Sign-In in Firebase Console.",
-    NO_INVITE: "No pending invite for this Gmail. Ask the owner to invite you first.",
-    ALREADY_MEMBER: "This Gmail is already an active member.",
-    INVITE_PENDING: "A pending invite already exists for this Gmail.",
-    "auth/email-already-in-use": "This Gmail already has an account — use Login.",
+    "auth/operation-not-allowed": "Enable Email/Password sign-in in Firebase Console.",
+    "auth/configuration-not-found": "Firebase Authentication is not enabled. Console → Authentication → Get started → turn ON Email/Password.",
+    "auth/unauthorized-domain": "This domain is not authorized. Add localhost under Authorized domains in Firebase Console.",
+    "auth/email-already-in-use": "This email already has an account — use Login.",
     "auth/invalid-credential": "Wrong email or password.",
     "auth/invalid-email": "Invalid email.",
     "auth/weak-password": "Password is too weak.",

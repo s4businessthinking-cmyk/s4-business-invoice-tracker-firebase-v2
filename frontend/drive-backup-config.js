@@ -24,6 +24,10 @@
 // ফাইল কখনো দেখতে/ছুঁতে পারবে না।
 // ============================================================
 
+// Runtime: Backup page এ Client ID paste করে Save করা যায়
+// (localStorage key: s4_drive_client_id_v1) — নিচের placeholder-এর
+// বদলে সেটা ব্যবহার হবে। অথবা এখানে সরাসরি বসান।
+//
 export const driveBackupConfig = {
   googleClientId: "PASTE_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com"
 };

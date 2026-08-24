@@ -1,0 +1,14 @@
+{
+  "licenseId": "dev-license-001",
+  "customerName": "S4 Test Customer",
+  "shopName": "S4 Test Shop",
+  "plan": "YEARLY",
+  "status": "ACTIVE",
+  "issuedAt": "2026-06-28T00:00:00.000Z",
+  "notBefore": "2026-06-28T00:00:00.000Z",
+  "expiresAt": "2027-06-28T23:59:59.999Z",
+  "maxDevices": 1,
+  "features": ["offline-login", "offline-sync", "firebase-sync", "web", "desktop", "android"],
+  "appId": "com.s4.invoice.tracker",
+  "version": 1
+}

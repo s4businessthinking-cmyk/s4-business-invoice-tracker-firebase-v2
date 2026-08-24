@@ -14,7 +14,10 @@ export function initActivityLog(db){
   activityColRef = collection(db, "activity");
 }
 
-export async function logActivity({ action, staffName, invoiceId = "", customer = "", summary = "" }){
+export async function logActivity({
+  action, staffName, invoiceId = "", customer = "", summary = "",
+  module = "", record = "", oldValue = "", newValue = "", reason = ""
+}){
   if(!activityColRef || !staffName) return;
   try{
     await addDoc(activityColRef, {
@@ -23,6 +26,11 @@ export async function logActivity({ action, staffName, invoiceId = "", customer 
       invoiceId,
       customer,
       summary,
+      module,
+      record: record || invoiceId,
+      oldValue,
+      newValue,
+      reason: reason || summary,
       at: Date.now()
     });
   }catch(e){

@@ -1,13 +1,117 @@
 // ============================================================
 // S4 INVOICE TRACKER — Electron desktop shell (main process)
 // ============================================================
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, shell, ipcMain } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
 const url = require("url");
 const { autoUpdater } = require("electron-updater");
 const log = require("electron-log");
+
+function firebaseConfigPath(){
+  return path.join(app.getPath("userData"), "firebase-config.json");
+}
+
+/** Survives typical per-user uninstall better than only userData */
+function sharedDataDir(){
+  if(process.platform === "win32" && process.env.PROGRAMDATA){
+    return path.join(process.env.PROGRAMDATA, "S4-Invoice-Tracker");
+  }
+  return path.join(app.getPath("appData"), "S4-Invoice-Tracker-Shared");
+}
+
+function sharedFile(name){
+  return path.join(sharedDataDir(), name);
+}
+
+function readJsonFile(p){
+  try{
+    if(!fs.existsSync(p)) return null;
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  }catch{
+    return null;
+  }
+}
+
+function writeJsonFile(p, data){
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(data, null, 2), "utf8");
+  return true;
+}
+
+function readWindowsMachineGuid(){
+  try{
+    const { execSync } = require("child_process");
+    const out = execSync(
+      'powershell -NoProfile -Command "(Get-ItemProperty -Path \'HKLM:\\SOFTWARE\\Microsoft\\Cryptography\').MachineGuid"',
+      { encoding: "utf8", windowsHide: true, timeout: 8000 }
+    );
+    const guid = String(out || "").trim();
+    if(guid && guid.length >= 8) return guid;
+  }catch(err){
+    log.warn("MachineGuid read failed", err?.message || err);
+  }
+  try{
+    const os = require("os");
+    return ["fallback", os.hostname(), os.arch(), os.platform()].join(":");
+  }catch{
+    return "fallback-unknown";
+  }
+}
+
+function readFirebaseConfigFile(){
+  try{
+    const p = firebaseConfigPath();
+    if(!fs.existsSync(p)) return null;
+    const cfg = JSON.parse(fs.readFileSync(p, "utf8"));
+    if(!cfg?.apiKey || String(cfg.apiKey).includes("PASTE_")) return null;
+    return cfg;
+  }catch(err){
+    log.error("read firebase-config failed", err);
+    return null;
+  }
+}
+
+function writeFirebaseConfigFile(cfg){
+  const p = firebaseConfigPath();
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(cfg, null, 2), "utf8");
+  return true;
+}
+
+function clearFirebaseConfigFile(){
+  const p = firebaseConfigPath();
+  if(fs.existsSync(p)) fs.unlinkSync(p);
+  return true;
+}
+
+ipcMain.handle("s4:load-firebase-config", () => readFirebaseConfigFile());
+ipcMain.handle("s4:save-firebase-config", (_e, cfg) => {
+  writeFirebaseConfigFile(cfg);
+  return true;
+});
+ipcMain.handle("s4:clear-firebase-config", () => {
+  clearFirebaseConfigFile();
+  return true;
+});
+ipcMain.handle("s4:get-machine-id", () => readWindowsMachineGuid());
+ipcMain.handle("s4:load-trial-record", () => {
+  return readJsonFile(sharedFile("trial.json")) || readJsonFile(path.join(app.getPath("userData"), "trial.json"));
+});
+ipcMain.handle("s4:save-trial-record", (_e, record) => {
+  writeJsonFile(sharedFile("trial.json"), record);
+  writeJsonFile(path.join(app.getPath("userData"), "trial.json"), record);
+  return true;
+});
+ipcMain.handle("s4:load-license-record", () => {
+  return readJsonFile(sharedFile("license.json")) || readJsonFile(path.join(app.getPath("userData"), "license.json"));
+});
+ipcMain.handle("s4:save-license-record", (_e, record) => {
+  writeJsonFile(sharedFile("license.json"), record);
+  writeJsonFile(path.join(app.getPath("userData"), "license.json"), record);
+  return true;
+});
 
 log.transports.file.level = "info";
 autoUpdater.logger = log;
@@ -75,7 +179,8 @@ function startStaticServer(root){
     });
 
     server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => resolve(server));
+    // Use localhost (not 127.0.0.1) — Firebase Auth authorized domains include localhost by default
+    server.listen(0, "localhost", () => resolve(server));
   });
 }
 
@@ -92,7 +197,7 @@ async function loadFrontend(win){
 
   staticServer = await startStaticServer(root);
   const port = staticServer.address().port;
-  const loadUrl = `http://127.0.0.1:${port}/index.html`;
+  const loadUrl = `http://localhost:${port}/index.html`;
   log.info("loading frontend from", loadUrl, "root=", root);
   await win.loadURL(loadUrl);
 }

@@ -1,0 +1,24 @@
+# Environment and local secrets
+.env
+.env.*
+*.env
+*.secret
+*.secrets
+secrets/
+secret/
+
+# Private keys and signing material
+*private*.jwk
+private*.jwk
+*.pem
+*.key
+*.p8
+
+# Generated local license outputs
+*.license
+*.lic
+license-output.txt
+last-license-payload.json
+license-records.json
+license-records.csv
+licenses/

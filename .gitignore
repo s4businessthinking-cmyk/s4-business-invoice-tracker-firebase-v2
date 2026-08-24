@@ -38,3 +38,13 @@ mobile/node_modules/
 desktop/node_modules/
 desktop/release/
 dist/
+
+# License generator secrets (never commit)
+s4-license-generator/*private*.jwk
+s4-license-generator/license-output.txt
+s4-license-generator/license-records.*
+s4-license-generator/last-license-payload.json
+s4-license-generator/*.7z
+
+# Local mockups / temp
+Gemini_*.jfif
