@@ -789,10 +789,10 @@ function renderInvoices(){
   const rows = invoices.filter(i=>{
     const st = invStatus(i);
     if(invoiceFilter && st !== invoiceFilter) return false;
-    return `${i.invNo} ${i.customer} ${i.vehicle}`.toLowerCase().includes(q);
+    return `${i.invNo} ${i.computerNo||""} ${i.manualNo||""} ${i.customer} ${i.vehicle}`.toLowerCase().includes(q);
   }).sort((a,b)=> String(b.invDate).localeCompare(String(a.invDate)));
   document.getElementById("invoiceRows").innerHTML = rows.length ? rows.map(i=> `<tr>
-    <td>${esc(i.invNo)}</td><td>${esc(i.invDate)}</td><td>${esc(i.customer)}</td><td>${esc(i.vehicle)}</td>
+    <td>${esc(i.invNo)}${i.computerNo?`<div class="muted" style="font-size:11px">PC: ${esc(i.computerNo)}</div>`:""}${i.manualNo?`<div class="muted" style="font-size:11px">Manual: ${esc(i.manualNo)}</div>`:""}</td><td>${esc(i.invDate)}</td><td>${esc(i.customer)}</td><td>${esc(i.vehicle)}</td>
     <td>${esc(i.dueDate)}</td><td>${money(i.total)}</td><td>${money(i.paid)}</td>
     <td>${money(invBalance(i))}</td><td>${badge(invStatus(i))}</td>
     <td class="actions" style="white-space:nowrap">
@@ -888,7 +888,7 @@ function applyInvoiceEntryMode(){
 }
 
 function invoiceWipFieldIds(){
-  return ["invId","invNo","invManual","invDate","invDue","invCustomer","invVehicle","invDriver","invReceived","invDn","invLpo","invRef","invTerms","invNotes","invSimpleTotal"];
+  return ["invId","invNo","invComputer","invManual","invDate","invDue","invCustomer","invVehicle","invDriver","invReceived","invDn","invLpo","invRef","invTerms","invNotes","invSimpleTotal"];
 }
 
 function normalizeInvLineItem(raw){
@@ -1090,7 +1090,7 @@ function saveInvoiceWip(){
   if(_editingExistingInvoice) return;
   try{
     const state = collectInvoiceFormState();
-    const hasHeader = state.invCustomer || state.invManual || state.invVehicle || state.invNotes || state.invSimpleTotal;
+    const hasHeader = state.invCustomer || state.invManual || state.invComputer || state.invVehicle || state.invNotes || state.invSimpleTotal;
     const hasItems = (state.lineItems || []).length > 0;
     const draft = state.entryDraft || {};
     const hasDraft = String(draft.name || "").trim() || num(draft.price) > 0;
@@ -1228,6 +1228,8 @@ function filterVehiclesForInvoice(){
 function resetInvoice(){
   invId.value = "";
   invNo.value = nextNo(shop.invPrefix || "INV-", invoices, "invNo");
+  const invComputer = document.getElementById("invComputer");
+  if(invComputer) invComputer.value = "";
   if(invManual) invManual.value = "";
   invDate.value = today();
   const days = num(shop.creditDays) || 30;
@@ -1254,6 +1256,8 @@ function editInvoice(id){
   const i = invoices.find(x=> x.id === id);
   if(!i) return;
   invId.value = i.id; invNo.value = i.invNo; invDate.value = i.invDate; invDue.value = i.dueDate;
+  const invComputer = document.getElementById("invComputer");
+  if(invComputer) invComputer.value = i.computerNo || "";
   if(invManual) invManual.value = i.manualNo || "";
   customerOptions(invCustomer, i.customer); filterVehiclesForInvoice(); invVehicle.value = i.vehicle||"";
   invDriver.value = i.driver||""; invReceived.value = i.receivedBy||""; invLpo.value = i.lpo||""; invNotes.value = i.notes||"";
@@ -1289,7 +1293,10 @@ async function saveInvoice(status){
     if(!confirm("After this invoice, outstanding exceeds credit limit. Post anyway?")) return;
   }
   const data = {
-    invNo: invNo.value.trim(), manualNo: (invManual?.value||"").trim(), invDate: invDate.value, dueDate: invDue.value,
+    invNo: invNo.value.trim(),
+    computerNo: (document.getElementById("invComputer")?.value || "").trim(),
+    manualNo: (invManual?.value||"").trim(),
+    invDate: invDate.value, dueDate: invDue.value,
     customer, vehicle: invVehicle.value, driver: invDriver.value.trim(),
     receivedBy: invReceived.value.trim(), lpo: invLpo.value.trim(), notes: invNotes.value.trim(),
     deliveryNote: (invDn?.value||"").trim(), reference: (invRef?.value||"").trim(), paymentTerms: (invTerms?.value||"").trim(),
@@ -2074,6 +2081,7 @@ function exportLatestInvoicePdf(){
   if(!inv) return toast("No invoice");
   const items = (inv.items||[]).map(it=> [it.name, it.qty, it.price, it.disc, it.vat, it.line]);
   const body = `<p class="muted">${esc(inv.customer)} · ${esc(inv.invDate)} · Due ${esc(inv.dueDate)} · Vehicle ${esc(inv.vehicle)}</p>` +
+    `<p class="muted">Serial ${esc(inv.invNo)}${inv.computerNo?` · Computer ${esc(inv.computerNo)}`:""}${inv.manualNo?` · Manual ${esc(inv.manualNo)}`:""}</p>` +
     tableFromRows(["Item","Qty","Price","Disc","VAT%","Line"], items) +
     `<p><b>Total ${money(inv.total)}</b> · Paid ${money(inv.paid)} · Balance ${money(invBalance(inv))}</p>`;
   downloadHtmlDocument(`${inv.invNo}.html`, inv.invNo, body);
@@ -2153,7 +2161,7 @@ function runGlobalSearch(q){
   const ql = q.toLowerCase();
   const hits = [];
   invoices.forEach(i=>{
-    if(`${i.invNo} ${i.customer} ${i.vehicle} ${i.lpo} ${i.manualNo}`.toLowerCase().includes(ql))
+    if(`${i.invNo} ${i.customer} ${i.vehicle} ${i.lpo} ${i.manualNo||""} ${i.computerNo||""}`.toLowerCase().includes(ql))
       hits.push({ type:"Invoice", ref:i.invNo, detail:i.customer, page:"invoices", go:()=>{ showPage("invoices"); invoiceSearch.value=q; renderInvoices(); }});
   });
   customers.forEach(c=>{

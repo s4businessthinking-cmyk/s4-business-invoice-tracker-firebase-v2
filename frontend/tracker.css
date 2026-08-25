@@ -118,6 +118,13 @@ h1{font-size:25px;margin:0 0 5px}h2{font-size:17px;margin:0}.muted{color:var(--m
  .top-actions{width:100%;justify-content:stretch}
  .topbar .search{display:block;width:100%;max-width:none;flex:1 1 100%}
  .content{padding:15px;overflow-x:hidden}.cards{grid-template-columns:repeat(2,1fr)}.form-grid{grid-template-columns:1fr}.span2,.span3{grid-column:auto}.report-grid{grid-template-columns:1fr}.page-head{gap:12px;flex-direction:column}.metric{font-size:19px}
+ #s4Splash,#authOverlay{
+   background-size:cover !important;
+   background-position:center center !important;
+   background-attachment:scroll !important;
+ }
+ .splash-panel,#authCard{width:min(440px, calc(100vw - 24px))}
+ .splash-logo,.auth-logo{max-width:100%}
 }
 @media print{
   #s4Splash,#authOverlay,.sidebar,.topbar,.drawer,.toast,.mobile-menu,#logoutBtn{display:none !important}
@@ -131,13 +138,16 @@ h1{font-size:25px;margin:0 0 5px}h2{font-size:17px;margin:0}.muted{color:var(--m
 #s4Splash{
   position:fixed; inset:0; z-index:3000;
   display:flex; align-items:center; justify-content:center;
-  background:#0f1626 url('branding/background.jpg') center center/contain no-repeat;
-  background-color:#eef2f6;
+  background-color:#0f1626;
+  background-image:url('branding/background.jpg');
+  background-position:center center;
+  background-size:cover;
+  background-repeat:no-repeat;
 }
 #s4Splash.hidden{display:none !important; pointer-events:none !important;}
 #s4Splash::before{
   content:''; position:absolute; inset:0;
-  background:rgba(15,22,36,.22);
+  background:rgba(15,22,36,.28);
 }
 .splash-panel{
   position:relative; z-index:1; width:min(520px, 94vw); padding:20px 18px 18px;
@@ -153,12 +163,16 @@ h1{font-size:25px;margin:0 0 5px}h2{font-size:17px;margin:0}.muted{color:var(--m
   position:fixed; inset:0; z-index:1500;
   display:flex; align-items:flex-start; justify-content:center;
   padding:16px; overflow-y:auto;
-  background:#eef2f6 url('branding/background.jpg') center center/contain no-repeat;
-  background-color:#eef2f6;
+  background-color:#0f1626;
+  background-image:url('branding/background.jpg');
+  background-position:center center;
+  background-size:cover;
+  background-repeat:no-repeat;
+  background-attachment:fixed;
 }
 #authOverlay::before{
   content:'';position:absolute;inset:0;pointer-events:none;
-  background:rgba(15,22,36,.18);
+  background:rgba(15,22,36,.28);
 }
 #authCard{
   position:relative; z-index:2; width:min(440px, calc(100vw - 32px));
