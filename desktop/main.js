@@ -112,6 +112,15 @@ ipcMain.handle("s4:save-license-record", (_e, record) => {
   writeJsonFile(path.join(app.getPath("userData"), "license.json"), record);
   return true;
 });
+ipcMain.handle("s4:save-local-backup", (_e, payload) => {
+  const filename = String(payload?.filename || `backup-${Date.now()}.json`).replace(/[<>:"/\\|?*]/g, "_");
+  const jsonText = String(payload?.jsonText || "{}");
+  const dir = path.join(app.getPath("documents"), "S4 Invoice Backups");
+  fs.mkdirSync(dir, { recursive: true });
+  const full = path.join(dir, filename);
+  fs.writeFileSync(full, jsonText, "utf8");
+  return { path: full, filename };
+});
 
 log.transports.file.level = "info";
 autoUpdater.logger = log;

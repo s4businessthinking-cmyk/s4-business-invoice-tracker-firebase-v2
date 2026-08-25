@@ -119,3 +119,54 @@ export async function resolveFirebaseConfig(){
   if(saved) return saved;
   return { ...emptyFirebaseConfig };
 }
+
+function b64urlEncode(str){
+  const bytes = new TextEncoder().encode(String(str));
+  let bin = "";
+  bytes.forEach(b=> bin += String.fromCharCode(b));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function b64urlDecode(str){
+  const pad = str.length % 4 === 0 ? "" : "=".repeat(4 - (str.length % 4));
+  const b64 = String(str || "").replace(/-/g, "+").replace(/_/g, "/") + pad;
+  const bin = atob(b64);
+  const bytes = Uint8Array.from(bin, c=> c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+/** Compact staff invite code: base64url({ firebase config + inviteEmail }) */
+export function buildInviteCode(cfg, inviteEmail){
+  if(!isFirebaseConfigReady(cfg)) throw new Error("CONFIG_INCOMPLETE");
+  const payload = {
+    apiKey: cfg.apiKey,
+    authDomain: cfg.authDomain,
+    projectId: cfg.projectId,
+    storageBucket: cfg.storageBucket || "",
+    messagingSenderId: cfg.messagingSenderId || "",
+    appId: cfg.appId,
+    inviteEmail: String(inviteEmail || "").trim().toLowerCase()
+  };
+  return b64urlEncode(JSON.stringify(payload));
+}
+
+export function parseInviteCode(code){
+  const raw = String(code || "").trim();
+  if(!raw) throw new Error("CONFIG_EMPTY");
+  let obj;
+  try{
+    obj = JSON.parse(b64urlDecode(raw));
+  }catch{
+    throw new Error("CONFIG_INVALID");
+  }
+  const config = {
+    apiKey: String(obj.apiKey || "").trim(),
+    authDomain: String(obj.authDomain || "").trim(),
+    projectId: String(obj.projectId || "").trim(),
+    storageBucket: String(obj.storageBucket || "").trim(),
+    messagingSenderId: String(obj.messagingSenderId || "").trim(),
+    appId: String(obj.appId || "").trim()
+  };
+  if(!isFirebaseConfigReady(config)) throw new Error("CONFIG_INCOMPLETE");
+  return { config, inviteEmail: String(obj.inviteEmail || "").trim() };
+}

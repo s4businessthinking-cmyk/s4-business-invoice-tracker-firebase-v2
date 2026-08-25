@@ -1,4 +1,4 @@
-const CACHE='s4-invoice-v12-logo-full';
+const CACHE='s4-invoice-v15-release-105';
 const CORE_ASSETS=[
   './',
   './index.html',
@@ -12,6 +12,9 @@ const CORE_ASSETS=[
   './update-checker.js',
   './drive-backup-config.js',
   './drive-backup.js',
+  './local-backup.js',
+  './doc-export.js',
+  './license.js',
   './install-prompt.js',
   './auth.js',
   './staff.js',
@@ -20,6 +23,7 @@ const CORE_ASSETS=[
   './splash.js',
   './branding/logo.png',
   './branding/logo-full.png',
+  './branding/logo-full.jpg',
   './branding/background.jpg',
   './icons/favicon.ico',
   './icons/icon-180.png',

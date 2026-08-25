@@ -10,5 +10,6 @@ contextBridge.exposeInMainWorld("s4Desktop", {
   loadTrialRecord: () => ipcRenderer.invoke("s4:load-trial-record"),
   saveTrialRecord: (record) => ipcRenderer.invoke("s4:save-trial-record", record),
   loadLicenseRecord: () => ipcRenderer.invoke("s4:load-license-record"),
-  saveLicenseRecord: (record) => ipcRenderer.invoke("s4:save-license-record", record)
+  saveLicenseRecord: (record) => ipcRenderer.invoke("s4:save-license-record", record),
+  saveLocalBackup: (payload) => ipcRenderer.invoke("s4:save-local-backup", payload)
 });

@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import {
   resolveFirebaseConfig, saveFirebaseConfig, clearFirebaseConfig,
-  parseFirebaseConfigPaste, isFirebaseConfigReady
+  parseFirebaseConfigPaste, isFirebaseConfigReady, parseInviteCode
 } from "./firebase-config.js";
 import "./update-checker.js";
 import "./install-prompt.js";
@@ -87,6 +87,12 @@ function showStaffSignup(){
   staffSignupFields.classList.add("open");
   authSubtitle.textContent = "Create staff account (invite required)";
   showAuthMessage("");
+  try{
+    const pending = sessionStorage.getItem("s4_pending_invite_email");
+    if(pending && document.getElementById("staffEmail")){
+      document.getElementById("staffEmail").value = pending;
+    }
+  }catch(_){}
 }
 
 function showAuthScreen(){
@@ -194,6 +200,23 @@ async function bootApp(){
     await hideSplash(lang);
     showFirebaseConfigScreen();
     showAuthMessage("Could not start. Check Firebase config.");
+  }
+}
+
+async function doSaveInviteCode(){
+  try{
+    const { config, inviteEmail } = parseInviteCode(document.getElementById("inviteCodePaste")?.value);
+    await saveFirebaseConfig(config);
+    showAuthMessage("Invite code accepted. Reloading…");
+    try{ if(inviteEmail) sessionStorage.setItem("s4_pending_invite_email", inviteEmail); }catch(_){}
+    setTimeout(()=> location.reload(), 500);
+  }catch(e){
+    const map = {
+      CONFIG_EMPTY: "Paste the invite code first.",
+      CONFIG_INVALID: "Invalid invite code.",
+      CONFIG_INCOMPLETE: "Invite code is missing Firebase fields."
+    };
+    showAuthMessage(map[e.message] || String(e.message || e));
   }
 }
 
@@ -337,6 +360,8 @@ document.addEventListener("DOMContentLoaded", ()=>{
   document.getElementById("showOwnerSetupBtn")?.addEventListener("click", doTryOwnerSetup);
   document.getElementById("showLoginFromSetupBtn")?.addEventListener("click", showLogin);
   document.getElementById("configSaveBtn").addEventListener("click", doSaveFirebaseConfig);
+  document.getElementById("inviteCodeSaveBtn")?.addEventListener("click", doSaveInviteCode);
+  document.getElementById("changeFirebaseConfigBtn")?.addEventListener("click", doChangeFirebaseConfig);
   document.getElementById("resendVerifyBtn").addEventListener("click", doResendVerify);
   document.getElementById("verifyBackBtn").addEventListener("click", showLogin);
   loginPassword.addEventListener("keydown", e=>{ if(e.key === "Enter") doLogin(); });

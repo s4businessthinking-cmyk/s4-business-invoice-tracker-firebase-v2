@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<title>S4 Business Invoice Tracker — Cursor Fix Prompts (All)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0F1626; --bg:#F2F5FA; --card:#fff; --ink:#111827; --muted:#6B7280;
+    --line:#E7EBF2; --blue:#2F5EFF; --blue-2:#5B7CFF; --teal:#22D3B0; --violet:#8B6BFF;
+    --shadow:0 10px 30px -14px rgba(15,22,38,.16);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:'Inter',sans-serif; background:var(--bg); color:var(--ink);}
+  .hero{
+    background:var(--navy); background-image:radial-gradient(120% 160% at 10% -20%, #1c2947 0%, var(--navy) 55%);
+    padding:44px 20px 34px; text-align:center;
+  }
+  .hero h1{
+    margin:0; font-family:'Sora',sans-serif; font-weight:800; font-size:28px;
+    background:linear-gradient(90deg, var(--teal), var(--blue-2), var(--violet));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .hero p{ color:#9aa4c0; font-size:13.5px; margin:8px 0 0; }
+  .wrap{ max-width:900px; margin:-18px auto 60px; padding:0 18px; }
+  .toc{
+    background:var(--card); border:1px solid var(--line); border-radius:16px; padding:22px 24px;
+    box-shadow:var(--shadow); margin-bottom:28px;
+  }
+  .toc h2{ font-family:'Sora'; font-size:15px; margin:0 0 12px; }
+  .toc ol{ margin:0; padding-left:20px; columns:2; column-gap:24px; }
+  .toc li{ font-size:13px; margin-bottom:7px; break-inside:avoid; }
+  .toc a{ color:var(--blue); text-decoration:none; font-weight:600; }
+  .toc a:hover{ text-decoration:underline; }
+  .group-label{
+    font-family:'Sora'; font-weight:700; font-size:12px; letter-spacing:.08em; text-transform:uppercase;
+    color:#8b94ad; margin:36px 0 14px; display:flex; align-items:center; gap:10px;
+  }
+  .group-label::after{ content:""; flex:1; height:1px; background:var(--line); }
+  .fix{
+    background:var(--card); border:1px solid var(--line); border-radius:16px; margin-bottom:20px;
+    box-shadow:var(--shadow); overflow:hidden; scroll-margin-top:20px;
+  }
+  .fix-head{
+    padding:16px 20px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#fbfcfe,#fff);
+  }
+  .fix-num{
+    width:30px; height:30px; border-radius:9px; flex-shrink:0;
+    background:linear-gradient(135deg,var(--blue),var(--blue-2)); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-family:'Sora'; font-weight:800; font-size:13px;
+  }
+  .fix-head h3{ margin:0; font-family:'Sora'; font-size:15.5px; font-weight:700; }
+  .fix-meta{ padding:12px 20px 0; font-size:12.5px; color:var(--muted); }
+  .fix-meta b{ color:var(--ink); }
+  .fix-body{ padding:16px 20px 20px; }
+  .fix-body p{ font-size:13.5px; line-height:1.65; margin:0 0 12px; color:#374151; }
+  .promptbox{ position:relative; }
+  pre{
+    background:#0F1626; color:#dbe4ff; border-radius:12px; padding:16px 18px;
+    font-family:'JetBrains Mono',monospace; font-size:12.2px; line-height:1.6;
+    overflow-x:auto; margin:0; white-space:pre-wrap; word-break:break-word;
+  }
+  .copybtn{
+    position:absolute; top:10px; right:10px; background:rgba(255,255,255,.1);
+    border:1px solid rgba(255,255,255,.18); color:#dbe4ff; font-family:'Inter'; font-size:11.5px;
+    font-weight:600; padding:6px 11px; border-radius:8px; cursor:pointer;
+  }
+  .copybtn:hover{ background:rgba(255,255,255,.18); }
+  .copybtn.copied{ background:var(--teal); color:#06281f; border-color:var(--teal); }
+  .badge{
+    display:inline-block; font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:999px;
+    margin-left:auto;
+  }
+  .badge.critical{ background:#FEE2E2; color:#B91C1C; }
+  .badge.high{ background:#FFEDD5; color:#C2410C; }
+  .badge.normal{ background:#DBEAFE; color:#1D4ED8; }
+  .badge.design{ background:#EDE9FE; color:#6D28D9; }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>S4 Business Invoice Tracker</h1>
+  <p>সব Cursor fix prompt — এক জায়গায়। প্রতিটা বক্সের ডানে "Copy" বাটনে চাপলে prompt কপি হয়ে যাবে, সরাসরি Cursor-এ paste করুন।</p>
+</div>
+
+<div class="wrap">
+
+  <div class="toc">
+    <h2>সূচিপত্র (Table of Contents)</h2>
+    <ol>
+      <li><a href="#fix1">Dead "Change Firebase Config" function</a></li>
+      <li><a href="#fix2">Drive backup swallowed error</a></li>
+      <li><a href="#fix3">Invalid HTML: div in button</a></li>
+      <li><a href="#fix4">README outdated password info</a></li>
+      <li><a href="#fix5">shop/info public read — verify</a></li>
+      <li><a href="#fix6">Offline save hangs forever (critical)</a></li>
+      <li><a href="#fix7">Invite Code / QR for staff join</a></li>
+      <li><a href="#fix8">Quota-exceeded friendly error</a></li>
+      <li><a href="#fix9">Blaze plan in-app reminder</a></li>
+      <li><a href="#fix10">Archive &amp; delete old invoices</a></li>
+      <li><a href="#fix11">Local file backup (3rd layer)</a></li>
+      <li><a href="#fix12">Horizontal page overflow (mobile)</a></li>
+      <li><a href="#fix13">New Invoice modal cut off on mobile</a></li>
+      <li><a href="#fix14">Back arrow shows on Dashboard</a></li>
+      <li><a href="#fix15">Sidebar / login logo too large</a></li>
+      <li><a href="#fix16">Header redesign — shop name, search, logout to sidebar</a></li>
+    </ol>
+  </div>
+
+  <div class="group-label">Backend / Firebase / Data safety</div>
+
+  <div class="fix" id="fix1">
+    <div class="fix-head"><div class="fix-num">1</div><h3>Dead "Change Firebase Config" function</h3><span class="badge normal">Cleanup</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/boot.js, frontend/index.html</div>
+    <div class="fix-body">
+      <p>doChangeFirebaseConfig() ফাংশন কোড আছে কিন্তু কোনো বাটন থেকে call হয় না — feature UI-তে reachable না।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>In frontend/boot.js there is a function `doChangeFirebaseConfig()` (around line 216)
+that is fully implemented but never called from anywhere in the codebase — no button
+triggers it, so the feature is currently unreachable in the UI.
+
+Find the Settings screen in frontend/index.html and add a button (place it near the
+Firebase/config related settings, e.g. inside the "Company & Numbering" or a new
+"Advanced" settings card) with a clear label like "🔄 Change Firebase Config" and an
+id such as "changeFirebaseConfigBtn".
+
+Then in frontend/boot.js, wire this button to call doChangeFirebaseConfig() via
+addEventListener, following the same pattern already used for other buttons in this
+file (look at how doSaveFirebaseConfig or doLogin are wired to their buttons for
+the exact pattern to copy).
+
+Do not change the internal logic of doChangeFirebaseConfig() itself — only add the
+missing UI element and event wiring.</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix2">
+    <div class="fix-head"><div class="fix-num">2</div><h3>Google Drive backup swallows the real OAuth error</h3><span class="badge normal">Bug</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/drive-backup.js (~line 100)</div>
+    <div class="fix-body">
+      <p>OAuth error হলে আসল কারণ ফেলে দিয়ে সবসময় একই generic message দেখায় — debug করা যায় না।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>In frontend/drive-backup.js, find the tokenClient.error_callback handler (around
+line 100). It currently receives the OAuth `err` object from Google Identity
+Services but discards it, always throwing the same generic message. This makes it
+impossible to debug real sign-in failures (expired client ID, popup blocked,
+network issue, etc.).
+
+Update it to include the actual error detail in the thrown Error message (and log
+it to console.error for debugging), while keeping the existing Bengali user-facing
+message as the primary text. Example approach:
+
+tokenClient.error_callback = (err) => {
+  console.error("Google Drive OAuth error:", err);
+  const detail = err?.type || err?.message || "";
+  reject(new Error(`Google Drive সাইন-ইন বাতিল হয়েছে বা ব্যর্থ হয়েছে।${detail ? " (" + detail + ")" : ""}`));
+};
+
+Keep behavior otherwise identical — this is only about not losing error context.</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix3">
+    <div class="fix-head"><div class="fix-num">3</div><h3>Invalid HTML: &lt;div&gt; inside &lt;button&gt;</h3><span class="badge normal">HTML validity</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/index.html (settings menu, lines ~297-322)</div>
+    <div class="fix-body">
+      <p>Settings menu-এর কার্ডগুলোতে button-এর ভেতরে div থাকা — এটা invalid HTML, accessibility tools-এ সমস্যা করতে পারে।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>In frontend/index.html, inside the settings menu section (search for
+"settings-menu-card"), several <button> elements contain a <div> as a direct
+child, e.g.:
+
+<button type="button" class="settings-menu-card" data-settings-view="company">
+<span class="settings-menu-ico">⌂</span>
+<div><b>Company &amp; Numbering</b><span class="muted">Name, TRN, currency, invoice prefixes, VAT</span></div>
+<span class="settings-menu-arrow">›</span>
+</button>
+
+This is invalid HTML — <button> only permits phrasing (inline) content, not block
+elements like <div>. Browsers currently render it leniently, but it can break
+accessibility tools and screen readers.
+
+Replace every <div> that is a direct child of a .settings-menu-card <button> with
+a <span> instead (do this for all such buttons: company, license, help, invoice,
+backup, appearance, and any others matching the same pattern), and make sure the
+CSS selectors in frontend/tracker.css that target `.settings-menu-card div`
+(if any) are updated to target the new span instead, so the layout/styling stays
+identical. Verify visually that the two-line label + subtitle layout is unchanged.</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix4">
+    <div class="fix-head"><div class="fix-num">4</div><h3>README describes outdated password auth method</h3><span class="badge normal">Docs</span></div>
+    <div class="fix-meta"><b>File:</b> README.md</div>
+    <div class="fix-body">
+      <p>README বলে client-side SHA-256 hash দিয়ে password যাচাই হয়, কিন্তু আসল কোডে পুরো Firebase Email/Password auth + email verification ব্যবহার হচ্ছে।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>README.md currently describes the login/setup password flow as being verified via
+"client-side SHA-256 hash" stored in the Firestore `shop/info` document. This is
+outdated — the actual implementation in frontend/auth.js uses full Firebase
+Authentication (createUserWithEmailAndPassword / signInWithEmailAndPassword) with
+mandatory email verification before a user becomes an "active member" (see
+firestore.rules: isActiveMember() checks email_verified == true).
+
+Update the relevant README.md section (the "Login/Setup password যাচাই হয়" bullet
+under "যা বদলেছে") to accurately describe the current flow: Firebase
+Email/Password authentication with required email verification, and
+owner/staff roles managed through the `members` collection — instead of the old
+client-side SHA-256 hash description. Keep the same Bengali tone/style as the
+rest of the README.</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix5">
+    <div class="fix-head"><div class="fix-num">5</div><h3>shop/info public read — verify intent</h3><span class="badge normal">Security review</span></div>
+    <div class="fix-meta"><b>File:</b> firestore.rules (line 43)</div>
+    <div class="fix-body">
+      <p>যে কেউ login ছাড়াই shop-এর নাম/owner email পড়তে পারে। ইচ্ছাকৃত কিনা confirm করা দরকার আগে বদলানোর।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>In firestore.rules, the /shop/info document allows `read: if true` — meaning
+anyone on the internet, even without signing in, can read the shop's name,
+address, phone, ownerUid, and ownerEmail.
+
+If this public read is intentional (e.g. needed to show the shop name on the
+login screen before authentication), leave it as is but add a code comment
+explaining why. If it is NOT intentional, restrict the read rule so that only
+fields needed pre-login (e.g. shop name for branding) are exposed — either by
+splitting sensitive fields (ownerEmail, ownerUid) into a separate
+owner-only-readable document, or by changing the rule to
+`allow read: if isSignedIn();` if pre-login branding isn't actually required.
+
+Ask me to confirm the intended behavior before changing this rule, since it
+affects production security.</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix6">
+    <div class="fix-head"><div class="fix-num">6</div><h3>Offline save hangs forever (no feedback)</h3><span class="badge critical">Critical</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/app.js — saveInvoice, saveCustomer, saveReceipt, etc.</div>
+    <div class="fix-body">
+      <p>Offline অবস্থায় Save চাপলে UI hang হয়ে থাকে, কারণ Firestore write promise সার্ভার confirm না করা পর্যন্ত resolve হয় না। Local-এ instant সেভ + background auto-sync চাই।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>This app uses Firebase Firestore with persistentLocalCache for offline-first
+behavior (see frontend/boot.js where initializeFirestore is configured with
+persistentLocalCache). The problem: throughout frontend/app.js, save functions
+like saveInvoice(), saveCustomer(), saveReceipt(), saveCheque(), saveCreditNote(),
+saveDebitNote(), and similar functions use `await addDoc(...)` / `await
+updateDoc(...)` directly and update the UI (toast, closing modal, etc.) only
+after that await resolves.
+
+Per Firestore Web SDK behavior, these write promises only resolve once the
+backend acknowledges the write — they do NOT resolve just because the write was
+applied to the local cache. This means when the user is offline, clicking Save
+will hang indefinitely with no feedback, even though the data has already been
+written to the local cache and would show up correctly via onSnapshot listeners.
+
+Fix this across all save functions in frontend/app.js:
+1. Do not block the UI (toast/close modal/spinner) on the write promise
+   resolving. Instead, fire the write, and immediately show optimistic UI
+   feedback (e.g. "Saved — will sync when online" if offline, or "Saved" if
+   online), then let the write promise resolve/reject in the background.
+2. Use `navigator.onLine` (or the existing online/offline detection if any
+   exists in the codebase) to decide which toast message to show ("সেভ হয়েছে"
+   vs "সেভ হয়েছে — অনলাইনে এলে sync হবে").
+3. Still attach a `.catch()` to each write promise so that if the write
+   eventually fails for a reason OTHER than being offline (e.g. permission
+   denied, quota exceeded — see the "quota exceeded" fix), the user gets
+   notified later via a toast/banner, since by then the modal may already be
+   closed.
+4. Do not change the actual document shape/fields being written — only change
+   how the UI reacts to the write promise timing.
+5. Apply this consistently across all similar save/update functions in
+   frontend/app.js, not just saveInvoice.
+
+Test the change by simulating offline (DevTools > Network > Offline), creating
+an invoice, and confirming the UI responds instantly instead of hanging, and
+that the invoice appears in the list immediately (from local cache).</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix7">
+    <div class="fix-head"><div class="fix-num">7</div><h3>Invite Code / QR flow for staff (no raw Firebase config paste)</h3><span class="badge high">UX</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/boot.js, frontend/auth.js, frontend/firebase-config.js, frontend/index.html</div>
+    <div class="fix-body">
+      <p>Salesman-কে এখন raw Firebase config JSON হাতে paste করতে হয় — ঝামেলা। একটা invite code / QR দিয়ে সহজ করা যায়।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>Add an "Invite Code" flow so staff/salesmen don't need to manually copy-paste
+the raw Firebase config JSON to join a shop.
+
+1. In the Owner's Settings (or wherever staff invites are currently created —
+   look for the existing invite-creation logic referencing the `invites`
+   Firestore collection in frontend/auth.js / frontend/app.js), after an invite
+   is created, generate a compact "invite code" string that base64url-encodes
+   a JSON object containing: { apiKey, authDomain, projectId, appId,
+   storageBucket, messagingSenderId, inviteEmail }. Display this code as both
+   copyable text AND as a QR code (a lightweight QR library can be loaded from
+   cdnjs, e.g. qrcode.js, consistent with this project's existing pattern of
+   importing scripts — check frontend/index.html for how other external
+   scripts are included).
+
+2. On first launch, in addition to the existing "paste Firebase config" screen
+   (frontend/boot.js showFirebaseConfigScreen), add an alternate simpler input:
+   "Have an invite code? Paste it here" (a single text field) or a "Scan QR"
+   button (camera-based QR scan, using a small library, e.g. via
+   getUserMedia + a JS QR decoder from cdnjs).
+
+3. Add a function `parseInviteCode(code)` in frontend/firebase-config.js that
+   base64url-decodes the invite code, validates it has the required Firebase
+   config fields via the existing `isFirebaseConfigReady` check, and returns
+   { config, inviteEmail } so boot.js can both save the Firebase config AND
+   pre-fill the invite-accept email field with inviteEmail.
+
+4. Keep the existing raw-paste flow as a fallback/advanced option (label it
+   "Advanced: paste config manually") for the owner's own first-time setup,
+   since the owner still needs to create the Firebase project and get the
+   config from the Firebase Console themselves the very first time.
+
+5. Do not change firestore.rules or how staffAcceptInvite works internally —
+   only change how the Firebase config gets onto the salesman's device, making
+   it copy-one-code-or-scan-one-QR instead of copy-paste-raw-JSON.</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix8">
+    <div class="fix-head"><div class="fix-num">8</div><h3>Friendly "storage full" (quota exceeded) error message</h3><span class="badge high">UX</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/app.js + new shared helper</div>
+    <div class="fix-body">
+      <p>Firebase free plan-এর 1GB storage শেষ হলে যেন স্পষ্ট Bengali মেসেজ দেখায়, generic error না।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>Firebase Firestore's free Spark plan has a 1 GiB total storage cap that does not
+reset over time (unlike the daily read/write quotas). Once a shop's Firestore
+project exceeds this, new writes (addDoc/updateDoc/setDoc) will be rejected by
+the server with a Firestore error whose `code` is "resource-exhausted".
+
+Currently, save functions in frontend/app.js do not distinguish this from any
+other error — the user just sees a generic failure or may not see anything
+obvious at all (see the offline-save fix for related context).
+
+1. Add a shared helper function, e.g. `friendlyFirestoreError(e)` (put it in
+   frontend/app.js near other shared utilities, or in a small new file
+   frontend/firestore-errors.js if that fits the project's file organization
+   better), that inspects `e.code` and returns a clear Bengali message for
+   known cases:
+   - "resource-exhausted" → "Firebase স্টোরেজ (1GB ফ্রি লিমিট) শেষ হয়ে গেছে। নতুন ডেটা সেভ হচ্ছে না। Firebase Console-এ গিয়ে Blaze প্ল্যানে upgrade করুন অথবা পুরনো ডেটা মুছে জায়গা খালি করুন।"
+   - "permission-denied" → existing/appropriate message
+   - default → the raw e.message as fallback
+
+2. Wire this helper into the `.catch()` handlers for all save functions, so
+   that when a write ultimately fails (including due to quota), the user sees
+   this specific, actionable message via the existing toast() function
+   instead of a generic error.
+
+3. Do not change any Firestore rules or data model — this is purely about
+   catching and explaining a specific error condition to the user.</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix9">
+    <div class="fix-head"><div class="fix-num">9</div><h3>In-app reminder about Blaze (pay-as-you-go) plan</h3><span class="badge normal">Nice to have</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/index.html, Settings screen</div>
+    <div class="fix-body">
+      <p>Owner যেন আগে থেকেই জানে Blaze plan-এ upgrade করলে একই ফ্রি quota + সামান্য চার্জে unlimited storage পাওয়া যায়।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>Add a lightweight, non-intrusive reminder in the Shop Info / Settings screen
+that explains Firebase Spark (free) plan's 1GB total Firestore storage cap does
+not reset, and that upgrading to the Blaze (pay-as-you-go) plan keeps the same
+1GB free quota but allows unlimited additional storage at a small per-GB cost
+(~$0.18/GB/month as of Firebase's published pricing — note in a code comment
+that this exact number should be reconfirmed against Firebase's current pricing
+page before shipping, since prices can change).
+
+Add a static informational card/section (not a hard block, just an FYI) to the
+Shop Info settings view (see frontend/index.html "settings-menu-card" pattern
+used elsewhere) titled something like "☁️ Firebase Storage" with:
+- A short Bengali explanation of the 1GB free limit and that it does not reset
+- A link/button to Firebase Console's billing page for this project
+  (https://console.firebase.google.com/project/<projectId>/usage) — read the
+  projectId from the already-loaded firebase config, since it's already
+  available where the app reads shop/firebase config.
+- Do not attempt to programmatically read actual current usage in bytes (the
+  Firestore client SDK cannot query total project storage usage; that data is
+  only available via Firebase Console or the Cloud Monitoring API, which is out
+  of scope here) — just link the owner to check it themselves in Console.
+
+Keep this purely informational — do not block any functionality with it.</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix10">
+    <div class="fix-head"><div class="fix-num">10</div><h3>Archive &amp; delete old invoices (stay under 1GB)</h3><span class="badge normal">Feature</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/reports.js, frontend/app.js, frontend/index.html</div>
+    <div class="fix-body">
+      <p>বছরে একবার পুরনো invoice CSV export করে Firestore থেকে delete করার সুবিধা — দীর্ঘমেয়াদে 1GB-এর নিচে থাকতে সাহায্য করবে।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>Add a feature to let the shop owner export old invoices (and related records:
+receipts, credit notes, debit notes, cheques tied to those invoices) as a CSV
+backup, and then bulk-delete them from Firestore, to help shops stay under the
+1GB free storage limit over the years.
+
+1. In the Reports screen (frontend/reports.js already has CSV export — reuse
+   that existing CSV generation logic/pattern), add a new "🗄️ পুরনো ডেটা আর্কাইভ"
+   section where the owner selects a cutoff date (e.g. "invoices before this
+   date").
+
+2. On confirming, first generate and download a CSV of all invoices (and their
+   related receipts/notes/cheques) dated before the cutoff, reusing the
+   existing CSV export code path so the format is consistent with the current
+   reports CSV.
+
+3. Only after the CSV download is confirmed, show a clear warning modal
+   ("এই ডেটা স্থায়ীভাবে মুছে যাবে, আগে CSV ডাউনলোড হয়েছে তো?") requiring the
+   owner to type a confirmation word (e.g. "DELETE") before proceeding, similar
+   in spirit to how other destructive actions in this app (like clear-all) are
+   already gated — check frontend/app.js for the existing clear-all
+   confirmation pattern and follow the same UX style.
+
+4. On confirmed delete, batch-delete the matching invoice documents (and their
+   related receipts/notes/cheques where they reference the deleted invoice IDs)
+   from Firestore using batched writes (Firestore batches are limited to 500
+   operations per batch — chunk the deletes accordingly).
+
+5. Log this bulk action to the existing `activity` collection (see
+   frontend/activity-log.js) with a summary like "Archived and deleted N
+   invoices before <date>", including the staff/owner name who did it.
+
+6. Make sure this feature is only accessible to the owner role (use the
+   existing isOwner()-style permission check pattern already used elsewhere in
+   the app for owner-only actions).</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix11">
+    <div class="fix-head"><div class="fix-num">11</div><h3>Local file backup (3rd backup layer, fixed folder)</h3><span class="badge high">Feature</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/drive-backup.js, new frontend/local-backup.js, desktop/main.js, desktop/preload.js</div>
+    <div class="fix-body">
+      <p>Firebase (main) + Google Drive-এর পাশাপাশি একটা নির্দিষ্ট local folder-এ backup — uninstall/device change হলেও data উদ্ধার করা যায়।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>Add a "Local File Backup" feature as a third backup layer, alongside the
+existing Firebase (primary) and Google Drive backup (frontend/drive-backup.js).
+Goal: even if this device's app is uninstalled or the phone/PC is replaced, the
+owner can restore the shop's data from a plain JSON file that was saved to a
+known, fixed local folder — no cloud account needed for this layer.
+
+1. Look at frontend/drive-backup.js to find the existing logic that builds the
+   full backup JSON snapshot (all invoices, customers, receipts, credit/debit
+   notes, cheques, discounts, shop info, etc. — likely a function like
+   buildBackupSnapshot() or similar). Extract that snapshot-building logic into
+   a shared function (e.g. in a new small file frontend/backup-snapshot.js) so
+   both the Drive backup and the new local backup can reuse the exact same
+   data-collection logic without duplicating it.
+
+2. Create frontend/local-backup.js with two functions:
+   - `saveLocalBackup()`: builds the snapshot via the shared function, then
+     saves it as a JSON file.
+     - On Desktop (Electron): use a fixed, discoverable folder — add a new IPC
+       handler in desktop/main.js (e.g. "s4:save-local-backup") that writes
+       the JSON to a subfolder inside the OS's default Documents folder, e.g.
+       `~/Documents/S4 Invoice Backups/backup-<shopName>-<date>.json` (use
+       Electron's `app.getPath("documents")`), creating the folder if it
+       doesn't exist. Expose this via preload.js the same way other
+       s4Desktop.* methods are exposed (follow the exact existing pattern in
+       desktop/preload.js and desktop/main.js for e.g.
+       loadFirebaseConfig/saveFirebaseConfig).
+     - On mobile/PWA (no filesystem access): fall back to a normal browser
+       download (Blob + <a download>) the same way frontend/doc-export.js
+       already does for other exports, so the file lands in the device's
+       normal Downloads folder as `backup-<shopName>-<date>.json`.
+   - `restoreLocalBackup(file)`: accepts a File object (from an <input
+     type="file"> or the desktop file-open dialog), parses the JSON, validates
+     its shape (basic checks: has invoices/customers arrays etc.), and writes
+     the records back into Firestore using batched writes (chunk at 500 ops
+     per Firestore batch limit), skipping/merging by existing IDs sensibly to
+     avoid duplicate documents if some data already exists.
+
+3. In the Shop Info / Settings screen (frontend/index.html, near the existing
+   "☁️ ব্যাকআপ নিন" / Google Drive backup buttons), add two new buttons:
+   "💾 লোকাল ফাইলে ব্যাকআপ নিন" (calls saveLocalBackup) and
+   "📂 লোকাল ফাইল থেকে রিস্টোর করুন" (opens a file picker, calls
+   restoreLocalBackup with the selected file). Style them consistently with
+   the existing Drive backup buttons.
+
+4. Add a simple reminder: after a successful local backup, show a toast telling
+   the owner where the file was saved (the folder path on desktop, or "Check
+   your Downloads folder" on mobile/PWA), so they know where to find it later.
+
+5. Do not change anything about how the existing Google Drive backup works —
+   this is purely an additional, independent local option. Both should be able
+   to coexist and be used together.
+
+6. Restrict both save and restore actions to the owner role only, following
+   the same owner-only permission pattern used elsewhere (e.g. for the
+   Backup & Recovery settings section already gated to owner).</pre></div>
+    </div>
+  </div>
+
+  <div class="group-label">Mobile UI bugs (screenshots)</div>
+
+  <div class="fix" id="fix12">
+    <div class="fix-head"><div class="fix-num">12</div><h3>Horizontal page overflow on mobile (root cause)</h3><span class="badge critical">Critical</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/tracker.css (.topbar), frontend/index.html</div>
+    <div class="fix-body">
+      <p>Dashboard-এ ডানে-বামে swipe করতে হচ্ছে কারণ topbar-এর ভেতর (back+menu+search+theme+notif+Logout+avatar+name) সব একসাথে গাদাগাদি করে ফিট করানোর চেষ্টা হচ্ছে, wrap/shrink হচ্ছে না, আর body-তে overflow-x:hidden কোথাও নাই — তাই পুরো page চওড়া হয়ে scrollable হয়ে যাচ্ছে।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>The mobile dashboard requires horizontal swiping to see all content — this is a
+page-wide horizontal overflow bug, not a single-element issue.
+
+Root cause: in frontend/index.html, the <header class="topbar"> contains many
+items in a flex row (mobile-back button, mobile-menu button, search input,
+theme-toggle button, notif button, logoutBtn button, avatar div, and a
+userName/userRole text block). In frontend/tracker.css, `.topbar{display:flex;
+justify-content:space-between}` has no `flex-wrap`, and none of its children
+have `min-width:0` or text-overflow/ellipsis handling, so on narrow mobile
+screens their combined content width exceeds the viewport. Since there is no
+`overflow-x:hidden` anywhere on body/html/.app/.main in the whole stylesheet,
+the browser widens the entire scrollable page to fit that one overflowing row
+instead of clipping or wrapping it — causing the whole dashboard to need
+horizontal scrolling.
+
+Fix in two parts:
+
+1. Defensive fix (do this regardless of other changes): add `overflow-x:hidden`
+   to `html, body` in frontend/tracker.css, and confirm `.app` and `.main` also
+   don't allow horizontal overflow, so no future layout mistake can cause the
+   whole page to become horizontally scrollable again.
+
+2. Root fix: this project already has a separate header-redesign task planned
+   (removing avatar/userName/userRole/logoutBtn from the topbar entirely and
+   moving Logout into the sidebar footer, adding a prominent shop name and
+   reorganizing search/notif/theme-toggle). Apply that redesign — once the
+   topbar has far fewer competing elements, it will naturally fit mobile width.
+   If that redesign work is being done in a separate prompt/session, at minimum
+   also do this here: wrap the topbar's `.top-actions` children in a flex
+   container with `flex-wrap:wrap` and `justify-content:flex-end` for mobile
+   (@media max-width:760px), and give `#userName`/`#userRole`'s parent a
+   `max-width` with `text-overflow:ellipsis; white-space:nowrap; overflow:hidden`
+   so a long owner name can never force extra width.
+
+Test on a 375-390px wide viewport (Chrome DevTools mobile emulation) that the
+page never needs horizontal scrolling, on both the Dashboard and at least two
+other pages (e.g. Invoices, Customers).</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix13">
+    <div class="fix-head"><div class="fix-num">13</div><h3>New Invoice / Receipt modal cut off from Dashboard buttons</h3><span class="badge high">Bug</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/tracker.css (.drawer, .modal), frontend/app.js</div>
+    <div class="fix-body">
+      <p>Dashboard-এর "+ New Invoice"/"+ Receipt" থেকে খুললে modal edge cut হয়, sidebar থেকে খুললে ঠিক থাকে — একই modal, একই trigger attribute (<code>data-open="invoiceModal"</code>), তাই এটা আসলে Fix 12-এর horizontal-scroll bug-এরই একটা পার্শ্বফল বলেই মনে হচ্ছে।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>The "+ New Invoice" button on the Dashboard and the "+ New Invoice" button on
+the Invoices page both use the exact same `data-open="invoiceModal"` attribute
+and open the exact same modal (see frontend/index.html — both buttons share
+this attribute, and frontend/app.js's generic openModal() handler opens it).
+Since it's the same modal and same code path, the modal itself is not
+misconfigured differently per page.
+
+The most likely explanation: this is a side effect of the horizontal page
+overflow bug (fix the "Horizontal page overflow on mobile" issue first — same
+codebase, frontend/tracker.css .topbar). When the Dashboard page is
+horizontally scrolled due to that overflow bug, opening the modal (which uses
+`.drawer{position:fixed;inset:0}` and `.modal{position:absolute;
+top:50%;left:50%;transform:translate(-50%,-50%)}`) can visually appear
+offset/cut off on some mobile browsers due to how fixed-position elements
+interact with a horizontally-scrolled layout viewport.
+
+After fixing the horizontal overflow bug, re-test opening "+ New Invoice" and
+"+ Receipt" directly from the Dashboard on a 375-390px mobile viewport. If the
+modal still appears cut off even with no horizontal scroll present, add this
+defensive fix in frontend/app.js's openModal(id) function: reset any
+scroll position before opening — e.g. `document.documentElement.scrollLeft = 0;
+window.scrollTo({left:0, behavior:"auto"});` — right before adding the "open"
+class, so the modal always opens against a horizontal scroll position of zero
+regardless of what page/scroll state it was triggered from.</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix14">
+    <div class="fix-head"><div class="fix-num">14</div><h3>Back arrow (⬅) shows even on Dashboard (home)</h3><span class="badge normal">Bug</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/app.js (showPage function)</div>
+    <div class="fix-body">
+      <p><code>#mobileBackBtn</code>-এর visibility toggle করার কোনো কোড নাই — CSS-এ শুধু always <code>display:block</code>, তাই Dashboard-এও দেখা যাচ্ছে, যেখানে "back" যাওয়ার কিছু নাই।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>In frontend/index.html there is a `<button class="mobile-back" id="mobileBackBtn">`
+which, per frontend/tracker.css, is always shown on mobile
+(`@media(max-width:760px){.mobile-menu,.mobile-back{display:block}}`) with no
+logic anywhere toggling its visibility based on the current page. This means
+the back arrow appears even on the Dashboard (the app's home screen), which is
+confusing since there is nothing to go "back" to from there.
+
+Find the `showPage(id)` function in frontend/app.js (search for
+`function showPage`) — this is called whenever the visible page/section
+changes. Add logic there (or in whatever function tracks the "current page"
+state) to show/hide `#mobileBackBtn` based on whether the current page is
+"dashboard": hide it (`style.visibility = "hidden"` or add a `hidden`
+attribute — pick whichever keeps its layout space reserved so surrounding
+icons don't jump, matching how other conditional buttons in this codebase are
+usually hidden, e.g. check how `#notifCount` uses the `hidden` attribute
+pattern nearby) when on the dashboard page, and show it on every other page.
+
+Also check `handleAppBack()` in frontend/app.js (already contains the actual
+back-navigation logic) — no changes needed there, this fix is purely about the
+button's visibility matching whether back-navigation is actually meaningful.</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix15">
+    <div class="fix-head"><div class="fix-num">15</div><h3>Sidebar &amp; login page logo too large / looks unpolished</h3><span class="badge design">Design</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/tracker.css (.brand-logo, .auth-logo, .splash-logo), frontend/branding/</div>
+    <div class="fix-body">
+      <p>বর্তমান <code>logo-full.png</code> একটা photographic splash-banner ছবি (blurred office background সহ) — sidebar-এর ছোট জায়গায় এবং login স্ক্রিনে এটাই ব্যবহার হওয়ায় ভারী/অগোছালো দেখাচ্ছে। CSS নিজে ছবি crop করছে না (aspect ratio ঠিক রেখেই ছোট হচ্ছে), সমস্যাটা মূলত asset choice-এ।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>The sidebar logo (frontend/tracker.css `.brand-logo{width:100%;max-width:210px;
+height:auto}`, used in frontend/index.html as
+`<img class="brand-logo" src="branding/logo-full.png">`) and the login/auth page
+logo (`.auth-logo{width:min(300px,86vw);height:auto}` and
+`.splash-logo{width:min(340px,88vw);height:auto}`) all reuse the same
+`branding/logo-full.png` asset — a wide (1488×880px) photographic splash-style
+graphic with a blurred office background behind the S4 icon and wordmark. This
+image is designed to be a hero/splash banner, not a compact sidebar icon or a
+clean auth-screen mark, so at small sizes its wordmark text becomes hard to
+read and it looks visually heavy/unpolished compared to the rest of the app's
+clean, flat UI.
+
+1. If a simpler icon-only version of the logo exists anywhere in
+   frontend/branding/ (check `logo.png` — it may already be the plain icon
+   without the photographic background; compare its dimensions/content to
+   logo-full.png), switch `.brand-logo` in frontend/index.html's sidebar to
+   use that file instead of logo-full.png.
+
+2. If logo.png is not a clean, small, icon-appropriate version (verify by
+   checking its actual visual content, not just the filename), do NOT attempt
+   to auto-generate a new logo — flag this back to me and I will provide or
+   design a proper compact icon asset (ideally a square or near-square PNG/SVG
+   with a transparent or simple solid background, just the "S4" swirl mark,
+   sized around 128×128 to 256×256px) for you to drop into
+   frontend/branding/.
+
+3. Once a suitable compact asset is available, update frontend/tracker.css:
+   - `.brand-logo`: reduce to a fixed, small size appropriate for a sidebar
+     header, e.g. `width:56px;height:56px;object-fit:contain;` instead of the
+     current width:100%/max-width:210px/height:auto, and adjust `.brand`'s
+     padding so the smaller logo sits comfortably next to the "Credit Invoice
+     Tracker" subtitle text (consider placing them side-by-side rather than
+     stacked, to use the sidebar's width more efficiently — see the header
+     redesign task for the target layout).
+   - `.auth-logo` and `.splash-logo`: reduce their max sizes proportionally
+     (e.g. auth-logo to around 96-120px, splash-logo can stay a bit larger
+     since it's a one-time full-screen moment, but still meaningfully smaller
+     than the current 300-340px if using the same busy photographic asset).
+
+4. Do not change any functionality — this is purely a visual/asset sizing fix.</pre></div>
+    </div>
+  </div>
+
+  <div class="fix" id="fix16">
+    <div class="fix-head"><div class="fix-num">16</div><h3>Header redesign — Shop Name, search box, Logout → sidebar bottom</h3><span class="badge design">Design + Bug fix</span></div>
+    <div class="fix-meta"><b>File:</b> frontend/index.html, frontend/tracker.css, frontend/app.js</div>
+    <div class="fix-body">
+      <p>Header থেকে owner name/avatar/Logout সরিয়ে sidebar-এর নিচে নেওয়া হবে; header-এ prominent gradient shop name বসবে; search box + notification + brightness নতুন করে সাজানো হবে; mobile-এ ২ row, desktop-এ ১ row (sidebar সবসময় visible থাকায় আলাদা redesign দরকার নেই ওখানে, শুধু topbar-এর ভেতরের content সাজবে)।</p>
+      <div class="promptbox"><button class="copybtn" onclick="copyPrompt(this)">Copy</button><pre>Redesign the app's header/topbar and sidebar footer as follows. Reference
+files: frontend/index.html (the <header class="topbar"> block and the
+<aside class="sidebar"> block), frontend/tracker.css (.topbar, .top-actions,
+.sidebar, .brand, .nav related rules), frontend/app.js (wherever userName/
+userRole/userAvatar/logoutBtn are currently populated — search for
+"userAvatar", "userName", "userRole", "logoutBtn" to find the existing wiring
+so the same data continues to populate the new locations).
+
+GOAL LAYOUT:
+
+Mobile (≤760px), two stacked rows:
+  Row 1 (brand bar): [☰ menu button] ... [Shop Name — large, gradient-styled
+    text, truncates with ellipsis if very long] ... [🔔 notif] [🌙 theme toggle]
+  Row 2 (page header, this already mostly exists as `.page-head` on Dashboard):
+    "Dashboard" title + subtitle, then a search input below it (reuse the
+    EXISTING `#globalSearch` input and its existing search-overlay logic —
+    do not build new search functionality, just move where this input is
+    rendered/visible on mobile instead of hiding it via
+    `.topbar .search{display:none}` in the 760px media query), then the
+    existing "+ Receipt" / "+ New Invoice" buttons below the search box.
+
+Desktop (>760px), the sidebar is already always visible (no change needed
+there structurally). Reorganize the single-row topbar to:
+  [Shop Name — gradient text, left-aligned or after a small breadcrumb] ...
+  [search input, inline, reasonable fixed width e.g. 280-320px] ...
+  [🔔 notif] [🌙 theme toggle]
+  (No hamburger menu needed on desktop since sidebar is already visible — the
+  existing `.mobile-menu{display:block}` rule is already scoped to the mobile
+  media query, confirm it stays that way.)
+
+REMOVE from the topbar entirely (both mobile and desktop): the `#logoutBtn`
+button, the `#userAvatar` div, and the userName/userRole text block.
+
+ADD to the sidebar (`<aside class="sidebar">` in frontend/index.html) a new
+footer section, pinned to the bottom of the sidebar (sidebar already has
+`overflow:auto` — make the sidebar a flex column with the nav area flexing to
+fill available space and this new footer sitting below it, not scrolling away):
+  - The owner/staff's avatar + name + role (move the existing #userAvatar /
+    #userName / #userRole elements here, keep their ids so existing JS that
+    populates them continues to work unchanged — just move their HTML
+    location, not their ids or the JS that fills them in)
+  - Below that, the Logout button (move the existing #logoutBtn here, same
+    id, same click handler — again just relocate the HTML, don't rewrite the
+    logout logic in frontend/app.js or frontend/auth.js)
+
+SHOP NAME STYLING: Add a new heading element for the shop name (populate its
+text from the same shop data source that currently feeds the Dashboard or
+Settings "shop name" field — search frontend/app.js for how `shop.name` or
+similar is already read/rendered, and reuse that value rather than
+introducing a new data source). Style it distinctively:
+  font-weight:800, a linear-gradient text fill (e.g.
+  `background:linear-gradient(90deg, #22D3B0, #5B7CFF, #8B6BFF);
+  -webkit-background-clip:text; background-clip:text; color:transparent;`),
+  and add `white-space:nowrap; overflow:hidden; text-overflow:ellipsis;` plus
+  a sensible `max-width` so a very long shop name truncates gracefully
+  instead of breaking the header layout (this also directly prevents
+  reintroducing the horizontal-overflow bug fixed separately).
+
+IMPORTANT — do not lose functionality: the theme-toggle button (`[data-theme-
+toggle]`) and notification button (`#notifBtn` + its `#notifPanel`) must keep
+their exact existing ids, click handlers, and behavior — only their visual
+position in the new header layout changes. Same for `#globalSearch` and its
+`#searchOverlay`/`#searchResults` — only reposition, don't reimplement.
+
+After this change, re-verify (or re-apply) the horizontal-overflow fix and the
+"back arrow shows on Dashboard" fix, since this redesign changes the same
+header markup they touch — make sure all three fixes are compatible and the
+final topbar never overflows a 375-390px mobile viewport.</pre></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function copyPrompt(btn){
+  const pre = btn.parentElement.querySelector('pre');
+  navigator.clipboard.writeText(pre.textContent).then(()=>{
+    const orig = btn.textContent;
+    btn.textContent = "✓ Copied";
+    btn.classList.add("copied");
+    setTimeout(()=>{ btn.textContent = orig; btn.classList.remove("copied"); }, 1600);
+  });
+}
+</script>
+
+</body>
+</html>

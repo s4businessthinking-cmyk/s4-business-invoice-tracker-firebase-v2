@@ -3,15 +3,27 @@
 কোনো backend/VPS নেই — প্রতি দোকানের ডেটা **সেই দোকানের Firebase**-এ।  
 সফটওয়্যার **একই**; ইনস্টলের পর Firebase config paste (B1)।
 
+Current release: **v1.0.5**  
+https://github.com/s4businessthinking-cmyk/s4-business-invoice-tracker-firebase-v2/releases
+
+## Install
+
+| Platform | How |
+|----------|-----|
+| **Windows** | Release থেকে `S4-Invoice-Tracker-Setup-1.0.5.exe` → ইনস্টল |
+| **Android** | `S4-Invoice-Tracker-1.0.5.apk` সাইডলোড (Unknown sources ON) |
+| **iPhone PWA** | `frontend` HTTPS-এ হোস্ট করুন → Safari → Share → **Add to Home Screen** (`localhost` দিয়ে iPhone-এ Home Screen install হয় না) |
+| **PWA zip** | `S4-Invoice-Tracker-PWA-1.0.5.zip` — যেকোনো static host (Firebase Hosting / Netlify / IIS) |
+
 ## লকড Login / Firebase (ARCHITECTURE.md §০)
 
 - B1 — একই app; ইনস্টলের পর দোকানের Firebase config paste  
-- Email + Password (যেকোনো email) + **email verification**  
-- Owner: Create Account → verify → Login  
-- Staff: owner invite → নিজের account → verify → Login  
+- **Login/Setup যাচাই:** Firebase Authentication **Email/Password**  
+- **Email verification বাধ্যতামূলক** — verify না হলে active member নয় (`firestore.rules` → `isActiveMember()`)  
+- Owner / Staff: Settings → Users & Roles → invite + invite code/QR  
 - প্রতি দোকান = আলাদা Firebase project  
 
-পুরনো: Google / Anonymous / SHA-256 shop password — **বাদ**।
+পুরনো: Google / Anonymous / client-side SHA-256 shop password — **বাদ**।
 
 বিস্তারিত: **`ARCHITECTURE.md`**
 
@@ -22,20 +34,18 @@ cd frontend
 python -m http.server 8080
 ```
 
-Browser: `http://localhost:8080` → প্রথমবার Firebase config paste → Create Account / Login।
+Browser: `http://localhost:8080` → Firebase config paste → Create Account / Login।
 
-## আগের ফিচার (অপরিবর্তিত)
+## Features
 
-1. Auto-update (exe + apk)  
-2. Google Drive backup (optional)  
-3. PWA / iPhone install  
-4. Staff name + activity log  
-5. Monthly / Annual reports + CSV + due aging  
+1. Auto-update (exe + apk) via GitHub Releases  
+2. Google Drive + local backup (Settings)  
+3. PWA / iPhone Add to Home Screen  
+4. Owner invite staff + module permissions  
+5. Reports + CSV archive  
 
 ## প্রতি নতুন দোকান
 
-1. Firebase project + Email/Password ON + `firestore.rules` Publish  
-2. সফটওয়্যার ইনস্টল → config paste  
-3. Owner account তৈরি → verify → Login  
-
-(Optional) `update-config.js`, `drive-backup-config.js`, `desktop/package.json` — release/Drive এর জন্য।
+1. Firebase project + Email/Password ON + `firestore.rules` **Publish**  
+2. সফটওয়্যার ইনস্টল → config paste (বা invite code)  
+3. Owner account তৈরি → email verify → Login  

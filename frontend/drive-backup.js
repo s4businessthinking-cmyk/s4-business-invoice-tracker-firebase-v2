@@ -98,7 +98,9 @@ async function getAccessToken(){
       resolve(cachedToken);
     };
     tokenClient.error_callback = (err) => {
-      reject(new Error("Google Drive sign-in বাতিল হয়েছে বা ব্যর্থ হয়েছে।"));
+      console.error("Google Drive OAuth error:", err);
+      const detail = err?.type || err?.message || "";
+      reject(new Error(`Google Drive সাইন-ইন বাতিল হয়েছে বা ব্যর্থ হয়েছে।${detail ? " (" + detail + ")" : ""}`));
     };
     tokenClient.requestAccessToken({ prompt: "" });
   });

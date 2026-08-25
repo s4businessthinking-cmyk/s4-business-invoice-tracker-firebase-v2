@@ -25,9 +25,7 @@
 <body>
 <div id="s4Splash">
   <div class="splash-panel">
-    <img class="splash-logo" src="branding/logo-full.png" alt="S4 Business Management">
-    <h2 class="splash-title">S4-BUSINESS-INVOICE TRACKER</h2>
-    <p class="splash-sub">Credit Invoice &amp; Receivable Tracker</p>
+    <img class="splash-logo" src="branding/logo-full.png" alt="S4 Business Managements Servers">
     <progress id="s4SplashBar" max="100" value="0"></progress>
     <div id="s4SplashStatus">Loading…</div>
   </div>
@@ -35,13 +33,18 @@
 
 <div id="authOverlay"><div id="authCard">
 <button type="button" class="auth-theme-btn" data-theme-toggle aria-label="Toggle brightness" title="Dark mode"><span class="theme-toggle-ico">🌙</span></button>
-<img class="auth-logo" src="branding/logo-full.png" alt="S4 Business Management">
-<h2>S4-BUSINESS-INVOICE TRACKER</h2>
+<img class="auth-logo" src="branding/logo-full.png" alt="S4 Business Managements Servers">
 <p id="authSubtitle"></p>
 <div id="configFields">
 <p id="configHint">Paste this shop’s Firebase Web config.<br>Firebase Console → Project Settings → Your apps → Web</p>
 <textarea id="configPaste" placeholder='{ apiKey: "...", authDomain: "...", projectId: "...", appId: "..." }'></textarea>
 <button type="button" id="configSaveBtn">Connect Firebase</button>
+<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);text-align:left">
+<p class="muted" style="font-size:.78rem;margin:0 0 8px">Have an invite code?</p>
+<input id="inviteCodePaste" placeholder="Paste invite code from owner">
+<button type="button" id="inviteCodeSaveBtn" class="auth-link">Connect with invite code</button>
+<p class="muted" style="font-size:.72rem;margin:8px 0 0">Advanced: paste config manually above (owner first-time setup)</p>
+</div>
 </div>
 <div id="setupFields">
 <input id="setupOwnerName" placeholder="Your name">
@@ -80,8 +83,7 @@
 <div class="app" id="app">
 <aside class="sidebar" id="sidebar">
   <div class="brand">
-    <img class="brand-logo" src="branding/logo-full.png" alt="S4 Business Management">
-    <small class="brand-sub">Credit Invoice Tracker</small>
+    <img class="brand-logo" src="branding/logo-full.png" alt="S4 Business Managements Servers">
   </div>
   <nav class="nav">
     <div class="nav-title">MAIN</div>
@@ -109,16 +111,27 @@
     <button data-page="audit"><span class="ico">◷</span>Audit Trail</button>
     <button data-page="settings"><span class="ico">⚙</span>Settings</button>
   </nav>
+  <div class="sidebar-footer">
+    <div class="sidebar-user">
+      <div class="avatar" id="userAvatar">—</div>
+      <div class="sidebar-user-meta">
+        <b id="userName">—</b>
+        <div class="muted" id="userRole">—</div>
+      </div>
+    </div>
+    <button class="btn small" id="logoutBtn" type="button">Logout</button>
+  </div>
 </aside>
 
 <main class="main">
 <header class="topbar">
   <div class="top-left">
-    <button class="mobile-back" id="mobileBackBtn" type="button" aria-label="Back" title="Back">←</button>
+    <button class="mobile-back" id="mobileBackBtn" type="button" aria-label="Back" title="Back" hidden>←</button>
     <button class="mobile-menu" id="menu">☰</button>
-    <input class="search" id="globalSearch" placeholder="Search invoice, customer, vehicle, cheque...">
+    <div class="shop-name" id="topShopName" title="">S4 BUSINESS</div>
   </div>
   <div class="top-actions">
+    <input class="search" id="globalSearch" placeholder="Search invoice, customer, cheque...">
     <button class="btn small theme-toggle-btn" type="button" data-theme-toggle aria-label="Toggle brightness" title="Dark mode"><span class="theme-toggle-ico">🌙</span></button>
     <div class="notif-wrap">
       <button class="btn small" id="notifBtn" type="button" title="Notifications">🔔 <span id="notifCount" class="notif-count" hidden>0</span></button>
@@ -127,9 +140,6 @@
         <div id="notifList" class="notif-list"></div>
       </div>
     </div>
-    <button class="btn small" id="logoutBtn" type="button">Logout</button>
-    <div class="avatar" id="userAvatar">—</div>
-    <div><b style="font-size:12px" id="userName">—</b><div class="muted" id="userRole">—</div></div>
   </div>
 </header>
 
@@ -241,6 +251,15 @@
 <div class="panel" id="reportPanel" style="display:none"><div class="panel-head"><h2 id="reportTitle">Report</h2><div class="actions"><button class="btn small" type="button" id="exportReportCsvBtn">CSV</button><button class="btn small" type="button" id="printReportBtn">Print / PDF</button></div></div>
 <div id="periodReportHtml" style="display:none;padding:18px"></div>
 <div class="table-wrap"><table class="table"><thead id="reportHead"></thead><tbody id="reportRows"></tbody></table></div></div>
+<div class="panel" id="archivePanel"><div class="panel-head"><h2>🗄️ পুরনো ডেটা আর্কাইভ</h2></div>
+<div class="panel-body">
+<p class="muted" style="margin:0 0 12px;font-size:13px">Owner only: cutoff date-এর আগের invoices (+ related receipts/notes/cheques) CSV ডাউনলোড করে তারপর bulk delete — 1GB storage বাঁচাতে।</p>
+<div class="form-grid">
+<div class="field"><label>CUTOFF DATE (before)</label><input id="archiveBefore" type="date"></div>
+<div class="field"><label>&nbsp;</label><button class="btn" type="button" id="archiveExportBtn">1) CSV download</button></div>
+<div class="field"><label>&nbsp;</label><button class="btn danger" type="button" id="archiveDeleteBtn">2) Delete archived</button></div>
+</div>
+</div></div>
 </section>
 
 <section class="page" id="communication">
@@ -274,6 +293,12 @@
 <div class="field"><label>STAFF NAME</label><input id="inviteName" placeholder="Name"></div>
 <div class="field"><label>&nbsp;</label><button class="btn primary" type="button" id="inviteBtn">Send invite</button></div>
 </div>
+<div id="inviteCodeBox" class="license-fp-box" style="margin-top:14px;display:none">
+<div class="muted" style="font-size:.72rem;margin-bottom:4px">Staff invite code (copy or show QR — no raw Firebase JSON needed)</div>
+<code id="inviteCodeOut" style="user-select:all"></code>
+<canvas id="inviteQrCanvas" width="160" height="160" style="display:block;margin:10px auto 0;background:#fff;border-radius:8px"></canvas>
+<button type="button" class="btn small" id="copyInviteCodeBtn" style="margin-top:8px">Copy invite code</button>
+</div>
 <div id="teamList" style="margin-top:16px"></div>
 </div></div>
 <div class="panel" id="permPanel" style="display:none"><div class="panel-head"><h2>Permissions — <span id="permStaffName">Staff</span></h2>
@@ -294,32 +319,32 @@
 <div class="settings-menu">
 <button type="button" class="settings-menu-card" data-settings-view="company">
 <span class="settings-menu-ico">⌂</span>
-<div><b>Company &amp; Numbering</b><span class="muted">Name, TRN, currency, invoice prefixes, VAT</span></div>
+<span class="settings-menu-text"><b>Company &amp; Numbering</b><span class="muted">Name, TRN, currency, invoice prefixes, VAT</span></span>
 <span class="settings-menu-arrow">›</span>
 </button>
 <button type="button" class="settings-menu-card" data-settings-view="license">
 <span class="settings-menu-ico">◆</span>
-<div><b>License &amp; Trial</b><span class="muted">15-day trial, activate license, device fingerprint</span></div>
+<span class="settings-menu-text"><b>License &amp; Trial</b><span class="muted">15-day trial, activate license, device fingerprint</span></span>
 <span class="settings-menu-arrow">›</span>
 </button>
 <button type="button" class="settings-menu-card" data-settings-view="help">
 <span class="settings-menu-ico">◎</span>
-<div><b>Help &amp; Support</b><span class="muted">WhatsApp, Facebook, email, website</span></div>
+<span class="settings-menu-text"><b>Help &amp; Support</b><span class="muted">WhatsApp, Facebook, email, website</span></span>
 <span class="settings-menu-arrow">›</span>
 </button>
 <button type="button" class="settings-menu-card" data-settings-view="invoice">
 <span class="settings-menu-ico">▤</span>
-<div><b>Invoice Entry</b><span class="muted">Detailed line items or total amount only</span></div>
+<span class="settings-menu-text"><b>Invoice Entry</b><span class="muted">Detailed line items or total amount only</span></span>
 <span class="settings-menu-arrow">›</span>
 </button>
 <button type="button" class="settings-menu-card" data-settings-view="backup">
 <span class="settings-menu-ico">▣</span>
-<div><b>Backup &amp; Recovery</b><span class="muted">Google Drive extra copy of shop data</span></div>
+<span class="settings-menu-text"><b>Backup &amp; Recovery</b><span class="muted">Google Drive extra copy of shop data</span></span>
 <span class="settings-menu-arrow">›</span>
 </button>
 <button type="button" class="settings-menu-card" data-settings-view="appearance">
 <span class="settings-menu-ico">☀</span>
-<div><b>Appearance</b><span class="muted">Light or dark brightness for this PC</span></div>
+<span class="settings-menu-text"><b>Appearance</b><span class="muted">Light or dark brightness for this PC</span></span>
 <span class="settings-menu-arrow">›</span>
 </button>
 </div>
@@ -343,7 +368,20 @@
 <div class="field"><label>INVOICE PREFIX</label><input id="setInvPrefix" value="INV-"></div>
 <div class="field"><label>RECEIPT PREFIX</label><input id="setRvPrefix" value="RV-"></div>
 <div class="field"><label>VAT RATE %</label><input id="setVat" type="number" value="5"></div>
-</div></div></div>
+</div>
+<div class="actions" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+<button class="btn" type="button" id="changeFirebaseConfigBtn">🔄 Change Firebase Config</button>
+<p class="muted" style="margin:8px 0 0;font-size:12px">Clears this device’s Firebase connection so you can paste a different shop config. You will need to login again.</p>
+</div>
+</div></div>
+<div class="panel"><div class="panel-body">
+<div class="help-support-head">
+<span class="help-support-ico">☁</span>
+<div><b>Firebase Storage</b><div class="muted">Spark free plan FYI — not a hard block</div></div>
+</div>
+<p class="muted" style="margin:0 0 10px;font-size:13px;line-height:1.5">Firestore Spark-এর <b>1GB মোট storage</b> ক্যাপ reset হয় না। Blaze (pay-as-you-go) এও প্রথম ~1GB ফ্রি থাকে; অতিরিক্ত GB-এ ছোট চার্জ (~$0.18/GB/month — Firebase pricing page দিয়ে confirm করুন)।</p>
+<a class="btn small" id="firebaseUsageLink" href="https://console.firebase.google.com/" target="_blank" rel="noopener">Open Firebase usage / billing</a>
+</div></div>
 </div>
 
 <div id="settingsLicense" class="settings-sub" hidden>
@@ -448,7 +486,11 @@
 </div>
 <div class="actions">
 <button class="btn" type="button" id="driveRestoreBtn">Refresh Drive list</button>
+<button class="btn" type="button" id="localBackupBtn">💾 লোকাল ফাইলে ব্যাকআপ</button>
+<button class="btn" type="button" id="localRestoreBtn">📂 লোকাল ফাইল থেকে রিস্টোর</button>
+<input type="file" id="localRestoreFile" accept="application/json,.json" hidden>
 </div>
+<p class="muted" style="margin:10px 0 0;font-size:12px">লোকাল ব্যাকআপ: PC-তে Documents/S4 Invoice Backups, মোবাইলে Downloads। Drive আলাদা থাকবে।</p>
 </div></div>
 <div class="panel"><div class="panel-head"><h2>Backup History</h2></div>
 <div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Type</th><th>Size</th><th>Status</th><th>Action</th></tr></thead><tbody id="backupHistoryRows"></tbody></table></div>
