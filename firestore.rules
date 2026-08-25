@@ -39,6 +39,14 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/invites/$(id));
     }
 
+    function authEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function inviteEmailOk(data) {
+      return data.email is string && data.email.lower() == authEmail();
+    }
+
     match /shop/info {
       // Public read is intentional: login/setup screens may show shop branding
       // (name) before auth. Sensitive ops still require isOwner() for write.
@@ -46,23 +54,24 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && !exists(/databases/$(database)/documents/shop/info)
         && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.ownerEmail == request.auth.token.email;
+        && request.resource.data.ownerEmail == authEmail();
       allow update: if isOwner();
       allow delete: if false;
     }
 
     match /members/{uid} {
-      allow read: if isActiveMember();
+      // Own profile readable while verifying email (before isActiveMember)
+      allow read: if isActiveMember() || (isSignedIn() && uid == request.auth.uid);
       allow create: if isSignedIn() && uid == request.auth.uid && (
         (request.resource.data.role == 'owner'
-          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.email == authEmail()
           && request.resource.data.status == 'active')
         ||
         (request.resource.data.role == 'staff'
-          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.email == authEmail()
           && request.resource.data.status == 'active'
           && request.resource.data.inviteId is string
-          && inviteDoc(request.resource.data.inviteId).data.email == request.auth.token.email
+          && inviteEmailOk(inviteDoc(request.resource.data.inviteId).data)
           && inviteDoc(request.resource.data.inviteId).data.status == 'pending')
       );
       allow update: if isOwner()
@@ -75,17 +84,20 @@ service cloud.firestore {
     }
 
     match /invites/{inviteId} {
-      allow read: if isOwner()
-        || (isSignedIn() && resource.data.email == request.auth.token.email);
+      // Pending invites readable before login (staff signup looks up invite first).
+      // After login, any signed-in user can read (small shop).
+      allow read: if resource.data.status == 'pending' || isSignedIn();
       allow create: if isOwner()
         && request.resource.data.status == 'pending'
         && request.resource.data.role == 'staff'
-        && request.resource.data.invitedBy == request.auth.uid;
+        && request.resource.data.invitedBy == request.auth.uid
+        && request.resource.data.email is string;
       allow update: if isOwner()
         || (isSignedIn()
-            && resource.data.email == request.auth.token.email
+            && inviteEmailOk(resource.data)
+            && resource.data.status == 'pending'
             && request.resource.data.status == 'accepted'
-            && resource.data.status == 'pending');
+            && inviteEmailOk(request.resource.data));
       allow delete: if isOwner();
     }
 

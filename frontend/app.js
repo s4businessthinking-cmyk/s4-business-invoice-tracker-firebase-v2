@@ -1917,12 +1917,12 @@ async function savePermissions(){
 async function doInvite(){
   try{
     const email = inviteEmail.value.trim();
-    await inviteStaff({ email, displayName: inviteName.value.trim(), invitedByUid: getCurrentMember().uid });
+    const created = await inviteStaff({ email, displayName: inviteName.value.trim(), invitedByUid: getCurrentMember().uid });
     const cfg = await loadSavedFirebaseConfig();
     const box = document.getElementById("inviteCodeBox");
     const out = document.getElementById("inviteCodeOut");
     if(cfg && out && box){
-      const code = buildInviteCode(cfg, email);
+      const code = buildInviteCode(cfg, created.email || email, created.inviteId || "");
       out.textContent = code;
       box.style.display = "block";
       drawInviteQr(code);
@@ -1936,21 +1936,44 @@ async function doInvite(){
 function drawInviteQr(text){
   const canvas = document.getElementById("inviteQrCanvas");
   if(!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if(ctx){
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#667085";
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Loading QR…", canvas.width / 2, canvas.height / 2);
+  }
   const run = ()=>{
     try{
-      // qrcode.js global QRCode
-      if(window.QRCode){
-        window.QRCode.toCanvas(canvas, text, { width: 160, margin: 1 }, err=>{
-          if(err) console.error(err);
+      if(window.QRCode && typeof window.QRCode.toCanvas === "function"){
+        window.QRCode.toCanvas(canvas, text, { width: 160, margin: 1, color: { dark: "#101828", light: "#ffffff" } }, err=>{
+          if(err){
+            console.error(err);
+            if(ctx){
+              ctx.fillStyle = "#fff";
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.fillStyle = "#d92d20";
+              ctx.fillText("QR failed — copy code", canvas.width / 2, canvas.height / 2);
+            }
+          }
         });
       }
     }catch(e){ console.error(e); }
   };
-  if(window.QRCode){ run(); return; }
+  if(window.QRCode && typeof window.QRCode.toCanvas === "function"){ run(); return; }
   const s = document.createElement("script");
-  s.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcode/1.5.3/qrcode.min.js";
+  s.src = "https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js";
   s.onload = run;
-  s.onerror = ()=>{};
+  s.onerror = ()=>{
+    if(ctx){
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#d92d20";
+      ctx.fillText("QR offline — copy code", canvas.width / 2, canvas.height / 2);
+    }
+  };
   document.head.appendChild(s);
 }
 

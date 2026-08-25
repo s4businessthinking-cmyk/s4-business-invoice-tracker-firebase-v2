@@ -143,53 +143,124 @@ export async function loginWithEmail({ email, password }){
 
 // ============================================================
 // STAFF INVITE ACCEPT — email/password, send verification, sign out
+// ------------------------------------------------------------
+// IMPORTANT: Invite documents are only readable when signed in
+// (email match). So we create/sign-in Auth first, THEN read the
+// invite and write members/ — otherwise Firestore returns
+// permission-denied and the invite stays "pending".
 // ============================================================
-export async function staffAcceptInvite({ email, password, displayName }){
+export async function staffAcceptInvite({ email, password, displayName, inviteId = "" }){
   const em = normalizeEmail(email);
   const name = String(displayName || "").trim();
+  const wantedInviteId = String(inviteId || "").trim();
   if(!em || !em.includes("@")) throw new Error("EMAIL_REQUIRED");
   if(!name) throw new Error("DISPLAY_NAME_REQUIRED");
   if(String(password || "").length < 6) throw new Error("PASSWORD_SHORT");
 
-  const inviteSnap = await getDocs(
-    query(
-      collection(_db, "invites"),
-      where("email", "==", em),
-      where("status", "==", "pending")
-    )
-  );
+  let cred;
+  let createdNow = false;
+  try{
+    cred = await createUserWithEmailAndPassword(_auth, em, password);
+    createdNow = true;
+  }catch(e){
+    if(e.code === "auth/email-already-in-use"){
+      cred = await signInWithEmailAndPassword(_auth, em, password);
+      const existing = await getDoc(doc(_db, "members", cred.user.uid));
+      if(existing.exists() && existing.data()?.status === "active"){
+        await signOut(_auth);
+        throw new Error("ALREADY_MEMBER");
+      }
+    }else{
+      throw e;
+    }
+  }
 
-  if(inviteSnap.empty) throw new Error("NO_INVITE");
-
-  const cred = await createUserWithEmailAndPassword(_auth, em, password);
   const uid = cred.user.uid;
-  const inviteDocRef = inviteSnap.docs[0];
-  const inviteId = inviteDocRef.id;
+  const authEmail = normalizeEmail(cred.user.email || em);
 
-  await sendEmailVerification(cred.user);
+  // Ensure Firestore sees the Auth token (avoids race → permission-denied)
+  try{ await cred.user.getIdToken(true); }catch(_){}
 
-  await setDoc(doc(_db, "members", uid), {
-    uid,
-    email: em,
-    displayName: name,
-    role: "staff",
-    status: "active",
-    inviteId,
-    invitedBy: inviteDocRef.data().invitedBy || "",
-    permissions: { ...DEFAULT_STAFF_PERMISSIONS },
-    joinedAt: Date.now()
-  });
+  try{
+    let inviteDocRef = null;
 
-  await updateDoc(doc(_db, "invites", inviteId), {
-    status: "accepted",
-    acceptedAt: Date.now(),
-    memberUid: uid
-  });
+    if(wantedInviteId){
+      const byId = await getDoc(doc(_db, "invites", wantedInviteId));
+      if(byId.exists()){
+        const d = byId.data() || {};
+        if(normalizeEmail(d.email) === authEmail && d.status === "pending"){
+          inviteDocRef = byId;
+        }
+      }
+    }
 
-  // sign out immediately — must verify email before logging in
+    if(!inviteDocRef){
+      // Prefer pending+email (works even if rules allow pending without auth)
+      let inviteSnap;
+      try{
+        inviteSnap = await getDocs(
+          query(
+            collection(_db, "invites"),
+            where("email", "==", authEmail),
+            where("status", "==", "pending")
+          )
+        );
+      }catch(_){
+        inviteSnap = await getDocs(
+          query(collection(_db, "invites"), where("email", "==", authEmail))
+        );
+      }
+      inviteDocRef = inviteSnap.docs.find(d=> (d.data() || {}).status === "pending") || inviteSnap.docs[0] || null;
+      if(inviteDocRef && (inviteDocRef.data() || {}).status !== "pending") inviteDocRef = null;
+    }
+
+    if(!inviteDocRef){
+      if(createdNow){
+        try{ await cred.user.delete(); }catch(_){}
+      }
+      await signOut(_auth).catch(()=>{});
+      throw new Error("NO_INVITE");
+    }
+
+    const inviteIdResolved = inviteDocRef.id;
+    const inviteData = inviteDocRef.data() || {};
+
+    const memberRef = doc(_db, "members", uid);
+    const memberSnap = await getDoc(memberRef);
+    if(!memberSnap.exists()){
+      await setDoc(memberRef, {
+        uid,
+        email: authEmail,
+        displayName: name,
+        role: "staff",
+        status: "active",
+        inviteId: inviteIdResolved,
+        invitedBy: inviteData.invitedBy || "",
+        permissions: { ...DEFAULT_STAFF_PERMISSIONS },
+        joinedAt: Date.now()
+      });
+    }
+
+    if(inviteData.status === "pending"){
+      await updateDoc(doc(_db, "invites", inviteIdResolved), {
+        status: "accepted",
+        acceptedAt: Date.now(),
+        memberUid: uid,
+        email: authEmail
+      });
+    }
+
+    if(!cred.user.emailVerified){
+      await sendEmailVerification(cred.user);
+    }
+  }catch(e){
+    await signOut(_auth).catch(()=>{});
+    throw e;
+  }
+
   await signOut(_auth);
   currentMember = null;
-  return { emailSent: true, email: em };
+  return { emailSent: true, email: authEmail };
 }
 
 // ============================================================
@@ -230,11 +301,11 @@ export async function inviteStaff({ email, displayName, invitedByUid }){
   if(!existing.empty) throw new Error("ALREADY_MEMBER");
 
   const pending = await getDocs(
-    query(collection(_db, "invites"), where("email", "==", em), where("status", "==", "pending"))
+    query(collection(_db, "invites"), where("email", "==", em))
   );
-  if(!pending.empty) throw new Error("INVITE_PENDING");
+  if(pending.docs.some(d=> (d.data() || {}).status === "pending")) throw new Error("INVITE_PENDING");
 
-  await addDoc(collection(_db, "invites"), {
+  const ref = await addDoc(collection(_db, "invites"), {
     email: em,
     displayName: name,
     role: "staff",
@@ -242,6 +313,7 @@ export async function inviteStaff({ email, displayName, invitedByUid }){
     invitedBy: invitedByUid,
     createdAt: Date.now()
   });
+  return { inviteId: ref.id, email: em, displayName: name };
 }
 
 export async function listTeam(){
@@ -344,7 +416,9 @@ export function authErrorText(code, lang = "bn"){
     "auth/operation-not-allowed": "Firebase Console-এ Email/Password Sign-In enable করুন।",
     "auth/configuration-not-found": "Firebase Authentication এখনো চালু হয়নি। Console → Authentication → Get started → Email/Password ON করুন।",
     "auth/unauthorized-domain": "এই domain authorized নয়। Console → Authorized domains-এ localhost যোগ করুন।",
-    "auth/email-already-in-use": "এই email দিয়ে account আগে থেকেই আছে — Login করুন।",
+    "auth/email-already-in-use": "এই email দিয়ে account আগে থেকেই আছে — একই password দিয়ে Create Account আবার চাপুন, অথবা Login করুন।",
+    "permission-denied": "অনুমতি নেই। Owner invite আছে কিনা চেক করুন, একই email ব্যবহার করুন, এবং Firebase-এ firestore.rules Publish আছে কিনা দেখুন।",
+    "PERMISSION_DENIED": "অনুমতি নেই। Owner invite আছে কিনা চেক করুন, একই email ব্যবহার করুন, এবং Firebase-এ firestore.rules Publish আছে কিনা দেখুন।",
     "auth/invalid-credential": "Email বা password ভুল।",
     "auth/invalid-email": "Email ঠিক নয়।",
     "auth/weak-password": "Password খুব দুর্বল।",
@@ -368,7 +442,9 @@ export function authErrorText(code, lang = "bn"){
     "auth/operation-not-allowed": "Enable Email/Password sign-in in Firebase Console.",
     "auth/configuration-not-found": "Firebase Authentication is not enabled. Console → Authentication → Get started → turn ON Email/Password.",
     "auth/unauthorized-domain": "This domain is not authorized. Add localhost under Authorized domains in Firebase Console.",
-    "auth/email-already-in-use": "This email already has an account — use Login.",
+    "auth/email-already-in-use": "This email already has an account — press Create Account again with the same password, or Login.",
+    "permission-denied": "Permission denied. Confirm owner invite, use the same email, and publish firestore.rules in Firebase Console.",
+    "PERMISSION_DENIED": "Permission denied. Confirm owner invite, use the same email, and publish firestore.rules in Firebase Console.",
     "auth/invalid-credential": "Wrong email or password.",
     "auth/invalid-email": "Invalid email.",
     "auth/weak-password": "Password is too weak.",
@@ -377,5 +453,8 @@ export function authErrorText(code, lang = "bn"){
     "auth/wrong-password": "Wrong password."
   };
   const t = lang === "en" ? en : bn;
-  return t[code] || code || (lang === "en" ? "Authentication failed." : "Login ব্যর্থ হয়েছে।");
+  if(t[code]) return t[code];
+  const raw = String(code || "");
+  if(/permission-denied|insufficient permissions/i.test(raw)) return t["permission-denied"];
+  return raw || (lang === "en" ? "Authentication failed." : "Login ব্যর্থ হয়েছে।");
 }

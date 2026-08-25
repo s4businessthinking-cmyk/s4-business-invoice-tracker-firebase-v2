@@ -1,4 +1,4 @@
-const CACHE='s4-invoice-v16-brand-cover';
+const CACHE='s4-invoice-v19-staff-invite-107';
 const CORE_ASSETS=[
   './',
   './index.html',

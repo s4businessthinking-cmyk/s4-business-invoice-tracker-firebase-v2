@@ -205,10 +205,13 @@ async function bootApp(){
 
 async function doSaveInviteCode(){
   try{
-    const { config, inviteEmail } = parseInviteCode(document.getElementById("inviteCodePaste")?.value);
+    const { config, inviteEmail, inviteId } = parseInviteCode(document.getElementById("inviteCodePaste")?.value);
     await saveFirebaseConfig(config);
     showAuthMessage("Invite code accepted. Reloading…");
-    try{ if(inviteEmail) sessionStorage.setItem("s4_pending_invite_email", inviteEmail); }catch(_){}
+    try{
+      if(inviteEmail) sessionStorage.setItem("s4_pending_invite_email", inviteEmail);
+      if(inviteId) sessionStorage.setItem("s4_pending_invite_id", inviteId);
+    }catch(_){}
     setTimeout(()=> location.reload(), 500);
   }catch(e){
     const map = {
@@ -297,7 +300,13 @@ async function doStaffSignup(){
   try{
     showAuthMessage("Creating account…");
     _pendingVerifyPassword = p;
-    await staffAcceptInvite({ email, password: p, displayName });
+    await staffAcceptInvite({
+      email,
+      password: p,
+      displayName,
+      inviteId: (()=>{ try{ return sessionStorage.getItem("s4_pending_invite_id") || ""; }catch(_){ return ""; } })()
+    });
+    try{ sessionStorage.removeItem("s4_pending_invite_id"); }catch(_){}
     showVerifyScreen(email, `Account created. Verify ${email}, then Login.`);
   }catch(e){
     showAuthMessage(authErrorText(e.code || e.message, lang));

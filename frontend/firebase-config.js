@@ -135,8 +135,8 @@ function b64urlDecode(str){
   return new TextDecoder().decode(bytes);
 }
 
-/** Compact staff invite code: base64url({ firebase config + inviteEmail }) */
-export function buildInviteCode(cfg, inviteEmail){
+/** Compact staff invite code: base64url({ firebase config + inviteEmail + inviteId }) */
+export function buildInviteCode(cfg, inviteEmail, inviteId = ""){
   if(!isFirebaseConfigReady(cfg)) throw new Error("CONFIG_INCOMPLETE");
   const payload = {
     apiKey: cfg.apiKey,
@@ -145,7 +145,8 @@ export function buildInviteCode(cfg, inviteEmail){
     storageBucket: cfg.storageBucket || "",
     messagingSenderId: cfg.messagingSenderId || "",
     appId: cfg.appId,
-    inviteEmail: String(inviteEmail || "").trim().toLowerCase()
+    inviteEmail: String(inviteEmail || "").trim().toLowerCase(),
+    inviteId: String(inviteId || "").trim()
   };
   return b64urlEncode(JSON.stringify(payload));
 }
@@ -168,5 +169,9 @@ export function parseInviteCode(code){
     appId: String(obj.appId || "").trim()
   };
   if(!isFirebaseConfigReady(config)) throw new Error("CONFIG_INCOMPLETE");
-  return { config, inviteEmail: String(obj.inviteEmail || "").trim() };
+  return {
+    config,
+    inviteEmail: String(obj.inviteEmail || "").trim().toLowerCase(),
+    inviteId: String(obj.inviteId || "").trim()
+  };
 }
