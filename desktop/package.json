@@ -1,6 +1,6 @@
 {
   "name": "s4-invoice-tracker-desktop",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "S4-BUSINESS Invoice Tracker — Windows desktop shell",
   "main": "main.js",
   "author": "S4-BUSINESS",
@@ -47,7 +47,7 @@
         { "target": "nsis", "arch": ["x64"] }
       ],
       "icon": "build/icon.ico",
-      "signAndEditExecutable": false,
+      "signAndEditExecutable": true,
       "artifactName": "S4-Invoice-Tracker-Setup-${version}.${ext}"
     },
     "nsis": {
@@ -56,6 +56,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "S4-BUSINESS-INVOICE TRACKER",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "artifactName": "S4-Invoice-Tracker-Setup-${version}.${ext}"
     },
     "publish": [

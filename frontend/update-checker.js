@@ -49,23 +49,16 @@ function pickAsset(assets, keyword, extension){
 }
 
 function currentLang(){
-  try{ return localStorage.getItem("lang_pref_v1") || "bn"; }catch(e){ return "bn"; }
+  try{ return localStorage.getItem("lang_pref_v1") || "en"; }catch(e){ return "en"; }
 }
 
 function bannerText(version){
-  const bn = {
-    title: `নতুন ভার্সন এসেছে (v${version})`,
-    sub: "আপডেট ডাউনলোড করে ইনস্টল করুন — আগের ডেটা নিরাপদ থাকবে (সব ডেটা Firebase-এ জমা থাকে)।",
-    download: "⬇️ ডাউনলোড করুন",
-    later: "পরে"
-  };
-  const en = {
+  return {
     title: `New version available (v${version})`,
     sub: "Download and install the update — your data stays safe (everything is stored in Firebase).",
     download: "⬇️ Download",
     later: "Later"
   };
-  return currentLang() === "en" ? en : bn;
 }
 
 function showBanner(release, asset, remoteVersion){

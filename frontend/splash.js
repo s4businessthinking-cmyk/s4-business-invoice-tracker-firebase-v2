@@ -30,7 +30,8 @@ function paintProgress(p, statusText){
   }
 }
 
-export function startSplash(lang = "bn"){
+export function startSplash(lang = "en"){
+  try{ if(window.__s4SplashPulse){ clearInterval(window.__s4SplashPulse); window.__s4SplashPulse = null; } }catch(_){}
   const el = splashEl();
   if(!el) return;
   splashStartedAt = Date.now();
@@ -39,7 +40,7 @@ export function startSplash(lang = "bn"){
   el.classList.remove("hidden");
   el.style.display = "flex";
   el.style.pointerEvents = "auto";
-  paintProgress(0, lang === "en" ? "Loading… 0%" : "লোড হচ্ছে… 0%");
+  paintProgress(0, "Loading… 0%");
   if(splashTimer) clearInterval(splashTimer);
   if(finishTimer) clearTimeout(finishTimer);
   splashTimer = setInterval(()=>{
@@ -50,7 +51,7 @@ export function startSplash(lang = "bn"){
       paintProgress(currentProgress + 1);
     }
     if(splashStatus()){
-      splashStatus().textContent = (lang === "en" ? "Loading… " : "লোড হচ্ছে… ") + Math.round(currentProgress) + "%";
+      splashStatus().textContent = "Loading… " + Math.round(currentProgress) + "%";
     }
   }, 45);
 }
@@ -59,20 +60,20 @@ function animateTo100(lang, onDone){
   if(finishTimer) clearTimeout(finishTimer);
   const step = ()=>{
     if(currentProgress >= 100){
-      paintProgress(100, lang === "en" ? "Ready — 100%" : "প্রস্তুত — 100%");
+      paintProgress(100, "Ready — 100%");
       onDone();
       return;
     }
     paintProgress(currentProgress + 3);
     if(splashStatus()){
-      splashStatus().textContent = (lang === "en" ? "Loading… " : "লোড হচ্ছে… ") + Math.round(currentProgress) + "%";
+      splashStatus().textContent = "Loading… " + Math.round(currentProgress) + "%";
     }
     finishTimer = setTimeout(step, 35);
   };
   step();
 }
 
-export function hideSplash(lang = "bn"){
+export function hideSplash(lang = "en"){
   const el = splashEl();
   if(!el) return Promise.resolve();
   if(splashDone && el.classList.contains("hidden")) return Promise.resolve();

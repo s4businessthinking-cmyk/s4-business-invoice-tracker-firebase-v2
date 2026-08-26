@@ -1,14 +1,17 @@
-# S4-BUSINESS-INVOICE TRACKER — Release v1.0.4
+## Precheck before cutting a release
 
-## Download
+```bash
+node scripts/check-sw-cache.js
+```
 
-| Platform | File | Install |
-|----------|------|---------|
-| **Windows PC** | `S4-Invoice-Tracker-Setup-1.0.4.exe` | Run installer → desktop shortcut |
-| **Android** | `S4-Invoice-Tracker-1.0.4.apk` | Download → Install (allow Unknown sources if asked) |
-| **iPhone / iPad** | PWA (no App Store) | Safari → open hosted URL → Share → **Add to Home Screen** |
+Ensures every `frontend/*.js` module (except `sw.js`) is listed in `frontend/sw.js` `CORE_ASSETS` (prevents offline blank-screen regressions).
 
-GitHub Releases: https://github.com/s4businessthinking-cmyk/s4-business-invoice-tracker-firebase-v2/releases
+# S4-BUSINESS-INVOICE TRACKER — Release notes
+
+See GitHub Releases for the current version assets (exe / apk / PWA / complete zip).
+
+**Current:** v1.0.8 — accounting integrity (receipt/cheque/PDC/CN/DN void + CN allocate), print/PDF iframe fix, vehicle + catalog.
+
 
 ## Same account on PC + mobile (100% sync)
 

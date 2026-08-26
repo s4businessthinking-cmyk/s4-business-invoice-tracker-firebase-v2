@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<title>S4 Invoice Tracker — Vehicle + Product/Service Catalog</title>
+<style>
+  :root{--bg:#f4f5f7;--card:#fff;--ink:#172033;--muted:#667085;--med:#d97706;--medbg:#fffbeb;--border:#e4e7eb;--ok:#16a34a}
+  *{box-sizing:border-box}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0;padding:28px 16px 60px}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+  .note{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;border-radius:10px;padding:12px 16px;font-size:13px;margin-bottom:20px;line-height:1.6}
+  .card{background:var(--card);border:1px solid var(--border);border-left:5px solid var(--med);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+  .row-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .title{font-weight:700;font-size:15px;margin:0}
+  label.chk{display:flex;align-items:flex-start;gap:8px;cursor:pointer}
+  input[type=checkbox]{width:18px;height:18px;margin-top:2px;accent-color:var(--ok)}
+  .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;background:var(--medbg);color:var(--med);white-space:nowrap}
+  .desc{font-size:13.5px;color:#344054;margin:8px 0 6px;line-height:1.55}
+  .file{display:inline-block;font-family:Consolas,monospace;font-size:12px;background:#f2f4f7;color:#334155;padding:2px 7px;border-radius:5px;margin-top:4px}
+  .prompt-box{background:#0f172a;border-radius:12px;padding:18px;margin-top:6px}
+  .prompt-box pre{color:#d1e7dd;font-family:Consolas,'Courier New',monospace;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;margin:0;max-height:600px;overflow-y:auto}
+  .copy-btn{background:#16a34a;color:#fff;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:12px}
+  .copy-btn.copied{background:#2563eb}
+  h2{font-size:16px;margin:28px 0 8px}
+  footer{text-align:center;color:var(--muted);font-size:12px;margin-top:24px}
+  .progress-wrap{background:#e4e7eb;border-radius:999px;height:8px;overflow:hidden;margin-bottom:20px}
+  .progress-bar{height:100%;background:linear-gradient(90deg,#16a34a,#22c55e);width:0%;transition:width .25s}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Task 12 + Task 15 — Vehicle Master + Product/Service Catalog</h1>
+  <div class="sub">দুইটা নতুন feature, একসাথে একটা prompt-এ</div>
+
+  <div class="note">
+    ✅ <b>Scope clear করা হয়েছে:</b> New Invoice-এর দুইটা mode — <code>#invDetailedBlock</code> (Product/Qty/Price/VAT দিয়ে item-by-item entry) আর <code>#invSimpleBlock</code> (শুধু Total Amount বসানোর mode, <code>#invSimpleTotal</code>)। Product/Service Catalog picker <b>শুধু Detailed mode-এ</b> যাবে — Simple/Total-Amount mode-এ কোনো item-entry নাই বলে ওখানে touch করা হবে না। এটা prompt-এ explicit ভাবে লেখা আছে।
+  </div>
+
+  <div class="progress-wrap"><div class="progress-bar" id="bar"></div></div>
+
+  <div class="card">
+    <div class="row-top">
+      <label class="chk"><input type="checkbox"><span class="title">Vehicle master-list module</span></label>
+      <span class="badge">New Feature</span>
+    </div>
+    <div class="desc">Customer-এর সাথে link করা গাড়ির list (Plate, Make, Model, VIN, Engine)। Invoice-এ Customer select করলে সেই customer-এর registered গাড়ি dropdown-এ আসবে; না থাকলে বা না জানলে আগের মতোই free-text টাইপ করা যাবে — Vehicle No. field Optional-ই থাকছে।</div>
+    <div class="file">frontend/index.html, app.js (নতুন)</div>
+  </div>
+
+  <div class="card">
+    <div class="row-top">
+      <label class="chk"><input type="checkbox"><span class="title">Product Catalog + Service Catalog</span></label>
+      <span class="badge">New Feature</span>
+    </div>
+    <div class="desc">দুইটা আলাদা master list — Product (spare parts, part number সহ) আর Service (workshop labour, কোনো part number নাই)। শুধু Detailed invoice mode-এর item-entry-তে autocomplete হিসেবে যুক্ত হবে, auto-fill করবে price/VAT/code, তবে free-typing ও override করা যাবে।</div>
+    <div class="file">frontend/index.html, app.js, firestore.rules (নতুন)</div>
+  </div>
+
+  <h2>📋 Cursor Prompt (দুইটা Task একসাথে)</h2>
+  <div class="prompt-box">
+    <button class="copy-btn" id="copyBtn" onclick="copyPrompt()">📋 Copy Prompt</button>
+    <pre id="promptText">Work in the S4-BUSINESS-INVOICE-TRACKER repo. Do the two tasks below in order. Run a syntax/build sanity check after each task. Do not commit — leave changes staged for review.
+
+GROUND RULES — apply to both tasks:
+- Do a REAL, complete fix — not a cosmetic/partial one. Do not silence errors, hide symptoms, or take shortcuts to make a quick test pass.
+- If any referenced function name/id doesn't match what's actually in the current code, STOP and report the discrepancy in your final summary instead of guessing or inventing a fix.
+- Reuse existing patterns (saveCustomer, customerModal, .table-wrap/.table list pages, the existing non-blocking confirm()-based duplicate-warning pattern already used elsewhere in this app) rather than inventing new UI patterns — consistency matters more than novelty.
+- For every function you touch, keep existing behavior for all other callers unchanged.
+
+CRITICAL SCOPE NOTE — read before starting either task:
+The New Invoice modal has two distinct modes, controlled by separate DOM blocks:
+- #invDetailedBlock — the product/qty/price/VAT item-by-item entry table (the .invoice-items / .inv-entry-row / #invItemRows structure).
+- #invSimpleBlock — a completely separate "Total Amount" mode (just one field, #invSimpleTotal) with NO item-entry table at all.
+Both tasks below that touch invoice item-entry (specifically the Product/Service Catalog picker in Task B) apply ONLY inside #invDetailedBlock. Do not add any catalog-picker UI to #invSimpleBlock — that mode has no line items to pick a product/service into, so there is nothing there for a catalog to attach to. The Vehicle picker (Task A) is a header-level field (#invVehicle) shared by both modes, so it applies regardless of which mode is active — that one is not scoped to Detailed-only.
+
+TASK A — Vehicle master-list module (new feature, not a bug fix)
+
+CONTEXT (verified from git history): the "vehicles" Firestore collection and its read-side plumbing have existed since v1.0.4 (let vehicles=[] in app.js, listen("vehicles",...), global search integration matching v.plate/v.vin/v.make/v.model/v.customer/v.engine, and inclusion in backup snapshots), and firestore.rules already has a working `match /vehicles/{id} { allow read, create, update, delete: if isActiveMember(); }` rule. HOWEVER, no version of this app ever had an Add/Edit Vehicle UI — there is no vehicleModal, no saveVehicle() function, no addDoc(col("vehicles"),...) anywhere in history. So this is a new feature to build, using the field names already expected by the existing dead code: plate, make, model, vin, engine, customer.
+
+Build:
+1. A new "Vehicle" modal (id="vehicleModal") in frontend/index.html, following the same form-grid pattern as customerModal: fields PLATE / REGISTRATION NO. (required), CUSTOMER (select, reuse the existing customer dropdown population pattern), MAKE, MODEL, VIN, ENGINE NO. Add a "+ Add Vehicle" button next to the Vehicle field inside the invoice modal (both modes' header area, since #invVehicle is shared), and also add a "Vehicles" list page (new sidebar nav entry, reuse the existing .table-wrap/.table pattern) showing all vehicles with Edit/Delete actions, consistent with how Customers/Cheques pages are built.
+2. saveVehicle() in app.js: validate plate is non-empty, addDoc/updateDoc to col("vehicles") the same way saveCustomer() does for col("customers"). Wire listen("vehicles",...) (already exists) to also call a new renderVehicles() for the list page.
+3. In the invoice modal, keep the current #invVehicle input as a free-text field (Optional stays Optional — do not make it required, and do not remove the ability to type a plate/description directly for a customer whose vehicle isn't registered or whose details aren't known). Add a small picker button/dropdown next to it that, when the CUSTOMER field is selected, shows only that customer's registered vehicles (v.customer === selected customer name) to pick from — clicking one fills invVehicle.value with the plate (and optionally shows make/model as a hint). Restore this filtering behavior inside filterVehiclesForInvoice() (currently that function only handles payment terms/due date — add the vehicle-filtering back into it without removing what it already does).
+4. Do NOT change the invoices collection's `vehicle` field from a plain string — this must stay 100% compatible with all existing invoices, reports, CSV export, and search that already read `inv.vehicle` as a string.
+5. Same non-blocking duplicate-warning pattern used elsewhere: before saving a new vehicle, warn (confirm(), not hard block) if the same plate already exists for the same customer.
+
+VERIFY: existing invoices' Vehicle display, search, CSV, and reports must be completely unaffected. Adding a vehicle for a customer and then creating a new invoice for that same customer should let the vehicle be picked from the list AND still allow free typing. Confirm this picker appears correctly regardless of whether Detailed or Simple mode is active (it's a header field, not inside #invDetailedBlock).
+
+TASK B — Product Catalog + Service Catalog (two separate master lists, new feature — DETAILED MODE ONLY, see scope note above)
+
+CONTEXT: the invoice #invDetailedBlock item-entry mode currently requires manually typing every line item's Item/Product name, Code, Price, and VAT% from scratch on every single invoice — there is no saved catalog to pick from. Owner has decided: build TWO separate master lists (not one combined list), because spare-parts shops and workshops think about these differently — a Product has a part number and a Service does not. This entire task applies only within #invDetailedBlock — #invSimpleBlock (Total Amount mode) has no item rows and must not be touched.
+
+Build two new Firestore collections, "productCatalog" and "serviceCatalog", each with their own modal, list page, and firestore.rules entry, following the exact same pattern as customers/saveCustomer() and Task A's Vehicle module:
+
+1. firestore.rules: add
+   match /productCatalog/{id} { allow read, create, update, delete: if isActiveMember(); }
+   match /serviceCatalog/{id} { allow read, create, update, delete: if isActiveMember(); }
+
+2. Product Catalog:
+   - New modal (id="productModal") with fields: NAME (required), PART NUMBER / CODE, DEFAULT PRICE, DEFAULT VAT % (default to shop's standard VAT rate, same default the invoice line items already use), CATEGORY (optional, free text).
+   - New sidebar nav entry + list page "Product Catalog" (reuse .table-wrap/.table pattern) with columns Name, Code, Price, VAT%, Category, and Edit/Delete actions.
+   - saveProduct() in app.js: validate name is non-empty, addDoc/updateDoc to col("productCatalog"), same pattern as saveCustomer()/saveVehicle(). Before saving a NEW product, warn (confirm(), not hard block) if the same Part Number already exists.
+   - listen("productCatalog", rows => { products = rows; renderProducts(); refreshSelects(); }) — new `let products = []` module-level array.
+
+3. Service Catalog:
+   - New modal (id="serviceModal") with fields: DESCRIPTION (required), DEFAULT LABOUR PRICE, DEFAULT VAT %, CATEGORY (optional, free text). No part-number field.
+   - New sidebar nav entry + list page "Service Catalog", same table pattern, columns Description, Price, VAT%, Category, Edit/Delete.
+   - saveService() in app.js: same validate/addDoc/updateDoc pattern. Warn (non-blocking confirm()) if a service with the same Description already exists.
+   - listen("serviceCatalog", rows => { services = rows; renderServices(); refreshSelects(); }) — new `let services = []` array.
+
+4. Wire both catalogs into the item entry row INSIDE #invDetailedBlock ONLY (the #invItemRows / .inv-entry-row structure):
+   - As the user types in the Item/Product entry field, show a combined autocomplete/dropdown of matches from BOTH products and services, each result labeled "[Product]" or "[Service]" (e.g. "Brake Pad Set — PN-4521 [Product]" vs "Tire Change [Service]").
+   - Selecting a match auto-fills Code (from part number, blank for services), Unit Price (from default price), VAT % (from default VAT) into the current entry row — Qty stays editable (default 1), and every auto-filled field remains fully editable afterward (the user can override price/VAT per-invoice; auto-fill is a convenience default, not a lock — do not add readonly to invEntryPrice or invEntryVat).
+   - Typing something matching neither catalog must still work exactly as today — pure free text, no forced selection. Do NOT change the invoice line-item data structure (still just qty/price/disc/vat/name/code as normalizeInvLineItem() already expects).
+   - Add a small "Save as new [Product/Service]" affordance next to the entry row: if the typed text doesn't match an existing catalog entry, offer a one-click way to save it into productCatalog or serviceCatalog (ask which of the two) for future reuse, without blocking the current invoice line from being added either way.
+   - Confirm #invSimpleBlock is completely untouched by this — no catalog UI, no autocomplete, nothing added there.
+
+5. CSV/bulk import (lower priority, implement if time allows, otherwise leave a clear TODO comment): a simple "Import from CSV" button on both Product Catalog and Service Catalog pages, reusing any existing CSV-parsing logic already in the codebase (check reports.js) rather than writing a new parser — column mapping: Name/Description, Code (products only), Price, VAT%, Category.
+
+GROUND RULES specific to Task B: do not change how existing invoices/line-items are stored or rendered. Do not remove free-typing. Do not break the mobile stacked-card/scroll-wrapper layout for the item entry row (from the earlier mobile-overflow fix) — the autocomplete dropdown must still be usable on a 360px-wide screen.
+
+VERIFY (both tasks, do not skip):
+- Creating a Vehicle for a customer, then opening a new invoice for that customer, shows the vehicle in a picker while #invVehicle stays typeable as free text.
+- Creating a Product and a Service, then typing a partial match of each in #invDetailedBlock's item entry, both appear in one combined suggestion list correctly labeled; selecting either auto-fills price/VAT/code while qty and all fields remain editable.
+- Switching to #invSimpleBlock (Total Amount mode) shows NO catalog picker or autocomplete anywhere — only the Vehicle picker (header field) is still available there, exactly as in Detailed mode.
+- An invoice created before this change still displays and edits identically to before (no data-shape change to invoices, vehicles referenced only as a plain string).
+- The mobile layout still works with the new autocomplete dropdown open on a small screen.
+
+FINAL — Summary
+List every file changed/added and a one-line reason for each, for review before committing. Flag both tasks as new features (not bug fixes) touching the invoice creation flow — recommend the owner test invoice creation end-to-end (both Detailed and Simple modes) manually before deploying.</pre>
+  </div>
+
+  <script>
+    const boxes = Array.from(document.querySelectorAll('input[type=checkbox]'));
+    function updateProgress(){
+      const done = boxes.filter(b=>b.checked).length;
+      document.getElementById('bar').style.width = (boxes.length ? done/boxes.length*100 : 0) + '%';
+      boxes.forEach(b=>{
+        const card = b.closest('.card');
+        card.style.opacity = b.checked ? .55 : 1;
+      });
+    }
+    boxes.forEach(b=> b.addEventListener('change', updateProgress));
+    function copyPrompt(){
+      const text = document.getElementById('promptText').innerText;
+      navigator.clipboard.writeText(text).then(()=>{
+        const btn = document.getElementById('copyBtn');
+        btn.textContent = '✅ Copied!';
+        btn.classList.add('copied');
+        setTimeout(()=>{ btn.textContent = '📋 Copy Prompt'; btn.classList.remove('copied'); }, 1800);
+      });
+    }
+  </script>
+  <footer>S4-BUSINESS-INVOICE-TRACKER · Task 12 + Task 15</footer>
+</div>
+</body>
+</html>

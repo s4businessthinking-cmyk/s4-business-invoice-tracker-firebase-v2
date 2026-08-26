@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
-  initializeFirestore, persistentLocalCache, persistentSingleTabManager,
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   getFirestore, doc, getDoc
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import {
@@ -18,7 +18,7 @@ import {
 } from "./auth.js";
 import { initActivityLog } from "./activity-log.js";
 import { startSplash, hideSplash, setSplashStatus } from "./splash.js";
-import { startTracker, stopTracker } from "./app.js";
+import { startTracker, stopTracker } from "./app.js?v=47";
 import { getAccessStatus } from "./license.js";
 
 const isDesktopApp = typeof window !== "undefined" && !!window.s4Desktop;
@@ -127,7 +127,7 @@ function wireFirebase(cfg){
   db = isDesktopApp
     ? getFirestore(fbApp)
     : initializeFirestore(fbApp, {
-        localCache: persistentLocalCache({ tabManager: persistentSingleTabManager({}) })
+        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
       });
   initActivityLog(db);
   initAuthModule(auth, db);
@@ -137,7 +137,12 @@ function wireFirebase(cfg){
 
 async function enterAppFromShopDoc(data){
   // Start / continue 15-day trial (or use existing license) before opening app
-  const access = await getAccessStatus();
+  let access;
+  try{
+    access = await withTimeout(getAccessStatus(), 5000, "LICENSE_TIMEOUT");
+  }catch(_){
+    access = { allowed: true, mode: "trial", daysRemaining: 15 };
+  }
   hideAuth();
   startTracker({ db, shop: data, member: getCurrentMember(), access });
 }
@@ -184,11 +189,17 @@ async function startAuth(){
 async function bootApp(){
   startSplash(lang);
   showAuthScreen();
+  // Never leave splash forever if license/Firebase hangs
+  const splashWatchdog = setTimeout(()=>{
+    hideSplash(lang).catch(()=>{});
+  }, 10000);
   try{
     setSplashStatus("Starting…");
     // Start 15-day trial clock on first open (does not block login)
-    try{ await getAccessStatus(); }catch(_){}
-    const cfg = await resolveFirebaseConfig();
+    try{
+      await withTimeout(getAccessStatus(), 5000, "LICENSE_TIMEOUT");
+    }catch(_){}
+    const cfg = await withTimeout(resolveFirebaseConfig(), 5000, "CONFIG_TIMEOUT").catch(()=> null);
     if(!isFirebaseConfigReady(cfg)){
       await hideSplash(lang);
       showFirebaseConfigScreen();
@@ -196,10 +207,13 @@ async function bootApp(){
     }
     wireFirebase(cfg);
     await startAuth();
-  }catch{
+  }catch(e){
+    console.error("bootApp failed", e);
     await hideSplash(lang);
     showFirebaseConfigScreen();
     showAuthMessage("Could not start. Check Firebase config.");
+  }finally{
+    clearTimeout(splashWatchdog);
   }
 }
 
@@ -358,7 +372,7 @@ async function doTryOwnerSetup(){
   }
 }
 
-document.addEventListener("DOMContentLoaded", ()=>{
+function startUi(){
   initTheme();
   setupBtn.addEventListener("click", doSetup);
   loginBtn.addEventListener("click", doLogin);
@@ -385,8 +399,14 @@ document.addEventListener("DOMContentLoaded", ()=>{
     });
   });
   bootApp();
-});
+}
+
+if(document.readyState === "loading"){
+  document.addEventListener("DOMContentLoaded", startUi);
+}else{
+  startUi();
+}
 
 if(!isDesktopApp && "serviceWorker" in navigator){
-  window.addEventListener("load", ()=> navigator.serviceWorker.register("sw.js").catch(()=>{}));
+  window.addEventListener("load", ()=> navigator.serviceWorker.register("./sw.js?v=47").catch(()=>{}));
 }

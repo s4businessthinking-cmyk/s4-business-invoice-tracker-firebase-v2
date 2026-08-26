@@ -12,8 +12,8 @@ https://github.com/s4businessthinking-cmyk/s4-business-invoice-tracker-firebase-
 |----------|-----|
 | **Windows** | Release থেকে `S4-Invoice-Tracker-Setup-1.0.7.exe` → ইনস্টল |
 | **Android** | `S4-Invoice-Tracker-1.0.7.apk` সাইডলোড (Unknown sources ON) |
-| **iPhone PWA** | `frontend` HTTPS-এ হোস্ট করুন → Safari → Share → **Add to Home Screen** (`localhost` দিয়ে iPhone-এ Home Screen install হয় না) |
-| **PWA zip** | `S4-Invoice-Tracker-PWA-1.0.7.zip` — যেকোনো static host (Firebase Hosting / Netlify / IIS) |
+| **iPhone PWA** | Safari-এ খুলুন: https://s4-business-thinking-31213.web.app → Share → **Add to Home Screen** |
+| **PWA zip** | `S4-Invoice-Tracker-PWA-1.0.7.zip` — বিকল্প host (Firebase Hosting / Netlify / IIS) |
 
 ## লকড Login / Firebase (ARCHITECTURE.md §০)
 

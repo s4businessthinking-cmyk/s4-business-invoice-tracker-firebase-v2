@@ -15,7 +15,7 @@ import {
 } from "./drive-backup.js";
 import { buildBackupSnapshot, saveLocalBackup, restoreLocalBackup } from "./local-backup.js";
 import { loadSavedFirebaseConfig, buildInviteCode } from "./firebase-config.js";
-import { printHtmlDocument, downloadHtmlDocument, tableFromRows } from "./doc-export.js";
+import { printHtmlDocument, downloadHtmlDocument, tableFromRows } from "./doc-export.js?v=47";
 import { buildReportBundle, renderReportHtml, invoicesToCsv, downloadTextFile } from "./reports.js";
 import {
   getAccessStatus, activateLicense, licenseErrorText, maskFingerprint
@@ -28,6 +28,8 @@ let _fullDeviceFingerprint = "";
 const unsubs = [];
 let customers = [];
 let vehicles = [];
+let products = [];
+let services = [];
 let invoices = [];
 let receipts = [];
 let creditNotes = [];
@@ -44,6 +46,8 @@ let _invoiceWipTimer = null;
 let _editingExistingInvoice = false;
 let _invoiceLineItems = [];
 let _invoiceEntryModeMem = null;
+/** Temporary mode while editing one invoice (WIP) — must NOT overwrite shop preference */
+let _formInvoiceMode = null;
 let _currentSettingsView = "hub";
 
 function col(name){ return collection(db, name); }
@@ -64,10 +68,10 @@ function friendlyFirestoreError(e){
   const code = String(e?.code || "").replace(/^firestore\//, "");
   const msg = String(e?.message || e || "");
   if(code === "resource-exhausted" || /resource.?exhausted/i.test(msg)){
-    return "Firebase স্টোরেজ (1GB ফ্রি লিমিট) শেষ হয়ে গেছে। নতুন ডেটা সেভ হচ্ছে না। Firebase Console-এ গিয়ে Blaze প্ল্যানে upgrade করুন অথবা পুরনো ডেটা মুছে জায়গা খালি করুন।";
+    return "Firebase storage (1GB free limit) is full. New data is not saving. Upgrade to Blaze in Firebase Console, or delete old data to free space.";
   }
   if(code === "permission-denied" || /insufficient permissions|permission.?denied/i.test(msg)){
-    return "Permission নেই — email verify হয়েছে কি? Firebase Console-এ firestore.rules Publish করেছেন কি? Logout করে আবার Login করুন।";
+    return "No permission — is email verified? Did you Publish firestore.rules in Firebase Console? Logout and login again.";
   }
   return msg || "Save failed";
 }
@@ -75,7 +79,7 @@ function isAppOnline(){
   try{ return navigator.onLine !== false; }catch(_){ return true; }
 }
 /** Fire Firestore write without blocking UI; toast now, report failures later. */
-function commitWrite(writePromise, { okMsg = "Saved", offlineMsg = "সেভ হয়েছে — অনলাইনে এলে sync হবে" } = {}){
+function commitWrite(writePromise, { okMsg = "Saved", offlineMsg = "Saved — will sync when online" } = {}){
   toast(isAppOnline() ? okMsg : offlineMsg);
   Promise.resolve(writePromise).catch(err=>{
     console.error("Firestore write failed:", err);
@@ -83,14 +87,98 @@ function commitWrite(writePromise, { okMsg = "Saved", offlineMsg = "সেভ �
   });
   return writePromise;
 }
-function openModal(id){
+let _ignoreDrawerCloseUntil = 0;
+
+function openModal(id, opts = {}){
+  const el = document.getElementById(id);
+  if(!el){
+    console.error("openModal: missing element", id);
+    toast("Cannot open form: " + id);
+    return false;
+  }
   try{
     document.documentElement.scrollLeft = 0;
     window.scrollTo({ left: 0, behavior: "auto" });
   }catch(_){}
-  document.getElementById(id).classList.add("open");
+  const keep = new Set(opts.keepOpen || []);
+  // Close other drawers unless caller asked to stack (e.g. Vehicle on top of Invoice)
+  document.querySelectorAll(".drawer.open").forEach(d=>{
+    if(d === el) return;
+    if(keep.has(d.id)) return;
+    d.classList.remove("open");
+    d.style.display = "";
+    d.style.zIndex = "";
+  });
+  el.classList.add("open");
+  // Inline styles beat any stale CSS/cache fighting .drawer.open
+  el.style.display = "block";
+  el.style.zIndex = keep.size ? "6100" : "6000";
+  // Same click that opened the button must not instantly close the backdrop
+  _ignoreDrawerCloseUntil = Date.now() + 600;
+  return true;
 }
-function closeModal(id){ document.getElementById(id).classList.remove("open"); }
+function closeModal(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.classList.remove("open");
+  el.style.display = "";
+  el.style.zIndex = "";
+}
+
+function prepareOpenModal(id){
+  if(id === "invoiceModal") openNewInvoice();
+  else if(id === "receiptModal") resetReceipt();
+  else if(id === "customerModal") resetCustomer();
+  else if(id === "cnModal") resetCn();
+  else if(id === "dnModal") resetDn();
+  else if(id === "chequeModal") resetCheque();
+  else if(id === "discModal") resetDisc();
+  else if(id === "vehicleModal") resetVehicle();
+  else if(id === "productModal") resetProduct();
+  else if(id === "serviceModal") resetService();
+}
+
+function openFormModal(id, opts = {}){
+  const el = document.getElementById(id);
+  const info = {
+    id,
+    found: !!el,
+    opened: false,
+    display: "",
+    prepareError: null
+  };
+  if(!openModal(id, opts)) return info;
+  info.opened = true;
+  try{ info.display = getComputedStyle(el).display; }catch(_){}
+  try{
+    prepareOpenModal(id);
+  }catch(err){
+    info.prepareError = String(err && err.message ? err.message : err);
+    console.error("open form prepare failed", id, err);
+    toast(info.prepareError || ("Could not prepare form: " + id));
+  }
+  // Keep open even if prepare failed
+  if(el && !el.classList.contains("open")){
+    el.classList.add("open");
+    el.style.display = "block";
+    el.style.zIndex = (opts.keepOpen && opts.keepOpen.length) ? "6100" : "6000";
+  }
+  return info;
+}
+
+function wireModalOpeners(){
+  document.querySelectorAll("[data-open]").forEach(b=>{
+    if(b._s4OpenBound) return;
+    b._s4OpenBound = true;
+    b.addEventListener("click", e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      const id = b.getAttribute("data-open");
+      if(!id) return;
+      openFormModal(id);
+    });
+  });
+}
 
 /** ESC / mobile Back / Android browser back — close overlays first, then settings sub, then sidebar, then page→dashboard */
 function handleAppBack(){
@@ -118,6 +206,8 @@ function handleAppBack(){
       try{ saveInvoiceWip(); }catch(_){}
     }
     openDrawer.classList.remove("open");
+    openDrawer.style.display = "";
+    openDrawer.style.zIndex = "";
     return true;
   }
 
@@ -186,9 +276,12 @@ function showPage(id){
   document.getElementById("sidebar").classList.remove("open");
   const backBtn = document.getElementById("mobileBackBtn");
   if(backBtn) backBtn.hidden = (id === "dashboard");
+  if(id === "vehicles") renderVehicles();
+  if(id === "product-catalog") renderProducts();
+  if(id === "service-catalog") renderServices();
   if(id === "ledger") fillLedger();
   if(id === "statements") fillStatement();
-  if(id === "allocation") fillAllocSelect();
+  if(id === "allocation"){ fillAllocSelect(); fillCnAllocSelect(); }
   if(id === "communication") fillWhatsapp();
   if(id === "users") renderTeam();
   if(id === "settings") fillSettings();
@@ -222,8 +315,63 @@ function nextNo(prefix, list, field){
 
 function invBalance(inv){ return Math.max(0, num(inv.total) - num(inv.paid) - num(inv.credited)); }
 
+function roundMoney(n){ return Math.round((num(n) + Number.EPSILON) * 100) / 100; }
+
+/** Split `total` across `weights` proportionally; last item absorbs rounding remainder. */
+function distributeProportionally(total, weights){
+  const t = roundMoney(total);
+  const ws = weights.map(w=> Math.max(0, num(w)));
+  const sumW = ws.reduce((s,w)=> s + w, 0);
+  if(t <= 0 || sumW <= 0) return ws.map(()=> 0);
+  const shares = ws.map(w=> roundMoney(t * w / sumW));
+  const diff = roundMoney(t - shares.reduce((s,x)=> s + x, 0));
+  if(shares.length) shares[shares.length - 1] = roundMoney(shares[shares.length - 1] + diff);
+  return shares;
+}
+
+/**
+ * Build invoice paid/credited/paidDate patch after a payment or credit change.
+ * paidDate set when balance reaches ~0; cleared when a reversal leaves unpaid.
+ */
+function invoiceMoneyPatch(inv, { paidDelta = 0, creditedDelta = 0, updatedBy } = {}){
+  // Never allow negative paid/credited (double bounce / bad reverse would gormil books)
+  const paid = roundMoney(Math.max(0, num(inv.paid) + paidDelta));
+  const credited = roundMoney(Math.max(0, num(inv.credited) + creditedDelta));
+  const bal = Math.max(0, roundMoney(num(inv.total) - paid - credited));
+  const patch = { paid, credited, updatedAt: Date.now() };
+  if(updatedBy) patch.updatedBy = updatedBy;
+  if(bal <= 0.009) patch.paidDate = inv.paidDate || today();
+  else if(paidDelta < 0 || creditedDelta < 0) patch.paidDate = "";
+  return patch;
+}
+
 function receiptAffectsBalance(r){
-  return !["Cancelled", "Bounced", "Pending", "Deposited"].includes(r.status || "Posted");
+  // Must match saveReceipt apply rules — otherwise ledger vs invoice.paid diverge
+  const st = r.status || "Posted";
+  if(st === "Cancelled" || st === "Bounced" || st === "Pending" || st === "Deposited" || st === "Voided") return false;
+  const isCheque = String(r.method || "").includes("Cheque");
+  if(isCheque) return st === "Cleared";
+  return st === "Posted";
+}
+
+/** CN/DN count on ledger & money links only when live (not Draft/Voided/Cancelled). */
+function noteIsLive(n){
+  const st = n?.status || "Posted";
+  return st !== "Draft" && st !== "Voided" && st !== "Cancelled";
+}
+
+/** Unallocated credit still available to put on invoices (customer-level CN). */
+function cnOpenCredit(n){
+  if(!noteIsLive(n)) return 0;
+  const amt = roundMoney(num(n.amount));
+  if(Array.isArray(n.allocations) && n.allocations.length){
+    const used = n.allocations.reduce((s, a)=> s + num(a.amount), 0);
+    return Math.max(0, roundMoney(amt - used));
+  }
+  if(num(n.allocated) > 0.009) return Math.max(0, roundMoney(amt - num(n.allocated)));
+  // Legacy: invoice field set at create ⇒ fully applied to that invoice
+  if(String(n.invoice || "").trim()) return 0;
+  return amt;
 }
 
 function invStatus(inv){
@@ -237,7 +385,7 @@ function invStatus(inv){
 
 function badge(st){
   const cls = st === "Paid" || st === "Active" || st === "Posted" || st === "Cleared" ? "green"
-    : st === "Overdue" || st === "Blocked" || st === "Bounced" ? "red"
+    : st === "Overdue" || st === "Blocked" || st === "Bounced" || st === "Voided" || st === "Cancelled" ? "red"
     : st === "Partial" || st === "Hold" || st === "Pending" || st === "Draft" || st === "Deposited" ? "orange" : "blue";
   return `<span class="badge ${cls}">${esc(st)}</span>`;
 }
@@ -270,9 +418,418 @@ function customerOverdue(name){
 }
 
 function customerOptions(selectEl, selected){
+  if(!selectEl) return;
+  const sel = selected || "";
   selectEl.innerHTML = `<option value="">Select…</option>` + customers.map(c=>
-    `<option value="${esc(c.name)}" ${c.name===selected?"selected":""}>${esc(c.name)}</option>`
+    `<option value="${esc(c.name)}" ${c.name===sel?"selected":""}>${esc(c.name)}</option>`
   ).join("");
+  if(sel) selectEl.value = sel;
+  syncCustomerComboInput(selectEl);
+}
+
+function syncCustomerComboInput(selectEl){
+  const wrap = selectEl?.closest?.(".cust-combo");
+  if(!wrap) return;
+  const input = wrap.querySelector(".cust-combo-input");
+  if(input) input.value = selectEl.value || "";
+}
+
+function filterCustomersForCombo(q){
+  const ql = String(q || "").toLowerCase().trim();
+  return customers.filter(c=>{
+    if(!ql) return true;
+    return `${c.name||""} ${c.code||""} ${c.mobile||""} ${c.whatsapp||""}`.toLowerCase().includes(ql);
+  });
+}
+
+function closeAllCustomerCombos(except){
+  document.querySelectorAll(".cust-combo").forEach(wrap=>{
+    if(except && wrap === except) return;
+    const input = wrap.querySelector(".cust-combo-input");
+    if(input) input.setAttribute("aria-expanded", "false");
+  });
+  document.querySelectorAll(".cust-combo-list").forEach(list=>{
+    if(except){
+      const ownerId = except.getAttribute("data-combo") || "";
+      if(ownerId && list.dataset.comboOwner === ownerId) return;
+      // same wrap's list may still be inside wrap (not yet portaled)
+      if(except.contains(list)) return;
+    }
+    list.hidden = true;
+  });
+}
+
+function positionCustomerComboList(wrap, list){
+  // Portal to <body> — .modal uses transform, which breaks position:fixed
+  if(list.parentElement !== document.body){
+    list.dataset.comboOwner = wrap.getAttribute("data-combo") || "";
+    document.body.appendChild(list);
+  }
+  const r = wrap.getBoundingClientRect();
+  const width = Math.max(Math.round(r.width), 240);
+  let left = Math.round(r.left);
+  if(left + width > window.innerWidth - 8){
+    left = Math.max(8, window.innerWidth - width - 8);
+  }
+  if(left < 8) left = 8;
+
+  const maxH = 240;
+  const gap = 4;
+  const spaceBelow = window.innerHeight - r.bottom - 8;
+  const spaceAbove = r.top - 8;
+  const openUp = spaceBelow < 140 && spaceAbove > spaceBelow;
+  const height = Math.max(80, Math.min(maxH, openUp ? spaceAbove : spaceBelow));
+  const top = openUp
+    ? Math.round(r.top - height - gap)
+    : Math.round(r.bottom + gap);
+
+  list.style.position = "fixed";
+  list.style.left = left + "px";
+  list.style.top = top + "px";
+  list.style.width = width + "px";
+  list.style.right = "auto";
+  list.style.maxHeight = height + "px";
+  list.style.zIndex = "7000";
+  list.hidden = false;
+}
+
+function renderCustomerComboList(wrap, q){
+  const list = wrap.querySelector(".cust-combo-list")
+    || document.querySelector(`.cust-combo-list[data-combo-owner="${wrap.getAttribute("data-combo") || ""}"]`);
+  const input = wrap.querySelector(".cust-combo-input");
+  if(!list) return;
+  closeAllCustomerCombos(wrap);
+  const rows = filterCustomersForCombo(q).slice(0, 80);
+  if(!rows.length){
+    list.innerHTML = `<li class="cust-combo-empty">${customers.length ? "No match" : "No customers yet"}</li>`;
+  }else{
+    list.innerHTML = rows.map(c=> `<li role="option" data-name="${esc(c.name)}" title="${esc(c.name)}">${esc(c.name)}</li>`).join("");
+  }
+  positionCustomerComboList(wrap, list);
+  if(input) input.setAttribute("aria-expanded", "true");
+}
+
+function pickCustomerCombo(wrap, name){
+  const sel = wrap.querySelector("select");
+  const input = wrap.querySelector(".cust-combo-input");
+  const owner = wrap.getAttribute("data-combo") || "";
+  const list = wrap.querySelector(".cust-combo-list")
+    || document.querySelector(`.cust-combo-list[data-combo-owner="${owner}"]`);
+  if(!sel) return;
+  const n = String(name || "").trim();
+  customerOptions(sel, n);
+  sel.value = n;
+  if(input) input.value = n;
+  if(list) list.hidden = true;
+  if(input) input.setAttribute("aria-expanded", "false");
+  sel.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function commitCustomerComboInput(wrap){
+  const sel = wrap.querySelector("select");
+  const input = wrap.querySelector(".cust-combo-input");
+  if(!sel || !input) return;
+  const typed = input.value.trim();
+  if(!typed){
+    pickCustomerCombo(wrap, "");
+    return;
+  }
+  const exact = customers.find(c=> String(c.name||"").toLowerCase() === typed.toLowerCase());
+  const partial = exact || customers.find(c=> String(c.name||"").toLowerCase().includes(typed.toLowerCase()));
+  if(partial) pickCustomerCombo(wrap, partial.name);
+  else{
+    input.value = sel.value || "";
+    closeAllCustomerCombos();
+  }
+}
+
+function wireCustomerCombos(){
+  if(window._s4CustComboWired) return;
+  window._s4CustComboWired = true;
+
+  document.querySelectorAll(".cust-combo").forEach(wrap=>{
+    const input = wrap.querySelector(".cust-combo-input");
+    const btn = wrap.querySelector(".cust-combo-btn");
+    let list = wrap.querySelector(".cust-combo-list");
+    const sel = wrap.querySelector("select");
+    if(!input || !sel || !list) return;
+    const owner = wrap.getAttribute("data-combo") || sel.id || "";
+    if(owner) wrap.setAttribute("data-combo", owner);
+
+    const getList = ()=> wrap.querySelector(".cust-combo-list")
+      || document.querySelector(`.cust-combo-list[data-combo-owner="${owner}"]`)
+      || list;
+
+    input.addEventListener("focus", ()=> renderCustomerComboList(wrap, input.value));
+    input.addEventListener("input", ()=> renderCustomerComboList(wrap, input.value));
+    input.addEventListener("keydown", e=>{
+      const lst = getList();
+      if(e.key === "Escape"){
+        if(lst) lst.hidden = true;
+        input.setAttribute("aria-expanded", "false");
+        input.value = sel.value || "";
+        return;
+      }
+      if(e.key === "Enter"){
+        e.preventDefault();
+        const first = lst && lst.querySelector("li[data-name]");
+        if(first) pickCustomerCombo(wrap, first.getAttribute("data-name"));
+        else commitCustomerComboInput(wrap);
+      }
+      if(e.key === "ArrowDown"){
+        e.preventDefault();
+        renderCustomerComboList(wrap, input.value);
+      }
+    });
+    input.addEventListener("blur", ()=>{
+      setTimeout(()=>{
+        const lst = getList();
+        if(lst && lst.contains(document.activeElement)) return;
+        if(wrap.contains(document.activeElement)) return;
+        commitCustomerComboInput(wrap);
+      }, 150);
+    });
+
+    btn?.addEventListener("mousedown", e=>{
+      e.preventDefault();
+      const lst = getList();
+      if(!lst || lst.hidden){
+        closeAllCustomerCombos(wrap);
+        input.focus();
+        renderCustomerComboList(wrap, "");
+      }else{
+        lst.hidden = true;
+        input.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    list.addEventListener("mousedown", e=>{
+      const li = e.target.closest("li[data-name]");
+      if(!li) return;
+      e.preventDefault();
+      pickCustomerCombo(wrap, li.getAttribute("data-name"));
+    });
+  });
+
+  document.addEventListener("mousedown", e=>{
+    if(e.target.closest(".cust-combo") || e.target.closest(".cust-combo-list")) return;
+    closeAllCustomerCombos();
+  });
+  window.addEventListener("resize", ()=> closeAllCustomerCombos());
+  document.addEventListener("scroll", ()=> closeAllCustomerCombos(), true);
+}
+
+/* ——— Invoice number typeahead (CN / DN / Cheque) ——— */
+function invoicesForCustomer(customer, q){
+  const ql = String(q || "").toLowerCase().trim();
+  return invoices
+    .filter(i=>{
+      if(customer && i.customer !== customer) return false;
+      if(i.status === "Draft") return false;
+      if(!ql) return true;
+      const blob = `${i.invNo||""} ${i.manualNo||""} ${i.computerNo||""} ${i.vehicle||""}`.toLowerCase();
+      return blob.includes(ql);
+    })
+    .sort((a,b)=> String(b.invDate||"").localeCompare(String(a.invDate||"")));
+}
+
+function syncInvoiceComboInput(selectEl){
+  const wrap = selectEl?.closest?.(".inv-combo");
+  if(!wrap) return;
+  const input = wrap.querySelector(".inv-combo-input");
+  if(input) input.value = selectEl.value || "";
+}
+
+function closeAllInvoiceCombos(except){
+  document.querySelectorAll(".inv-combo").forEach(wrap=>{
+    if(except && wrap === except) return;
+    const input = wrap.querySelector(".inv-combo-input");
+    if(input) input.setAttribute("aria-expanded", "false");
+  });
+  document.querySelectorAll(".inv-combo-list").forEach(list=>{
+    if(except){
+      const ownerId = except.getAttribute("data-inv-combo") || "";
+      if(ownerId && list.dataset.invComboOwner === ownerId) return;
+      if(except.contains(list)) return;
+    }
+    list.hidden = true;
+  });
+}
+
+function positionInvoiceComboList(wrap, list){
+  if(list.parentElement !== document.body){
+    list.dataset.invComboOwner = wrap.getAttribute("data-inv-combo") || "";
+    document.body.appendChild(list);
+  }
+  const r = wrap.getBoundingClientRect();
+  const width = Math.max(Math.round(r.width), 280);
+  let left = Math.round(r.left);
+  if(left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8);
+  if(left < 8) left = 8;
+  const maxH = 260;
+  const gap = 4;
+  const spaceBelow = window.innerHeight - r.bottom - 8;
+  const spaceAbove = r.top - 8;
+  const openUp = spaceBelow < 140 && spaceAbove > spaceBelow;
+  const height = Math.max(80, Math.min(maxH, openUp ? spaceAbove : spaceBelow));
+  const top = openUp ? Math.round(r.top - height - gap) : Math.round(r.bottom + gap);
+  list.style.position = "fixed";
+  list.style.left = left + "px";
+  list.style.top = top + "px";
+  list.style.width = width + "px";
+  list.style.right = "auto";
+  list.style.maxHeight = height + "px";
+  list.style.zIndex = "7000";
+  list.hidden = false;
+}
+
+function renderInvoiceComboList(wrap, q){
+  const owner = wrap.getAttribute("data-inv-combo") || "";
+  const list = wrap.querySelector(".inv-combo-list")
+    || document.querySelector(`.inv-combo-list[data-inv-combo-owner="${owner}"]`);
+  const input = wrap.querySelector(".inv-combo-input");
+  const custId = wrap.getAttribute("data-inv-customer") || "";
+  const custSel = custId ? document.getElementById(custId) : null;
+  const customer = custSel?.value || "";
+  if(!list) return;
+  closeAllInvoiceCombos(wrap);
+  closeAllCustomerCombos();
+  if(!customer){
+    list.innerHTML = `<li class="inv-combo-empty">Select customer first</li>`;
+    positionInvoiceComboList(wrap, list);
+    if(input) input.setAttribute("aria-expanded", "true");
+    return;
+  }
+  const rows = invoicesForCustomer(customer, q).slice(0, 80);
+  if(!rows.length){
+    list.innerHTML = `<li class="inv-combo-empty">${q ? "No matching invoice" : "No invoices for this customer"}</li>`;
+  }else{
+    list.innerHTML = rows.map(i=>{
+      const bal = invBalance(i);
+      const meta = `${i.invDate||""} · Due ${money(bal)} · Total ${money(i.total)}`;
+      return `<li role="option" data-invno="${esc(i.invNo)}" title="${esc(i.invNo)}">
+        <b>${esc(i.invNo)}</b>
+        <span class="inv-meta">${esc(meta)}${i.manualNo ? " · Manual " + esc(i.manualNo) : ""}${i.computerNo ? " · Comp " + esc(i.computerNo) : ""}</span>
+      </li>`;
+    }).join("");
+  }
+  positionInvoiceComboList(wrap, list);
+  if(input) input.setAttribute("aria-expanded", "true");
+}
+
+function pickInvoiceCombo(wrap, invNo){
+  const sel = wrap.querySelector("select");
+  const input = wrap.querySelector(".inv-combo-input");
+  const owner = wrap.getAttribute("data-inv-combo") || "";
+  const list = wrap.querySelector(".inv-combo-list")
+    || document.querySelector(`.inv-combo-list[data-inv-combo-owner="${owner}"]`);
+  if(!sel) return;
+  const n = String(invNo || "").trim();
+  if(n && ![...sel.options].some(o=> o.value === n)){
+    sel.insertAdjacentHTML("beforeend", `<option value="${esc(n)}">${esc(n)}</option>`);
+  }
+  sel.value = n;
+  if(input) input.value = n;
+  if(list) list.hidden = true;
+  if(input) input.setAttribute("aria-expanded", "false");
+  sel.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function commitInvoiceComboInput(wrap){
+  const sel = wrap.querySelector("select");
+  const input = wrap.querySelector(".inv-combo-input");
+  const custId = wrap.getAttribute("data-inv-customer") || "";
+  const customer = custId ? (document.getElementById(custId)?.value || "") : "";
+  if(!sel || !input) return;
+  const typed = input.value.trim();
+  if(!typed){
+    pickInvoiceCombo(wrap, "");
+    return;
+  }
+  const rows = invoicesForCustomer(customer, typed);
+  const exact = rows.find(i=> String(i.invNo||"").toLowerCase() === typed.toLowerCase());
+  const partial = exact || rows[0];
+  if(partial) pickInvoiceCombo(wrap, partial.invNo);
+  else{
+    input.value = sel.value || "";
+    closeAllInvoiceCombos();
+  }
+}
+
+function wireInvoiceCombos(){
+  if(window._s4InvComboWired) return;
+  window._s4InvComboWired = true;
+
+  document.querySelectorAll(".inv-combo").forEach(wrap=>{
+    const input = wrap.querySelector(".inv-combo-input");
+    const btn = wrap.querySelector(".inv-combo-btn");
+    let list = wrap.querySelector(".inv-combo-list");
+    const sel = wrap.querySelector("select");
+    if(!input || !sel || !list) return;
+    const owner = wrap.getAttribute("data-inv-combo") || sel.id || "";
+    if(owner) wrap.setAttribute("data-inv-combo", owner);
+
+    const getList = ()=> wrap.querySelector(".inv-combo-list")
+      || document.querySelector(`.inv-combo-list[data-inv-combo-owner="${owner}"]`)
+      || list;
+
+    input.addEventListener("focus", ()=> renderInvoiceComboList(wrap, input.value));
+    input.addEventListener("input", ()=> renderInvoiceComboList(wrap, input.value));
+    input.addEventListener("keydown", e=>{
+      const lst = getList();
+      if(e.key === "Escape"){
+        if(lst) lst.hidden = true;
+        input.setAttribute("aria-expanded", "false");
+        input.value = sel.value || "";
+        return;
+      }
+      if(e.key === "Enter"){
+        e.preventDefault();
+        const first = lst && lst.querySelector("li[data-invno]");
+        if(first) pickInvoiceCombo(wrap, first.getAttribute("data-invno"));
+        else commitInvoiceComboInput(wrap);
+      }
+      if(e.key === "ArrowDown"){
+        e.preventDefault();
+        renderInvoiceComboList(wrap, input.value);
+      }
+    });
+    input.addEventListener("blur", ()=>{
+      setTimeout(()=>{
+        const lst = getList();
+        if(lst && lst.contains(document.activeElement)) return;
+        if(wrap.contains(document.activeElement)) return;
+        commitInvoiceComboInput(wrap);
+      }, 150);
+    });
+
+    btn?.addEventListener("mousedown", e=>{
+      e.preventDefault();
+      const lst = getList();
+      if(!lst || lst.hidden){
+        closeAllInvoiceCombos(wrap);
+        input.focus();
+        renderInvoiceComboList(wrap, "");
+      }else{
+        lst.hidden = true;
+        input.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    list.addEventListener("mousedown", e=>{
+      const li = e.target.closest("li[data-invno]");
+      if(!li) return;
+      e.preventDefault();
+      pickInvoiceCombo(wrap, li.getAttribute("data-invno"));
+    });
+  });
+
+  document.addEventListener("mousedown", e=>{
+    if(e.target.closest(".inv-combo") || e.target.closest(".inv-combo-list")) return;
+    closeAllInvoiceCombos();
+  });
+  window.addEventListener("resize", ()=> closeAllInvoiceCombos());
+  document.addEventListener("scroll", ()=> closeAllInvoiceCombos(), true);
 }
 
 export function stopTracker(){
@@ -298,7 +855,10 @@ export function startTracker(opts){
   document.getElementById("userRole").textContent = member?.role === "owner" ? "Owner" : "Staff";
   document.getElementById("userAvatar").textContent = (member?.displayName || "U").slice(0,2).toUpperCase();
   syncTopShopName();
+  // Always (re)wire modal buttons even if bindUi already ran once
+  wireModalOpeners();
   bindUi();
+  wireModalOpeners();
   applyNavPermissions();
   enforceAccessGate(opts.access);
   const driveSt = document.getElementById("driveBackupStatus");
@@ -313,10 +873,25 @@ export function startTracker(opts){
   refreshNotifications();
   initReportPeriodControls();
   listen("customers", rows => { customers = rows; renderCustomers(); refreshSelects(); renderDashboard(); });
-  listen("vehicles", rows => { vehicles = rows; refreshSelects(); });
-  listen("invoices", rows => { invoices = rows; renderInvoices(); renderCustomers(); renderDashboard(); renderAging(); fillLedger(); fillStatement(); fillAllocSelect(); refreshNotifications(); });
+  listen("vehicles", rows => { vehicles = rows; renderVehicles(); refreshSelects(); filterVehiclesForInvoice(); });
+  listen("productCatalog", rows => { products = rows; renderProducts(); });
+  listen("serviceCatalog", rows => { services = rows; renderServices(); });
+  // Live shop settings (invoice entry mode sync Owner → Staff)
+  unsubs.push(onSnapshot(doc(db, "shop", "info"), snap=>{
+    if(!snap.exists()) return;
+    const next = snap.data() || {};
+    const modeChanged = (next.invoiceEntryMode || "") !== (shop?.invoiceEntryMode || "");
+    shop = next;
+    syncTopShopName();
+    if(modeChanged){
+      _formInvoiceMode = null;
+      applyInvoiceEntryMode();
+    }
+    syncInvoiceModeSettingsUi();
+  }, err=> toast(friendlyFirestoreError(err))));
+  listen("invoices", rows => { invoices = rows; renderInvoices(); renderCustomers(); renderDashboard(); renderAging(); fillLedger(); fillStatement(); fillAllocSelect(); fillCnAllocSelect(); refreshNotifications(); });
   listen("receipts", rows => { receipts = rows; renderReceipts(); renderCustomers(); renderDashboard(); fillAllocSelect(); fillLedger(); fillStatement(); refreshNotifications(); });
-  listen("creditNotes", rows => { creditNotes = rows; renderNotes("cnRows", creditNotes, "cnNo"); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); });
+  listen("creditNotes", rows => { creditNotes = rows; renderNotes("cnRows", creditNotes, "cnNo"); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); fillCnAllocSelect(); });
   listen("debitNotes", rows => { debitNotes = rows; renderNotes("dnRows", debitNotes, "dnNo"); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); });
   listen("cheques", rows => { cheques = rows; renderCheques(); renderCustomers(); renderDashboard(); refreshNotifications(); });
   listen("discounts", rows => { discounts = rows; renderDiscounts(); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); });
@@ -330,6 +905,14 @@ export function startTracker(opts){
         }).join("")
       : `<tr><td colspan="8" class="empty">No activity yet</td></tr>`;
   }));
+  wireIdleDashboardReset();
+  wireCloseBackupHooks();
+  wireExpiryReminders();
+  wireCustomerCombos();
+  wireInvoiceCombos();
+  wireCatalogSuggest();
+  // Debug helper: in Console run s4OpenForm('receiptModal')
+  try{ window.s4OpenForm = openFormModal; }catch(_){}
 }
 
 async function enforceAccessGate(accessHint){
@@ -348,8 +931,18 @@ async function enforceAccessGate(accessHint){
   }
   const fpEl = document.getElementById("gateLicenseFp");
   if(fpEl) fpEl.textContent = access.maskedFingerprint || maskFingerprint(_fullDeviceFingerprint);
+  const title = document.getElementById("gateLicenseTitle");
+  const lead = document.getElementById("gateLicenseLead");
+  const reason = access.reason || "TRIAL_EXPIRED";
+  if(reason === "LICENSE_EXPIRED"){
+    if(title) title.textContent = "License expired";
+    if(lead) lead.textContent = "Your S4 license on this PC has expired. Activate a renewed license key to continue.";
+  }else{
+    if(title) title.textContent = "Trial ended";
+    if(lead) lead.textContent = "Your 15-day free trial on this PC is over. Activate an S4 license to continue.";
+  }
   const msg = document.getElementById("gateLicenseMsg");
-  if(msg) msg.textContent = licenseErrorText(access.reason || "TRIAL_EXPIRED");
+  if(msg) msg.textContent = licenseErrorText(reason);
   overlay.hidden = false;
 }
 
@@ -385,44 +978,84 @@ function listen(name, cb){
   const q = query(col(name));
   unsubs.push(onSnapshot(q, snap=>{
     cb(snap.docs.map(d=>({ id:d.id, ...d.data() })));
-  }, err=> toast(friendlyFirestoreError(err))));
+  }, err=> toast(friendlyFirestoreError(err) + " [" + name + "]")));
 }
 
 function bindUi(){
   if(uiBound) return;
   uiBound = true;
   wireAppBackControls();
+  wireModalOpeners();
   document.querySelectorAll("[data-page]").forEach(n=>{
     n.onclick = ()=> showPage(n.dataset.page);
-  });
-  document.querySelectorAll("[data-open]").forEach(b=>{
-    b.onclick = ()=> {
-      if(b.dataset.open === "invoiceModal") openNewInvoice();
-      if(b.dataset.open === "receiptModal") resetReceipt();
-      if(b.dataset.open === "customerModal") resetCustomer();
-      if(b.dataset.open === "cnModal") resetCn();
-      if(b.dataset.open === "dnModal") resetDn();
-      if(b.dataset.open === "chequeModal") resetCheque();
-      if(b.dataset.open === "discModal") resetDisc();
-      openModal(b.dataset.open);
-    };
   });
   document.querySelectorAll("[data-close]").forEach(b=> b.onclick = ()=>{
     if(b.dataset.close === "invoiceModal") saveInvoiceWip();
     closeModal(b.dataset.close);
   });
-  document.querySelectorAll(".drawer").forEach(d=> d.addEventListener("click", e=>{
-    if(e.target === d){
-      if(d.id === "invoiceModal") saveInvoiceWip();
+  document.querySelectorAll(".drawer").forEach(d=>{
+    if(d._s4BackdropBound) return;
+    d._s4BackdropBound = true;
+    d.addEventListener("click", e=>{
+      if(e.target !== d) return;
+      if(Date.now() < _ignoreDrawerCloseUntil) return;
+      if(d.id === "invoiceModal"){
+        try{ saveInvoiceWip(); }catch(_){}
+      }
       d.classList.remove("open");
-    }
-  }));
+      d.style.display = "";
+      d.style.zIndex = "";
+    });
+  });
   document.getElementById("menu").onclick = ()=> document.getElementById("sidebar").classList.toggle("open");
   document.getElementById("saveCustomerBtn").onclick = saveCustomer;
+  document.getElementById("saveVehicleBtn")?.addEventListener("click", saveVehicle);
+  document.getElementById("addVehicleBtn")?.addEventListener("click", e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    openFormModal("vehicleModal");
+  });
+  document.getElementById("invAddVehicleBtn")?.addEventListener("click", e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    // Keep invoice open underneath — do not wipe WIP / in-progress edits
+    openFormModal("vehicleModal", { keepOpen: ["invoiceModal"] });
+    const cust = invCustomer?.value || "";
+    if(cust) customerOptions(vCustomer, cust);
+  });
+  document.getElementById("vehicleSearch")?.addEventListener("input", renderVehicles);
+  document.getElementById("saveProductBtn")?.addEventListener("click", saveProduct);
+  document.getElementById("addProductBtn")?.addEventListener("click", e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    openFormModal("productModal");
+  });
+  document.getElementById("productSearch")?.addEventListener("input", renderProducts);
+  document.getElementById("importProductsBtn")?.addEventListener("click", ()=> document.getElementById("importProductsFile")?.click());
+  document.getElementById("importProductsFile")?.addEventListener("change", e=>{
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if(f) importCatalogCsv("product", f);
+  });
+  document.getElementById("saveServiceBtn")?.addEventListener("click", saveService);
+  document.getElementById("addServiceBtn")?.addEventListener("click", e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    openFormModal("serviceModal");
+  });
+  document.getElementById("serviceSearch")?.addEventListener("input", renderServices);
+  document.getElementById("importServicesBtn")?.addEventListener("click", ()=> document.getElementById("importServicesFile")?.click());
+  document.getElementById("importServicesFile")?.addEventListener("change", e=>{
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if(f) importCatalogCsv("service", f);
+  });
+  document.getElementById("saveEntryToCatalogBtn")?.addEventListener("click", saveEntryToCatalog);
   document.getElementById("saveInvoiceBtn").onclick = ()=> saveInvoice("Posted");
   document.getElementById("draftInvoiceBtn").onclick = ()=> saveInvoice("Draft");
   document.getElementById("deleteInvoiceBtn")?.addEventListener("click", ()=>{
-    if(invId.value) deleteInvoice(invId.value);
+    const invId = document.getElementById("invId");
+    if(invId?.value) deleteInvoice(invId.value);
   });
   document.getElementById("saveReceiptBtn").onclick = saveReceipt;
   document.getElementById("invStartFreshBtn")?.addEventListener("click", startFreshInvoice);
@@ -546,21 +1179,51 @@ function bindUi(){
   });
   document.getElementById("allocReceipt").onchange = fillAllocRows;
   document.getElementById("saveAllocBtn").onclick = saveAllocation;
-  document.getElementById("rvCustomer").onchange = fillRvAlloc;
-  document.getElementById("rvAmount")?.addEventListener("input", fillRvAlloc);
-  document.getElementById("rvMethod")?.addEventListener("change", ()=>{
-    const m = rvMethod.value || "";
-    if(rvStatus) rvStatus.value = m.includes("Cheque") ? "Pending" : "Posted";
-  });
-  document.getElementById("cnCustomer")?.addEventListener("change", ()=> fillNoteInvoices(cnInvoice, cnCustomer.value));
-  document.getElementById("cnInvoice")?.addEventListener("change", ()=>{
-    const inv = invoices.find(i=> i.invNo === cnInvoice.value);
-    if(inv && !num(cnAmount.value)) cnAmount.value = invBalance(inv);
-  });
-  document.getElementById("invCustomer").onchange = ()=>{
+  document.getElementById("saveCnAllocBtn")?.addEventListener("click", saveCnAllocation);
+  document.getElementById("allocCn")?.addEventListener("change", fillCnAllocRows);
+  document.getElementById("invCustomer")?.addEventListener("change", ()=>{
     filterVehiclesForInvoice();
     queueInvoiceWipSave();
-  };
+  });
+  document.getElementById("rvCustomer")?.addEventListener("change", fillRvAlloc);
+  document.getElementById("rvAmount")?.addEventListener("input", fillRvAlloc);
+  document.getElementById("rvAllocFilter")?.addEventListener("input", applyRvAllocFilter);
+  document.getElementById("rvMethod")?.addEventListener("change", ()=>{
+    const rvMethod = document.getElementById("rvMethod");
+    const rvStatus = document.getElementById("rvStatus");
+    const m = rvMethod?.value || "";
+    if(rvStatus) rvStatus.value = m.includes("Cheque") ? "Pending" : "Posted";
+  });
+  document.getElementById("cnCustomer")?.addEventListener("change", ()=>{
+    const cnCustomer = document.getElementById("cnCustomer");
+    const cnInvoice = document.getElementById("cnInvoice");
+    if(cnCustomer && cnInvoice) fillNoteInvoices(cnInvoice, cnCustomer.value);
+  });
+  document.getElementById("dnCustomer")?.addEventListener("change", ()=>{
+    const dnCustomer = document.getElementById("dnCustomer");
+    const dnInvoice = document.getElementById("dnInvoice");
+    if(dnCustomer && dnInvoice) fillNoteInvoices(dnInvoice, dnCustomer.value);
+  });
+  document.getElementById("chqCustomer")?.addEventListener("change", ()=>{
+    const chqCustomer = document.getElementById("chqCustomer");
+    const chqInvoice = document.getElementById("chqInvoice");
+    if(chqCustomer && chqInvoice) fillNoteInvoices(chqInvoice, chqCustomer.value);
+  });
+  document.getElementById("cnInvoice")?.addEventListener("change", ()=>{
+    const cnInvoice = document.getElementById("cnInvoice");
+    const cnAmount = document.getElementById("cnAmount");
+    const inv = invoices.find(i=> i.invNo === cnInvoice?.value);
+    if(inv && cnAmount && !num(cnAmount.value)) cnAmount.value = invBalance(inv);
+  });
+  document.getElementById("dnInvoice")?.addEventListener("change", ()=>{
+    // Debit note is an additional charge — do not auto-fill amount from invoice balance
+  });
+  document.getElementById("chqInvoice")?.addEventListener("change", ()=>{
+    const chqInvoice = document.getElementById("chqInvoice");
+    const chqAmt = document.getElementById("chqAmt");
+    const inv = invoices.find(i=> i.invNo === chqInvoice?.value);
+    if(inv && chqAmt && !num(chqAmt.value)) chqAmt.value = invBalance(inv);
+  });
   document.getElementById("globalSearch").onkeydown = e=>{
     if(e.key === "Enter") runGlobalSearch(e.target.value.trim());
   };
@@ -590,12 +1253,7 @@ function bindUi(){
   const backupBtn = document.getElementById("driveBackupBtn");
   backupBtn.onclick = async ()=>{
     try{
-      if(!isOwnerRole()) return toast("Only owner can run backup");
-      const payload = buildBackupSnapshot({ shop, invoices, customers, vehicles, receipts, creditNotes, debitNotes, cheques, discounts });
-      const size = new Blob([JSON.stringify(payload)]).size;
-      const name = `s4-backup-${today()}.json`;
-      const file = await backupToDrive(name, payload);
-      recordBackupHistory({ at: Date.now(), name: file.name || name, size, type: "Manual", status: "Successful", driveId: file.id || "" });
+      await runFullBackup({ mode: "drive", silent: false });
       toast("Backup saved to Drive");
       renderBackupPage();
     }catch(e){ toast(e.message || String(e)); }
@@ -605,12 +1263,10 @@ function bindUi(){
   };
   document.getElementById("localBackupBtn")?.addEventListener("click", async ()=>{
     try{
-      if(!isOwnerRole()) return toast("Only owner can run local backup");
-      const res = await saveLocalBackup({ shop, invoices, customers, vehicles, receipts, creditNotes, debitNotes, cheques, discounts });
-      recordBackupHistory({ at: Date.now(), name: res.filename, size: res.size, type: "Local", status: "Successful" });
-      toast(res.mode === "desktop"
-        ? `লোকাল ব্যাকআপ: ${res.path}`
-        : `লোকাল ব্যাকআপ ডাউনলোড হয়েছে (${res.filename}) — Downloads চেক করুন`);
+      const res = await runFullBackup({ mode: "local", silent: false });
+      toast(res.local?.mode === "desktop"
+        ? `Local backup: ${res.local.path}`
+        : `Local backup downloaded (${res.local?.filename || ""}) — check Downloads`);
       renderBackupPage();
     }catch(e){ toast(friendlyFirestoreError(e)); }
   });
@@ -629,6 +1285,16 @@ function bindUi(){
       toast("Local restore started — data will appear as sync completes");
     }catch(err){ toast(friendlyFirestoreError(err)); }
   });
+  document.getElementById("recalcBalancesBtn")?.addEventListener("click", async ()=>{
+    try{
+      if(!isOwnerRole()) return toast("Only owner can recalculate");
+      if(!confirm("Recalculate paid/credited/paidDate on all non-draft invoices from source records?")) return;
+      const res = await recalculateInvoiceBalances();
+      toast(`Checked ${res.checked}, fixed ${res.fixed}`);
+      if(res.details.length) console.info("Recalculate details", res.details);
+      await logActivity({ action:"edit", staffName: who(), module:"Settings", summary: `Recalculate balances fixed ${res.fixed}/${res.checked}` });
+    }catch(e){ toast(friendlyFirestoreError(e)); }
+  });
   document.getElementById("archiveExportBtn")?.addEventListener("click", archiveExportCsv);
   document.getElementById("archiveDeleteBtn")?.addEventListener("click", archiveDeleteOld);
   document.getElementById("copyInviteCodeBtn")?.addEventListener("click", async ()=>{
@@ -641,26 +1307,224 @@ function bindUi(){
 }
 
 function refreshSelects(){
-  ["ledgerCustomer","stmtCustomer","waCustomer","invCustomer","rvCustomer","cnCustomer","dnCustomer","chqCustomer","discCustomer"].forEach(id=>{
+  ["ledgerCustomer","stmtCustomer","waCustomer","invCustomer","rvCustomer","cnCustomer","dnCustomer","chqCustomer","discCustomer","vCustomer"].forEach(id=>{
     const el = document.getElementById(id);
     if(el) customerOptions(el, el.value);
   });
+  filterVehiclesForInvoice();
+}
+
+/**
+ * Shared backup entry for Settings buttons + close/exit paths.
+ * mode: "local" | "drive" | "full" (Local + Drive when Drive configured)
+ * silent: skip toasts; skip browser download spam (Drive-only / no-op local on PWA)
+ */
+async function runFullBackup({ mode = "full", silent = false } = {}){
+  if(!isOwnerRole()){
+    if(!silent) toast(mode === "local" ? "Only owner can run local backup" : "Only owner can run backup");
+    throw new Error("Only owner can run backup");
+  }
+  const parts = { shop, invoices, customers, vehicles, products, services, receipts, creditNotes, debitNotes, cheques, discounts };
+  const payload = buildBackupSnapshot(parts);
+  const size = new Blob([JSON.stringify(payload)]).size;
+  const name = `s4-backup-${today()}.json`;
+  const result = { local: null, drive: null };
+  const canFileLocal = !!(window.s4Desktop?.saveLocalBackup);
+  // Silent on browser/PWA: never trigger repeated download dialogs
+  const doLocal = (mode === "local" || mode === "full") && (!silent || canFileLocal);
+
+  if(doLocal){
+    result.local = await saveLocalBackup(parts);
+    recordBackupHistory({
+      at: Date.now(),
+      name: result.local.filename || name,
+      size: result.local.size || size,
+      type: silent ? "Auto Local" : "Local",
+      status: "Successful"
+    });
+  }
+
+  if(mode === "drive" || mode === "full"){
+    if(!isDriveBackupConfigured()){
+      if(mode === "drive") throw new Error("Drive Client ID not configured");
+    }else{
+      try{
+        const file = await backupToDrive(name, payload);
+        result.drive = file;
+        recordBackupHistory({
+          at: Date.now(),
+          name: file.name || name,
+          size,
+          type: silent ? "Auto Drive" : "Manual",
+          status: "Successful",
+          driveId: file.id || ""
+        });
+      }catch(e){
+        if(mode === "drive" || !silent) throw e;
+        console.warn("Silent Drive backup skipped", e);
+      }
+    }
+  }
+  return result;
+}
+
+/** Idle return → Dashboard: visibilitychange only (not a reading-time timer). Invoice WIP localStorage is preserved. */
+const IDLE_RESET_MS = 300000; // 5 min; change to 600000 for 10 min
+const IDLE_HIDDEN_KEY = "s4_hidden_at";
+
+function wireIdleDashboardReset(){
+  if(window._s4IdleWired) return;
+  window._s4IdleWired = true;
+  document.addEventListener("visibilitychange", ()=>{
+    if(document.visibilityState === "hidden"){
+      try{ sessionStorage.setItem(IDLE_HIDDEN_KEY, String(Date.now())); }catch(_){}
+      return;
+    }
+    let hiddenAt = 0;
+    try{ hiddenAt = Number(sessionStorage.getItem(IDLE_HIDDEN_KEY) || 0); }catch(_){}
+    if(!hiddenAt) return;
+    try{ sessionStorage.removeItem(IDLE_HIDDEN_KEY); }catch(_){}
+    if(Date.now() - hiddenAt < IDLE_RESET_MS) return;
+    // Fresh boot lands on Dashboard; do not clear s4_invoice_wip_v1
+    location.reload();
+  });
+}
+
+async function promptCloseBackupChoice(){
+  // Returns "yes" | "no" | "cancel"
+  if(window.s4Desktop?.askCloseBackup){
+    return await window.s4Desktop.askCloseBackup();
+  }
+  // Android / web: two-step confirm approximates Yes / No / Cancel
+  const msg = "Backup all data before closing? (Local + Google Drive)";
+  if(window.confirm(msg + "\n\nOK = Yes (backup then close)\nCancel = other options")){
+    return "yes";
+  }
+  if(window.confirm("Close without backup?\n\nOK = No backup, close anyway\nCancel = stay open")){
+    return "no";
+  }
+  return "cancel";
+}
+
+async function handleExitWithBackupPrompt(){
+  const choice = await promptCloseBackupChoice();
+  if(choice === "cancel") return false;
+  if(choice === "yes"){
+    try{
+      toast("Backup in progress…");
+      await runFullBackup({ mode: "full", silent: false });
+      toast("Backup complete");
+    }catch(e){
+      toast(e.message || String(e));
+      if(!window.confirm("Backup failed. Close anyway?")) return false;
+    }
+  }
+  return true;
+}
+
+function wireCloseBackupHooks(){
+  if(window._s4CloseBackupWired) return;
+  window._s4CloseBackupWired = true;
+
+  // Desktop Electron: main process prevents close and pings renderer
+  if(window.s4Desktop?.onCloseBackupRequest){
+    window.s4Desktop.onCloseBackupRequest(async ()=>{
+      const ok = await handleExitWithBackupPrompt();
+      if(ok) window.s4Desktop.allowClose?.();
+    });
+  }
+
+  const platform = String(window.Capacitor?.getPlatform?.() || "").toLowerCase();
+  const isAndroid = !!(window.Capacitor?.isNativePlatform?.() && platform === "android");
+  // iPhone PWA/browser: NO close popup — silent periodic + pagehide only.
+  const isIosOrBrowser = !isAndroid && !window.s4Desktop;
+
+  if(isAndroid){
+    const App = window.Capacitor?.Plugins?.App;
+    if(App?.addListener){
+      App.addListener("backButton", async ()=>{
+        if(handleAppBack()) return;
+        const ok = await handleExitWithBackupPrompt();
+        if(ok) App.exitApp?.();
+      });
+      App.addListener("appStateChange", ({ isActive })=>{
+        if(isActive) return;
+        runFullBackup({ mode: "full", silent: true }).catch(()=>{});
+      });
+    }else{
+      console.warn("@capacitor/app not registered — install plugin and cap sync");
+    }
+  }
+
+  if(isIosOrBrowser){
+    const SILENT_MS = 10 * 60 * 1000;
+    setInterval(()=>{
+      if(!document.getElementById("app")?.classList.contains("visible")) return;
+      if(!isOwnerRole()) return;
+      runFullBackup({ mode: "full", silent: true }).catch(()=>{});
+    }, SILENT_MS);
+    window.addEventListener("pagehide", ()=>{
+      if(!isOwnerRole()) return;
+      runFullBackup({ mode: "full", silent: true }).catch(()=>{});
+    });
+  }
+}
+
+function unlinkedDebitNotes(customerName){
+  return debitNotes.filter(n=>{
+    if(!noteIsLive(n)) return false;
+    if(customerName && n.customer !== customerName) return false;
+    const invNo = String(n.invoice || "").trim();
+    if(!invNo) return true;
+    // Linked but invoice missing/deleted → still count so money is not lost
+    const inv = invoices.find(i=> i.invNo === invNo && i.customer === n.customer);
+    return !inv;
+  });
+}
+
+function unlinkedDebitTotal(customerName){
+  return unlinkedDebitNotes(customerName).reduce((s,n)=> s + num(n.amount), 0);
+}
+
+/** Posted debit notes linked to a specific invoice (amount already applied onto invoice.total) */
+function linkedDebitTotalForInvoice(invNo, customer){
+  const no = String(invNo || "").trim();
+  if(!no) return 0;
+  return debitNotes.filter(n=>{
+    if(!noteIsLive(n)) return false;
+    if(String(n.invoice || "").trim() !== no) return false;
+    if(customer && n.customer !== customer) return false;
+    return true;
+  }).reduce((s,n)=> s + num(n.amount), 0);
+}
+
+function totalReceivableAmount(){
+  // Same book as Customer Outstanding / Ledger — avoids Dashboard vs Ledger gormil
+  const names = new Set();
+  customers.forEach(c=>{ if(c.name) names.add(c.name); });
+  invoices.forEach(i=>{ if(i.customer) names.add(i.customer); });
+  debitNotes.forEach(n=>{ if(n.customer) names.add(n.customer); });
+  receipts.forEach(r=>{ if(r.customer) names.add(r.customer); });
+  creditNotes.forEach(n=>{ if(n.customer) names.add(n.customer); });
+  let s = 0;
+  names.forEach(n=>{ s += Math.max(0, customerOutstanding(n)); });
+  return s;
 }
 
 function renderDashboard(){
   const open = invoices.filter(i=> i.status !== "Draft" && invBalance(i) > 0);
   const overdue = invoices.filter(i=> invStatus(i) === "Overdue");
-  const recToday = receipts.filter(r=> r.date === today() && r.status !== "Cancelled" && r.status !== "Bounced");
+  const recToday = receipts.filter(r=> r.date === today() && receiptAffectsBalance(r));
   const invToday = invoices.filter(i=> i.invDate === today() && i.status !== "Draft");
-  const totalRec = open.reduce((s,i)=> s + invBalance(i), 0);
+  const totalRec = totalReceivableAmount();
   const overdueAmt = overdue.reduce((s,i)=> s + invBalance(i), 0);
   document.getElementById("dashCards").innerHTML = [
-    ["TOTAL RECEIVABLE", money(totalRec), "Open invoices"],
+    ["TOTAL RECEIVABLE", money(totalRec), "Ledger outstanding (all customers)"],
     ["TODAY SALES", money(invToday.reduce((s,i)=> s+num(i.total),0)), invToday.length + " invoices"],
     ["TODAY RECEIVED", money(recToday.reduce((s,i)=> s+num(i.amount),0)), recToday.length + " receipts"],
     ["OVERDUE", money(overdueAmt), overdue.length + " invoices"],
     ["CUSTOMERS", customers.length, customers.filter(c=>c.status==="Active").length + " active"],
-    ["OPEN INVOICES", open.length, money(totalRec)]
+    ["OPEN INVOICES", open.length, money(open.reduce((s,i)=> s + invBalance(i), 0))]
   ].map(([a,b,c])=> `<div class="card"><div class="metric-label">${a}</div><div class="metric">${b}</div><div class="metric-note">${c}</div></div>`).join("");
 
   const buckets = agingSums();
@@ -692,6 +1556,8 @@ function agingSums(){
     const b = agingBucket(i);
     if(b) buckets[b] += invBalance(i);
   });
+  // Customer-level debit notes (no invoice link) sit in Current
+  buckets.current += unlinkedDebitTotal();
   return buckets;
 }
 
@@ -708,6 +1574,11 @@ function renderAging(){
     if(!map[name]) map[name] = { current:0, d30:0, d60:0, d90:0, d90p:0 };
     const k = agingBucket(i);
     if(k) map[name][k] += invBalance(i);
+  });
+  unlinkedDebitNotes().forEach(n=>{
+    const name = n.customer || "—";
+    if(!map[name]) map[name] = { current:0, d30:0, d60:0, d90:0, d90p:0 };
+    map[name].current += num(n.amount);
   });
   document.getElementById("agingRows").innerHTML = Object.entries(map).map(([name,x])=>{
     const tot = x.current+x.d30+x.d60+x.d90+x.d90p;
@@ -764,6 +1635,9 @@ function editCustomer(id){
 async function saveCustomer(){
   const name = cName.value.trim();
   if(!name) return toast("Company name required");
+  // Long-term: store customerId on invoices/receipts/notes and match by ID (not name string).
+  const dup = customers.find(x=> x.id !== cId.value && String(x.name||"").trim().toLowerCase() === name.toLowerCase());
+  if(dup && !confirm(`A customer named '${dup.name}' already exists (Code: ${dup.code||"—"}, Status: ${dup.status||"—"}). Adding a duplicate can cause the wrong customer record's credit limit/block-status to apply on invoices. Continue anyway?`)) return;
   const data = {
     code: cCode.value.trim(), name, contact: cContact.value.trim(), mobile: cMobile.value.trim(),
     whatsapp: cWhatsapp.value.trim() || cMobile.value.trim(), email: cEmail.value.trim(),
@@ -810,6 +1684,28 @@ async function deleteInvoice(id){
   if(num(i.paid) > 0){
     return toast("Cannot delete — payment already allocated. Remove receipt allocation first.");
   }
+  if(num(i.credited) > 0){
+    return toast("Cannot delete — credit/discount already applied on this invoice.");
+  }
+  const linkedDn = debitNotes.some(n=>
+    noteIsLive(n)
+    && String(n.invoice || "").trim() === String(i.invNo || "").trim()
+    && n.customer === i.customer
+  );
+  if(linkedDn){
+    return toast("Cannot delete — a debit note is linked to this invoice.");
+  }
+  const linkedCn = creditNotes.some(n=>
+    noteIsLive(n)
+    && (
+      String(n.invoice || "").trim() === String(i.invNo || "").trim()
+      || (n.allocations || []).some(a=> a.invoiceId === i.id || a.invoiceNo === i.invNo)
+    )
+    && n.customer === i.customer
+  );
+  if(linkedCn){
+    return toast("Cannot delete — a credit note is linked to this invoice.");
+  }
   const msg = `Delete invoice ${i.invNo} (${money(i.total)})?\nCustomer: ${i.customer}\n\nThis cannot be undone.`;
   if(!confirm(msg)) return;
   try{
@@ -832,7 +1728,12 @@ async function deleteInvoice(id){
   }catch(e){ toast(e.message || String(e)); }
 }
 
-function getInvoiceEntryMode(){
+function getShopInvoiceEntryMode(){
+  const fromShop = shop?.invoiceEntryMode;
+  if(fromShop === "simple" || fromShop === "detailed"){
+    _invoiceEntryModeMem = fromShop;
+    return fromShop;
+  }
   try{
     const m = localStorage.getItem(INVOICE_MODE_KEY);
     if(m === "simple" || m === "detailed"){
@@ -843,37 +1744,95 @@ function getInvoiceEntryMode(){
   return _invoiceEntryModeMem || "detailed";
 }
 
-function setInvoiceEntryMode(mode){
-  const m = mode === "simple" ? "simple" : "detailed";
-  _invoiceEntryModeMem = m;
-  try{ localStorage.setItem(INVOICE_MODE_KEY, m); }catch(_){}
+function getInvoiceEntryMode(){
+  // Active invoice form may temporarily differ (WIP) without changing shop preference
+  if(_formInvoiceMode === "simple" || _formInvoiceMode === "detailed") return _formInvoiceMode;
+  return getShopInvoiceEntryMode();
 }
 
-function selectInvoiceEntryMode(mode){
+function setInvoiceEntryMode(mode, { persist = true, formOnly = false } = {}){
+  const m = mode === "simple" ? "simple" : "detailed";
+  if(formOnly){
+    _formInvoiceMode = m;
+    return m;
+  }
+  _formInvoiceMode = null;
+  _invoiceEntryModeMem = m;
+  if(persist){
+    try{ localStorage.setItem(INVOICE_MODE_KEY, m); }catch(_){}
+  }
+  return m;
+}
+
+async function selectInvoiceEntryMode(mode){
   if(mode !== "simple" && mode !== "detailed") return;
-  setInvoiceEntryMode(mode);
+  if(!isOwnerRole()){
+    toast("Only the Owner can change invoice entry mode");
+    syncInvoiceModeSettingsUi();
+    return;
+  }
+  setInvoiceEntryMode(mode, { persist: true });
+  // Drop stale WIP mode so next invoice uses the new shop preference
+  try{
+    const raw = localStorage.getItem(INVOICE_WIP_KEY);
+    if(raw){
+      const wip = JSON.parse(raw);
+      if(wip && typeof wip === "object"){
+        wip.mode = mode;
+        localStorage.setItem(INVOICE_WIP_KEY, JSON.stringify(wip));
+      }
+    }
+  }catch(_){}
   syncInvoiceModeSettingsUi();
   applyInvoiceEntryMode();
-  toast(mode === "simple" ? "Simple total mode saved" : "Detailed line mode saved");
+  try{
+    await setDoc(doc(db, "shop", "info"), { invoiceEntryMode: mode, updatedAt: Date.now() }, { merge: true });
+    toast(mode === "simple" ? "Simple total mode — applied for all staff" : "Detailed line mode — applied for all staff");
+  }catch(e){
+    toast(friendlyFirestoreError(e));
+  }
 }
 
 function wireInvoiceModeSettings(){
   const root = document.getElementById("settingsInvoice");
-  if(!root || root._invModeWired) return;
-  root._invModeWired = true;
-  root.addEventListener("click", e=>{
-    const btn = e.target.closest("[data-invoice-mode]");
-    if(!btn) return;
-    selectInvoiceEntryMode(btn.getAttribute("data-invoice-mode"));
-  });
+  if(!root) return;
+  const bindBtn = (id, mode)=>{
+    const btn = document.getElementById(id);
+    if(!btn || btn._invModeClick) return;
+    btn._invModeClick = true;
+    btn.addEventListener("click", e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      selectInvoiceEntryMode(mode);
+    });
+  };
+  bindBtn("invoiceModeDetailedBtn", "detailed");
+  bindBtn("invoiceModeSimpleBtn", "simple");
+  if(!root._invModeWired){
+    root._invModeWired = true;
+    root.addEventListener("click", e=>{
+      const btn = e.target.closest("[data-invoice-mode]");
+      if(!btn || btn.disabled) return;
+      e.preventDefault();
+      selectInvoiceEntryMode(btn.getAttribute("data-invoice-mode"));
+    });
+  }
   syncInvoiceModeSettingsUi();
 }
 
 function syncInvoiceModeSettingsUi(){
-  const mode = getInvoiceEntryMode();
+  const mode = getShopInvoiceEntryMode();
+  const owner = isOwnerRole();
   document.querySelectorAll("[data-invoice-mode]").forEach(btn=>{
     btn.classList.toggle("active", btn.getAttribute("data-invoice-mode") === mode);
+    btn.disabled = !owner;
   });
+  const hint = document.getElementById("invoiceModeHint");
+  if(hint){
+    hint.textContent = owner
+      ? "Owner: pick a mode with one click — the same mode applies automatically on every salesman PC."
+      : `Current shop mode: ${mode === "simple" ? "Total amount only" : "Detailed entry"} (only the Owner can change it).`;
+  }
 }
 
 function applyInvoiceEntryMode(){
@@ -885,6 +1844,55 @@ function applyInvoiceEntryMode(){
   const vatInfo = document.getElementById("invSimpleVatInfo");
   if(vatInfo) vatInfo.value = `VAT ${num(shop.vatRate) || 5}% included in total`;
   calcInvoice();
+}
+
+/** Daily 11:00 reminder starting 10 days before expiry (trial or license). */
+const EXPIRY_WARN_DAYS = 10;
+const EXPIRY_NOTIF_HOUR = 11;
+const EXPIRY_NOTIF_KEY = "s4_expiry_notif_day_v1";
+
+function wireExpiryReminders(){
+  if(window._s4ExpiryWired) return;
+  window._s4ExpiryWired = true;
+  const tick = ()=> maybeShowExpiryReminder().catch(()=>{});
+  tick();
+  setInterval(tick, 60 * 1000);
+  document.addEventListener("visibilitychange", ()=>{
+    if(document.visibilityState === "visible") tick();
+  });
+}
+
+async function maybeShowExpiryReminder(){
+  const access = await getAccessStatus();
+  if(!access?.allowed) return;
+  const days = Number(access.daysRemaining);
+  if(!Number.isFinite(days) || days < 0 || days > EXPIRY_WARN_DAYS) return;
+  const now = new Date();
+  if(now.getHours() < EXPIRY_NOTIF_HOUR) return;
+  const dayKey = now.toISOString().slice(0, 10);
+  try{
+    if(localStorage.getItem(EXPIRY_NOTIF_KEY) === dayKey) return;
+  }catch(_){}
+  const end = access.expiresAt || access.trialEndsAt || "";
+  const title = days === 0
+    ? "Software expires today"
+    : `Software expires in ${days} day(s)`;
+  const detail = end
+    ? `Expire date: ${String(end).slice(0, 10)} · Help & Support → Contact S4 Business Thinking`
+    : "Help & Support → Contact S4 Business Thinking";
+  toast(`${title} — ${detail}`);
+  try{
+    if(window.Notification && Notification.permission === "granted"){
+      new Notification("S4 Invoice Tracker", { body: `${title}. ${detail}` });
+    }else if(window.Notification && Notification.permission !== "denied"){
+      Notification.requestPermission().then(p=>{
+        if(p === "granted") new Notification("S4 Invoice Tracker", { body: `${title}. ${detail}` });
+      }).catch(()=>{});
+    }
+  }catch(_){}
+  window._s4ExpiryBanner = { title, detail, days, at: Date.now() };
+  refreshNotifications();
+  try{ localStorage.setItem(EXPIRY_NOTIF_KEY, dayKey); }catch(_){}
 }
 
 function invoiceWipFieldIds(){
@@ -940,7 +1948,7 @@ function loadInvLineForEdit(idx){
   queueInvoiceWipSave();
   setInvAddBtnLabel("Update");
   document.getElementById("invEntryName")?.focus();
-  toast("Edit করুন, তারপর Update চাপুন");
+  toast("Edit the fields, then press Update");
 }
 
 function clearInvEntryFields(){
@@ -952,6 +1960,7 @@ function clearInvEntryFields(){
   const vat = document.getElementById("invEntryVat");
   if(qty) qty.value = 1;
   if(vat) vat.value = shop.vatRate ?? 5;
+  hideCatalogSuggest();
   updateInvEntryPreview();
   setInvAddBtnLabel("Add");
   document.getElementById("invEntryName")?.focus();
@@ -1037,7 +2046,7 @@ function collectInvoiceFormState(){
   const entryDraft = readInvEntryDraft();
   const state = {
     savedAt: Date.now(),
-    mode: getInvoiceEntryMode(),
+    mode: getShopInvoiceEntryMode(),
     lineItems: _invoiceLineItems,
     entryDraft
   };
@@ -1050,15 +2059,19 @@ function collectInvoiceFormState(){
 
 function applyInvoiceFormState(state){
   if(!state) return false;
-  setInvoiceEntryMode(state.mode || "detailed");
+  // Always follow current shop preference — never lock UI to a stale WIP mode
+  _formInvoiceMode = null;
   applyInvoiceEntryMode();
   invoiceWipFieldIds().forEach(id=>{
     const el = document.getElementById(id);
     if(el && state[id] != null) el.value = state[id];
   });
   if(state.invCustomer){
-    customerOptions(invCustomer, state.invCustomer);
-    invCustomer.value = state.invCustomer;
+    const invCustomer = document.getElementById("invCustomer");
+    if(invCustomer){
+      customerOptions(invCustomer, state.invCustomer);
+      invCustomer.value = state.invCustomer;
+    }
   }
   const savedLines = state.lineItems || state.items || [];
   const committed = savedLines.filter(it=>{
@@ -1202,10 +2215,14 @@ function updateCreditCards(grand){
   const c = customers.find(x=> x.name === name);
   const limit = num(c?.creditLimit);
   const due = name ? customerOutstanding(name) : 0;
-  const after = due + num(grand);
+  // Editing existing invoice: outstanding already includes old total — don't double-count
+  const existing = invId?.value ? invoices.find(x=> x.id === invId.value) : null;
+  const oldTotal = existing && existing.status !== "Draft" ? num(existing.total) : 0;
+  const dnLinked = linkedDebitTotalForInvoice(invNo?.value, name);
+  const after = due - oldTotal + num(grand) + dnLinked;
   if(invLim) invLim.textContent = c ? money(limit) : "—";
   if(invDueNow) invDueNow.textContent = name ? money(due) : "—";
-  if(invNowTot) invNowTot.textContent = money(grand);
+  if(invNowTot) invNowTot.textContent = money(roundMoney(num(grand) + dnLinked));
   if(invAfter){
     invAfter.textContent = name ? money(after) : "—";
     invAfter.style.color = (limit > 0 && after > limit) ? "#d92d20" : "#079455";
@@ -1213,19 +2230,501 @@ function updateCreditCards(grand){
 }
 
 function filterVehiclesForInvoice(){
-  const name = invCustomer.value;
+  const name = invCustomer?.value || "";
   const c = customers.find(x=> x.name === name);
   if(invTerms) invTerms.value = c?.paymentTerms || (num(c?.creditDays)||shop.creditDays||30) + " Days Credit";
   const days = num(c?.creditDays) || num(shop.creditDays) || 30;
-  if(invDate.value && !invId.value){
+  if(invDate?.value && !invId?.value){
     const d = new Date(invDate.value + "T00:00:00");
     d.setDate(d.getDate() + days);
     invDue.value = d.toISOString().slice(0,10);
   }
-  calcInvoice();
+  const list = document.getElementById("invVehicleList");
+  if(list){
+    const rows = vehicles.filter(v=> !name || v.customer === name);
+    list.innerHTML = rows.map(v=>{
+      const label = [v.plate, v.make, v.model].filter(Boolean).join(" · ");
+      return `<option value="${esc(v.plate || "")}">${esc(label)}</option>`;
+    }).join("");
+  }
+  if(document.getElementById("invGrand") || document.getElementById("invSimpleTotal")) calcInvoice();
+}
+
+function renderVehicles(){
+  const tbody = document.getElementById("vehicleRows");
+  if(!tbody) return;
+  const q = (document.getElementById("vehicleSearch")?.value || "").toLowerCase();
+  const rows = vehicles.filter(v=>{
+    const blob = `${v.plate} ${v.customer} ${v.make} ${v.model} ${v.vin} ${v.engine}`.toLowerCase();
+    return blob.includes(q);
+  }).sort((a,b)=> String(a.plate||"").localeCompare(String(b.plate||"")));
+  tbody.innerHTML = rows.length ? rows.map(v=> `<tr>
+    <td>${esc(v.plate)}</td><td>${esc(v.customer)}</td><td>${esc(v.make)}</td><td>${esc(v.model)}</td>
+    <td>${esc(v.vin)}</td><td>${esc(v.engine)}</td>
+    <td>
+      <button class="btn small" type="button" data-edit-v="${v.id}">Open</button>
+      <button class="btn small danger" type="button" data-del-v="${v.id}">Delete</button>
+    </td>
+  </tr>`).join("") : `<tr><td colspan="7" class="empty">No vehicles — add one</td></tr>`;
+  tbody.querySelectorAll("[data-edit-v]").forEach(b=> b.onclick = ()=> editVehicle(b.dataset.editV));
+  tbody.querySelectorAll("[data-del-v]").forEach(b=> b.onclick = ()=> deleteVehicle(b.dataset.delV));
+}
+
+function resetVehicle(){
+  vId.value = "";
+  vPlate.value = vMake.value = vModel.value = vVin.value = vEngine.value = "";
+  if(vNotes) vNotes.value = "";
+  customerOptions(vCustomer, "");
+}
+
+function editVehicle(id){
+  const v = vehicles.find(x=> x.id === id);
+  if(!v) return;
+  vId.value = v.id;
+  vPlate.value = v.plate || "";
+  customerOptions(vCustomer, v.customer || "");
+  vMake.value = v.make || "";
+  vModel.value = v.model || "";
+  vVin.value = v.vin || "";
+  vEngine.value = v.engine || "";
+  if(vNotes) vNotes.value = v.notes || "";
+  openModal("vehicleModal");
+}
+
+async function saveVehicle(){
+  const plate = (vPlate.value || "").trim();
+  if(!plate) return toast("Plate number required");
+  const customer = (vCustomer.value || "").trim();
+  const dup = vehicles.find(x=>
+    x.id !== vId.value
+    && String(x.plate||"").trim().toLowerCase() === plate.toLowerCase()
+    && String(x.customer||"").trim().toLowerCase() === customer.toLowerCase()
+  );
+  if(dup && !confirm(`Plate '${dup.plate}' already exists for ${dup.customer || "—"}. Continue anyway?`)) return;
+  const data = {
+    plate, customer, make: (vMake.value||"").trim(), model: (vModel.value||"").trim(),
+    vin: (vVin.value||"").trim(), engine: (vEngine.value||"").trim(),
+    notes: (vNotes?.value||"").trim(),
+    updatedAt: Date.now(), updatedBy: who()
+  };
+  const invoiceOpen = document.getElementById("invoiceModal")?.classList.contains("open");
+  try{
+    let write;
+    if(vId.value) write = updateDoc(doc(db, "vehicles", vId.value), data);
+    else { data.createdAt = Date.now(); data.createdBy = who(); write = addDoc(col("vehicles"), data); }
+    closeModal("vehicleModal");
+    if(invoiceOpen){
+      const invVehicle = document.getElementById("invVehicle");
+      if(invVehicle) invVehicle.value = plate;
+      filterVehiclesForInvoice();
+      queueInvoiceWipSave();
+    }
+    commitWrite(
+      Promise.resolve(write).then(()=> logActivity({ action:"edit", staffName: who(), customer, summary: "Vehicle saved " + plate })),
+      { okMsg: "Vehicle saved" }
+    );
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+async function deleteVehicle(id){
+  const v = vehicles.find(x=> x.id === id);
+  if(!v) return;
+  if(!confirm(`Delete vehicle ${v.plate || id}?`)) return;
+  try{
+    commitWrite(deleteDoc(doc(db, "vehicles", id)), { okMsg: "Vehicle deleted" });
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+/* ——— Product / Service catalog ——— */
+function shopDefaultVat(){ return num(shop.vatRate) || 5; }
+
+function renderProducts(){
+  const tbody = document.getElementById("productRows");
+  if(!tbody) return;
+  const q = (document.getElementById("productSearch")?.value || "").toLowerCase();
+  const rows = products.filter(p=>{
+    const blob = `${p.name} ${p.code} ${p.category}`.toLowerCase();
+    return blob.includes(q);
+  }).sort((a,b)=> String(a.name||"").localeCompare(String(b.name||"")));
+  tbody.innerHTML = rows.length ? rows.map(p=> `<tr>
+    <td>${esc(p.name)}</td><td>${esc(p.code)}</td><td>${money(p.price)}</td><td>${esc(p.vat ?? "")}%</td><td>${esc(p.category)}</td>
+    <td>
+      <button class="btn small" type="button" data-edit-p="${p.id}">Open</button>
+      <button class="btn small danger" type="button" data-del-p="${p.id}">Delete</button>
+    </td>
+  </tr>`).join("") : `<tr><td colspan="6" class="empty">No products — add one</td></tr>`;
+  tbody.querySelectorAll("[data-edit-p]").forEach(b=> b.onclick = ()=> editProduct(b.dataset.editP));
+  tbody.querySelectorAll("[data-del-p]").forEach(b=> b.onclick = ()=> deleteProduct(b.dataset.delP));
+}
+
+function resetProduct(){
+  pId.value = "";
+  pName.value = pCode.value = pCategory.value = "";
+  if(pNotes) pNotes.value = "";
+  pPrice.value = 0;
+  pVat.value = shopDefaultVat();
+}
+
+function editProduct(id){
+  const p = products.find(x=> x.id === id);
+  if(!p) return;
+  pId.value = p.id;
+  pName.value = p.name || "";
+  pCode.value = p.code || "";
+  pPrice.value = p.price ?? 0;
+  pVat.value = p.vat ?? shopDefaultVat();
+  pCategory.value = p.category || "";
+  if(pNotes) pNotes.value = p.notes || "";
+  openModal("productModal");
+}
+
+async function saveProduct(){
+  const name = (pName.value || "").trim();
+  if(!name) return toast("Product name required");
+  const code = (pCode.value || "").trim();
+  if(!pId.value && code){
+    const dup = products.find(x=> String(x.code||"").trim().toLowerCase() === code.toLowerCase());
+    if(dup && !confirm(`Part number '${dup.code}' already exists (${dup.name}). Continue anyway?`)) return;
+  }
+  const data = {
+    name, code, price: num(pPrice.value), vat: num(pVat.value),
+    category: (pCategory.value||"").trim(), notes: (pNotes?.value||"").trim(),
+    updatedAt: Date.now(), updatedBy: who()
+  };
+  try{
+    let write;
+    if(pId.value) write = updateDoc(doc(db, "productCatalog", pId.value), data);
+    else { data.createdAt = Date.now(); data.createdBy = who(); write = addDoc(col("productCatalog"), data); }
+    closeModal("productModal");
+    commitWrite(
+      Promise.resolve(write).then(()=> logActivity({ action:"edit", staffName: who(), summary: "Product saved " + name })),
+      { okMsg: "Product saved" }
+    );
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+async function deleteProduct(id){
+  const p = products.find(x=> x.id === id);
+  if(!p) return;
+  if(!confirm(`Delete product ${p.name || id}?`)) return;
+  try{
+    commitWrite(deleteDoc(doc(db, "productCatalog", id)), { okMsg: "Product deleted" });
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+function renderServices(){
+  const tbody = document.getElementById("serviceRows");
+  if(!tbody) return;
+  const q = (document.getElementById("serviceSearch")?.value || "").toLowerCase();
+  const rows = services.filter(s=>{
+    const blob = `${s.name} ${s.category}`.toLowerCase();
+    return blob.includes(q);
+  }).sort((a,b)=> String(a.name||"").localeCompare(String(b.name||"")));
+  tbody.innerHTML = rows.length ? rows.map(s=> `<tr>
+    <td>${esc(s.name)}</td><td>${money(s.price)}</td><td>${esc(s.vat ?? "")}%</td><td>${esc(s.category)}</td>
+    <td>
+      <button class="btn small" type="button" data-edit-s="${s.id}">Open</button>
+      <button class="btn small danger" type="button" data-del-s="${s.id}">Delete</button>
+    </td>
+  </tr>`).join("") : `<tr><td colspan="5" class="empty">No services — add one</td></tr>`;
+  tbody.querySelectorAll("[data-edit-s]").forEach(b=> b.onclick = ()=> editService(b.dataset.editS));
+  tbody.querySelectorAll("[data-del-s]").forEach(b=> b.onclick = ()=> deleteService(b.dataset.delS));
+}
+
+function resetService(){
+  sId.value = "";
+  sName.value = sCategory.value = "";
+  if(sNotes) sNotes.value = "";
+  sPrice.value = 0;
+  sVat.value = shopDefaultVat();
+}
+
+function editService(id){
+  const s = services.find(x=> x.id === id);
+  if(!s) return;
+  sId.value = s.id;
+  sName.value = s.name || "";
+  sPrice.value = s.price ?? 0;
+  sVat.value = s.vat ?? shopDefaultVat();
+  sCategory.value = s.category || "";
+  if(sNotes) sNotes.value = s.notes || "";
+  openModal("serviceModal");
+}
+
+async function saveService(){
+  const name = (sName.value || "").trim();
+  if(!name) return toast("Service description required");
+  if(!sId.value){
+    const dup = services.find(x=> String(x.name||"").trim().toLowerCase() === name.toLowerCase());
+    if(dup && !confirm(`Service '${dup.name}' already exists. Continue anyway?`)) return;
+  }
+  const data = {
+    name, price: num(sPrice.value), vat: num(sVat.value),
+    category: (sCategory.value||"").trim(), notes: (sNotes?.value||"").trim(),
+    updatedAt: Date.now(), updatedBy: who()
+  };
+  try{
+    let write;
+    if(sId.value) write = updateDoc(doc(db, "serviceCatalog", sId.value), data);
+    else { data.createdAt = Date.now(); data.createdBy = who(); write = addDoc(col("serviceCatalog"), data); }
+    closeModal("serviceModal");
+    commitWrite(
+      Promise.resolve(write).then(()=> logActivity({ action:"edit", staffName: who(), summary: "Service saved " + name })),
+      { okMsg: "Service saved" }
+    );
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+async function deleteService(id){
+  const s = services.find(x=> x.id === id);
+  if(!s) return;
+  if(!confirm(`Delete service ${s.name || id}?`)) return;
+  try{
+    commitWrite(deleteDoc(doc(db, "serviceCatalog", id)), { okMsg: "Service deleted" });
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+function catalogMatches(q){
+  const ql = String(q || "").trim().toLowerCase();
+  const out = [];
+  products.forEach(p=>{
+    const blob = `${p.name} ${p.code} ${p.category}`.toLowerCase();
+    if(!ql || blob.includes(ql)) out.push({ kind:"product", id:p.id, name:p.name||"", code:p.code||"", price:num(p.price), vat:num(p.vat ?? shopDefaultVat()), category:p.category||"" });
+  });
+  services.forEach(s=>{
+    const blob = `${s.name} ${s.category}`.toLowerCase();
+    if(!ql || blob.includes(ql)) out.push({ kind:"service", id:s.id, name:s.name||"", code:"", price:num(s.price), vat:num(s.vat ?? shopDefaultVat()), category:s.category||"" });
+  });
+  out.sort((a,b)=> String(a.name).localeCompare(String(b.name)));
+  return out;
+}
+
+function hideCatalogSuggest(){
+  const list = document.getElementById("invCatalogSuggest");
+  if(list){
+    list.hidden = true;
+    list.innerHTML = "";
+  }
+}
+
+function positionCatalogSuggest(input, list){
+  if(!input || !list) return;
+  if(list.parentElement !== document.body) document.body.appendChild(list);
+  const r = input.getBoundingClientRect();
+  const gap = 4;
+  const width = Math.max(r.width, Math.min(360, window.innerWidth - 16));
+  const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+  const spaceBelow = window.innerHeight - r.bottom - 8;
+  const spaceAbove = r.top - 8;
+  const preferBelow = spaceBelow >= 140 || spaceBelow >= spaceAbove;
+  const height = Math.min(240, Math.max(120, preferBelow ? spaceBelow : spaceAbove));
+  const top = preferBelow
+    ? Math.round(r.bottom + gap)
+    : Math.round(r.top - gap - height);
+  list.style.position = "fixed";
+  list.style.left = left + "px";
+  list.style.top = top + "px";
+  list.style.width = width + "px";
+  list.style.right = "auto";
+  list.style.maxHeight = height + "px";
+  list.style.zIndex = "7000";
+  list.hidden = false;
+}
+
+function renderCatalogSuggest(q){
+  const input = document.getElementById("invEntryName");
+  const list = document.getElementById("invCatalogSuggest");
+  if(!input || !list) return;
+  const rows = catalogMatches(q).slice(0, 40);
+  if(!rows.length){
+    list.innerHTML = `<li class="cust-combo-empty">${(products.length || services.length) ? "No match — free type OK" : "Catalog empty — type freely or add Product/Service"}</li>`;
+  }else{
+    list.innerHTML = rows.map(r=>{
+      const tag = r.kind === "product" ? "Product" : "Service";
+      const meta = [r.code, money(r.price), `${r.vat}% VAT`].filter(Boolean).join(" · ");
+      return `<li role="option" data-cat-kind="${r.kind}" data-cat-id="${esc(r.id)}" title="${esc(r.name)}">
+        ${esc(r.name)}<span class="cat-tag">[${tag}]</span>
+        <span class="cat-meta">${esc(meta)}</span>
+      </li>`;
+    }).join("");
+  }
+  positionCatalogSuggest(input, list);
+}
+
+function applyCatalogPick(kind, id){
+  const row = kind === "product"
+    ? products.find(x=> x.id === id)
+    : services.find(x=> x.id === id);
+  if(!row) return;
+  const nameEl = document.getElementById("invEntryName");
+  const codeEl = document.getElementById("invEntryCode");
+  const priceEl = document.getElementById("invEntryPrice");
+  const vatEl = document.getElementById("invEntryVat");
+  if(nameEl) nameEl.value = row.name || "";
+  if(codeEl) codeEl.value = kind === "product" ? (row.code || "") : "";
+  if(priceEl) priceEl.value = row.price ?? 0;
+  if(vatEl) vatEl.value = row.vat ?? shopDefaultVat();
+  hideCatalogSuggest();
+  updateInvEntryPreview();
+  queueInvoiceWipSave();
+  document.getElementById("invEntryQty")?.focus();
+}
+
+async function saveEntryToCatalog(){
+  const name = (document.getElementById("invEntryName")?.value || "").trim();
+  if(!name) return toast("Type an item name first");
+  const code = (document.getElementById("invEntryCode")?.value || "").trim();
+  const price = num(document.getElementById("invEntryPrice")?.value);
+  const vat = num(document.getElementById("invEntryVat")?.value ?? shopDefaultVat());
+  const ans = (prompt("Save to catalog as Product or Service?\nType P = Product, S = Service", "P") || "").trim().toLowerCase();
+  if(!ans) return;
+  const asProduct = ans.startsWith("p");
+  const asService = ans.startsWith("s");
+  if(!asProduct && !asService) return toast("Type P or S");
+  if(asProduct){
+    if(code){
+      const dup = products.find(x=> String(x.code||"").trim().toLowerCase() === code.toLowerCase());
+      if(dup && !confirm(`Part number '${dup.code}' already exists. Continue anyway?`)) return;
+    }
+    const data = { name, code, price, vat, category: "", notes: "", createdAt: Date.now(), createdBy: who(), updatedAt: Date.now(), updatedBy: who() };
+    try{
+      commitWrite(addDoc(col("productCatalog"), data), { okMsg: "Saved to Product Catalog" });
+    }catch(e){ toast(friendlyFirestoreError(e)); }
+  }else{
+    const dup = services.find(x=> String(x.name||"").trim().toLowerCase() === name.toLowerCase());
+    if(dup && !confirm(`Service '${dup.name}' already exists. Continue anyway?`)) return;
+    const data = { name, price, vat, category: "", notes: "", createdAt: Date.now(), createdBy: who(), updatedAt: Date.now(), updatedBy: who() };
+    try{
+      commitWrite(addDoc(col("serviceCatalog"), data), { okMsg: "Saved to Service Catalog" });
+    }catch(e){ toast(friendlyFirestoreError(e)); }
+  }
+}
+
+// CSV import for Product / Service catalogs
+// Columns: Name/Description, Code (products only), Price, VAT%, Category
+function parseCsvText(text){
+  const raw = String(text || "").replace(/^\uFEFF/, "");
+  const rows = [];
+  let row = [], cell = "", i = 0, inQ = false;
+  while(i < raw.length){
+    const ch = raw[i];
+    if(inQ){
+      if(ch === '"'){
+        if(raw[i + 1] === '"'){ cell += '"'; i += 2; continue; }
+        inQ = false; i++; continue;
+      }
+      cell += ch; i++; continue;
+    }
+    if(ch === '"'){ inQ = true; i++; continue; }
+    if(ch === ","){ row.push(cell); cell = ""; i++; continue; }
+    if(ch === "\n"){ row.push(cell); rows.push(row); row = []; cell = ""; i++; continue; }
+    if(ch === "\r"){ i++; continue; }
+    cell += ch; i++;
+  }
+  if(cell.length || row.length){ row.push(cell); rows.push(row); }
+  return rows.filter(r=> r.some(c=> String(c || "").trim()));
+}
+
+function csvHeaderMap(headerRow){
+  const map = {};
+  (headerRow || []).forEach((h, idx)=>{
+    const k = String(h || "").trim().toLowerCase();
+    if(!k) return;
+    if(/^(name|description|desc|item|product|service)$/.test(k)) map.name = idx;
+    else if(/^(code|part|part\s*no|part\s*number|sku|pn)$/.test(k)) map.code = idx;
+    else if(/^(price|default\s*price|labour|amount)$/.test(k)) map.price = idx;
+    else if(/^(vat|vat\s*%|tax)$/.test(k)) map.vat = idx;
+    else if(/^(category|cat|group)$/.test(k)) map.category = idx;
+  });
+  return map;
+}
+
+async function importCatalogCsv(kind, file){
+  try{
+    const text = await file.text();
+    const rows = parseCsvText(text);
+    if(rows.length < 2) return toast("CSV has no data rows");
+    const map = csvHeaderMap(rows[0]);
+    if(map.name == null) map.name = 0;
+    if(kind === "product" && map.code == null && rows[0].length > 1) map.code = 1;
+    if(map.price == null) map.price = kind === "product" ? 2 : 1;
+    if(map.vat == null) map.vat = kind === "product" ? 3 : 2;
+    if(map.category == null) map.category = kind === "product" ? 4 : 3;
+    const dataRows = rows.slice(1);
+    if(!confirm(`Import ${dataRows.length} ${kind === "product" ? "product" : "service"} row(s) from CSV?`)) return;
+    let ok = 0, skip = 0;
+    for(const r of dataRows){
+      const name = String(r[map.name] ?? "").trim();
+      if(!name){ skip++; continue; }
+      const code = map.code != null ? String(r[map.code] ?? "").trim() : "";
+      const price = num(r[map.price]);
+      const vat = map.vat != null && String(r[map.vat] ?? "").trim() !== "" ? num(r[map.vat]) : shopDefaultVat();
+      const category = map.category != null ? String(r[map.category] ?? "").trim() : "";
+      const payload = {
+        name, price, vat, category, notes: "",
+        createdAt: Date.now(), createdBy: who(), updatedAt: Date.now(), updatedBy: who()
+      };
+      if(kind === "product"){
+        payload.code = code;
+        await addDoc(col("productCatalog"), payload);
+      }else{
+        await addDoc(col("serviceCatalog"), payload);
+      }
+      ok++;
+    }
+    toast(`Imported ${ok}${skip ? ` · skipped ${skip}` : ""}`);
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+function wireCatalogSuggest(){
+  if(window._s4CatalogWired) return;
+  window._s4CatalogWired = true;
+  const input = document.getElementById("invEntryName");
+  const list = document.getElementById("invCatalogSuggest");
+  if(!input || !list) return;
+  if(list.parentElement !== document.body) document.body.appendChild(list);
+
+  input.addEventListener("focus", ()=> renderCatalogSuggest(input.value));
+  input.addEventListener("input", ()=> renderCatalogSuggest(input.value));
+  input.addEventListener("keydown", e=>{
+    if(e.key === "Escape"){
+      hideCatalogSuggest();
+      return;
+    }
+    if(e.key === "ArrowDown"){
+      e.preventDefault();
+      renderCatalogSuggest(input.value);
+      const first = list.querySelector("li[data-cat-id]");
+      if(first) first.focus?.();
+      return;
+    }
+    if(e.key === "Enter"){
+      const first = !list.hidden && list.querySelector("li[data-cat-id]");
+      if(first){
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        applyCatalogPick(first.getAttribute("data-cat-kind"), first.getAttribute("data-cat-id"));
+      }
+    }
+  }, true);
+
+  list.addEventListener("mousedown", e=>{
+    const li = e.target.closest("li[data-cat-id]");
+    if(!li) return;
+    e.preventDefault();
+    applyCatalogPick(li.getAttribute("data-cat-kind"), li.getAttribute("data-cat-id"));
+  });
+
+  document.addEventListener("click", e=>{
+    if(e.target.closest("#invEntryName") || e.target.closest("#invCatalogSuggest")) return;
+    hideCatalogSuggest();
+  });
+  window.addEventListener("resize", hideCatalogSuggest);
+  document.getElementById("invoiceModal")?.addEventListener("scroll", hideCatalogSuggest, true);
 }
 
 function resetInvoice(){
+  _formInvoiceMode = null;
   invId.value = "";
   invNo.value = nextNo(shop.invPrefix || "INV-", invoices, "invNo");
   const invComputer = document.getElementById("invComputer");
@@ -1266,7 +2765,9 @@ function editInvoice(id){
   if(invTerms) invTerms.value = i.paymentTerms||"";
   const simpleTotalEl = document.getElementById("invSimpleTotal");
   if(getInvoiceEntryMode() === "simple" || (i.items||[]).length === 1 && (i.items[0].name||"").toLowerCase().includes("total")){
-    if(simpleTotalEl) simpleTotalEl.value = i.total ?? "";
+    // Stored total may already include linked debit notes — show base only so re-save does not double-add
+    const dnPart = linkedDebitTotalForInvoice(i.invNo, i.customer);
+    if(simpleTotalEl) simpleTotalEl.value = roundMoney(Math.max(0, num(i.total) - dnPart));
   }else if(simpleTotalEl) simpleTotalEl.value = "";
   setInvoiceLineItems(i.items || []);
   clearInvEntryFields();
@@ -1288,19 +2789,32 @@ async function saveInvoice(status){
   const existing = invId.value ? invoices.find(x=>x.id===invId.value) : null;
   const existingPaid = num(existing?.paid);
   const oldTotal = existing && existing.status !== "Draft" ? num(existing.total) : 0;
-  const after = customerOutstanding(customer) - oldTotal + calc.grand;
+  // Preserve linked debit-note charges when re-saving line items
+  const dnLinked = linkedDebitTotalForInvoice(invNo.value, customer);
+  const grandWithDn = roundMoney(calc.grand + dnLinked);
+  const after = customerOutstanding(customer) - oldTotal + grandWithDn;
   if(status === "Posted" && c && num(c.creditLimit) > 0 && after > num(c.creditLimit)){
     if(!confirm("After this invoice, outstanding exceeds credit limit. Post anyway?")) return;
   }
+  const manualNo = (invManual?.value||"").trim();
+  const computerNo = (document.getElementById("invComputer")?.value || "").trim();
+  if(manualNo){
+    const dupM = invoices.find(i=> i.id !== invId.value && String(i.manualNo||"").trim().toLowerCase() === manualNo.toLowerCase());
+    if(dupM && !confirm(`This Manual Invoice No. is already used on invoice ${dupM.invNo} (${dupM.customer}, ${money(dupM.total)}). Continue anyway?`)) return;
+  }
+  if(computerNo){
+    const dupC = invoices.find(i=> i.id !== invId.value && String(i.computerNo||"").trim().toLowerCase() === computerNo.toLowerCase());
+    if(dupC && !confirm(`This Computer Invoice No. is already used on invoice ${dupC.invNo} (${dupC.customer}, ${money(dupC.total)}). Continue anyway?`)) return;
+  }
   const data = {
     invNo: invNo.value.trim(),
-    computerNo: (document.getElementById("invComputer")?.value || "").trim(),
-    manualNo: (invManual?.value||"").trim(),
+    computerNo,
+    manualNo,
     invDate: invDate.value, dueDate: invDue.value,
     customer, vehicle: invVehicle.value, driver: invDriver.value.trim(),
     receivedBy: invReceived.value.trim(), lpo: invLpo.value.trim(), notes: invNotes.value.trim(),
     deliveryNote: (invDn?.value||"").trim(), reference: (invRef?.value||"").trim(), paymentTerms: (invTerms?.value||"").trim(),
-    items: calc.items, subtotal: calc.sub, discount: calc.disc, vat: calc.vat, total: calc.grand,
+    items: calc.items, subtotal: calc.sub, discount: calc.disc, vat: calc.vat, total: grandWithDn,
     paid: existingPaid,
     credited: num(existing?.credited),
     status, updatedAt: Date.now(), updatedBy: who()
@@ -1332,10 +2846,14 @@ function renderReceipts(){
   document.getElementById("receiptRows").innerHTML = rows.length ? rows.map(r=>{
     const alloc = num(r.allocated);
     const un = Math.max(0, num(r.amount) - alloc);
+    const st = r.status || "Posted";
+    const canVoid = st !== "Voided" && st !== "Cancelled" && st !== "Bounced";
     return `<tr><td>${esc(r.rvNo)}</td><td>${esc(r.date)}</td><td>${esc(r.customer)}</td><td>${esc(r.method)}</td>
       <td>${esc(r.ref || r.chequeNo)}</td><td>${money(r.amount)}</td><td>${money(alloc)}</td>
-      <td class="${un?"orange":""}">${money(un)}</td><td>${badge(r.status||"Posted")}</td></tr>`;
-  }).join("") : `<tr><td colspan="9" class="empty">No receipts</td></tr>`;
+      <td class="${un?"orange":""}">${money(un)}</td><td>${badge(st)}</td>
+      <td>${canVoid ? `<button class="btn small danger" type="button" data-void-rv="${r.id}">Void</button>` : "—"}</td></tr>`;
+  }).join("") : `<tr><td colspan="10" class="empty">No receipts</td></tr>`;
+  document.querySelectorAll("[data-void-rv]").forEach(b=> b.onclick = ()=> voidReceipt(b.dataset.voidRv));
 }
 
 function resetReceipt(){
@@ -1346,12 +2864,12 @@ function resetReceipt(){
   const rvChq = document.getElementById("rvChq");
   const rvBank = document.getElementById("rvBank");
   const rvCustomer = document.getElementById("rvCustomer");
-  rvNo.value = nextNo(shop.rvPrefix || "RV-", receipts, "rvNo");
-  rvDate.value = today();
-  rvAmount.value = "";
-  rvRef.value = "";
-  rvChq.value = "";
-  rvBank.value = "";
+  if(rvNo) rvNo.value = nextNo(shop.rvPrefix || "RV-", receipts, "rvNo");
+  if(rvDate) rvDate.value = today();
+  if(rvAmount) rvAmount.value = "";
+  if(rvRef) rvRef.value = "";
+  if(rvChq) rvChq.value = "";
+  if(rvBank) rvBank.value = "";
   const rvPdcDate = document.getElementById("rvPdcDate");
   const rvDisc = document.getElementById("rvDisc");
   const rvStatus = document.getElementById("rvStatus");
@@ -1360,9 +2878,13 @@ function resetReceipt(){
   if(rvChqDate) rvChqDate.value = "";
   if(rvDisc) rvDisc.value = 0;
   if(rvStatus) rvStatus.value = "Posted";
-  customerOptions(rvCustomer, "");
-  document.getElementById("rvAllocRows").innerHTML = `<tr><td colspan="6" class="empty">Select a customer to load invoices</td></tr>`;
-  document.getElementById("rvAllocHead").textContent = "Select customer first";
+  if(rvCustomer) customerOptions(rvCustomer, "");
+  const filt = document.getElementById("rvAllocFilter");
+  if(filt) filt.value = "";
+  const allocRows = document.getElementById("rvAllocRows");
+  const allocHead = document.getElementById("rvAllocHead");
+  if(allocRows) allocRows.innerHTML = `<tr><td colspan="6" class="empty">Select a customer to load invoices</td></tr>`;
+  if(allocHead) allocHead.textContent = "Select customer first";
 }
 
 function fillRvAlloc(){
@@ -1384,6 +2906,7 @@ function fillRvAlloc(){
   rvAllocHead.textContent = open.length
     ? `${open.length} open invoice(s) · Receipt ${money(amt)}`
     : `No open invoices · Receipt ${money(amt)}`;
+  rvAllocHead.dataset.base = rvAllocHead.textContent;
   if(!open.length){
     rvAllocRows.innerHTML = `<tr><td colspan="6" class="empty">No open invoices for this customer — post invoice first, or leave unallocated</td></tr>`;
     return;
@@ -1396,7 +2919,8 @@ function fillRvAlloc(){
       suggest = Math.min(left, bal);
       left -= suggest;
     }
-    return `<tr>
+    const blob = `${i.invNo||""} ${i.manualNo||""} ${i.computerNo||""}`.toLowerCase();
+    return `<tr data-inv-no="${esc(i.invNo)}" data-inv-search="${esc(blob)}">
       <td><b>${esc(i.invNo)}</b></td>
       <td>${esc(i.invDate)}</td>
       <td>${esc(i.dueDate)}</td>
@@ -1405,6 +2929,34 @@ function fillRvAlloc(){
       <td>${badge(invStatus(i))}</td>
     </tr>`;
   }).join("");
+  applyRvAllocFilter();
+}
+
+function applyRvAllocFilter(){
+  const filter = (document.getElementById("rvAllocFilter")?.value || "").toLowerCase().trim();
+  const rows = document.querySelectorAll("#rvAllocRows tr[data-inv-no]");
+  if(!rows.length) return;
+  let firstHit = null;
+  let shown = 0;
+  rows.forEach(tr=>{
+    const blob = (tr.dataset.invSearch || tr.dataset.invNo || "").toLowerCase();
+    const hit = !filter || blob.includes(filter);
+    tr.hidden = !hit;
+    tr.classList.toggle("rv-alloc-hit", !!(filter && hit));
+    if(hit){
+      shown++;
+      if(!firstHit) firstHit = tr;
+    }
+  });
+  const head = document.getElementById("rvAllocHead");
+  if(head){
+    const base = head.dataset.base || head.textContent.replace(/\s*·\s*showing.*$/i, "");
+    head.dataset.base = base;
+    head.textContent = filter ? `${base} · showing ${shown} match(es)` : base;
+  }
+  if(firstHit && filter){
+    try{ firstHit.scrollIntoView({ block: "nearest", behavior: "smooth" }); }catch(_){}
+  }
 }
 
 async function saveReceipt(){
@@ -1421,33 +2973,77 @@ async function saveReceipt(){
   const rvPdcDate = document.getElementById("rvPdcDate");
   const rvDisc = document.getElementById("rvDisc");
   const customer = rvCustomer.value;
-  const amount = num(rvAmount.value);
+  let amount = num(rvAmount.value);
   if(!customer) return toast("Select customer first");
   if(amount <= 0) return toast("Enter receipt amount");
-  const allocs = [...document.querySelectorAll("#rvAllocRows input[data-inv]")].map(inp=>({
+  const rvNoTrim = rvNo.value.trim();
+  const dupRv = receipts.find(r=> String(r.rvNo||"").trim().toLowerCase() === rvNoTrim.toLowerCase());
+  if(dupRv && !confirm(`This Receipt No. is already used (${dupRv.rvNo}, ${dupRv.customer}, ${money(dupRv.amount)}, ${dupRv.date||"—"}). Continue anyway?`)) return;
+  let allocs = [...document.querySelectorAll("#rvAllocRows input[data-inv]")].map(inp=>({
     invoiceId: inp.dataset.inv, amount: Math.min(num(inp.value), num(inp.dataset.max))
   })).filter(a=> a.amount > 0);
-  const allocated = allocs.reduce((s,a)=> s+a.amount, 0);
+  let allocated = roundMoney(allocs.reduce((s,a)=> s + a.amount, 0));
+  let discTotal = num(rvDisc?.value);
+  // Amount = cash/cheque face only. Discount is a separate ledger credit + invoice.credited.
+  // If user puts full bill in Amount AND Discount (Amount ≈ Allocate), ledger would show fake advance.
+  if(discTotal > 0.009 && allocated > 0.009 && Math.abs(amount - allocated) <= 0.01){
+    const netCash = roundMoney(amount - discTotal);
+    if(netCash > 0.009){
+      const ok = confirm(
+        `Discount ${money(discTotal)} detected.\n\n` +
+        `AMOUNT must be cash received only.\n` +
+        `Fix now? Amount ${money(amount)} → ${money(netCash)}, and allocations will match cash.\n\n` +
+        `OK = auto-fix (recommended)\nCancel = stop so you can edit`
+      );
+      if(!ok) return;
+      amount = netCash;
+      if(rvAmount) rvAmount.value = String(netCash);
+      let left = netCash;
+      allocs = allocs.map(a=>{
+        const take = roundMoney(Math.min(a.amount, left));
+        left = roundMoney(left - take);
+        return { ...a, amount: take };
+      }).filter(a=> a.amount > 0.009);
+      allocated = roundMoney(allocs.reduce((s,a)=> s + a.amount, 0));
+    }
+  }
   if(allocated > amount + 0.01) return toast("Allocation exceeds receipt amount");
   const method = rvMethod.value;
   const isCheque = method.includes("Cheque");
   const status = isCheque ? (rvStatus?.value || "Pending") : (rvStatus?.value || "Posted");
-  const applyNow = !isCheque || status === "Cleared";
+  // Cash/bank: apply only when Posted. Cheque/PDC: apply only when Cleared.
+  // Never apply Cancelled / Bounced / Pending / Deposited to invoice.paid
+  const applyNow = isCheque ? (status === "Cleared") : (status === "Posted");
+  if(applyNow && allocated < amount - 0.01){
+    const left = roundMoney(amount - allocated);
+    if(!confirm(`Unallocated ${money(left)} will stay as customer advance on the ledger (not on invoice paid). Continue?`)) return;
+  }
   const data = {
-    rvNo: rvNo.value.trim(), date: rvDate.value, customer, method,
+    rvNo: rvNoTrim, date: rvDate.value, customer, method,
     amount, allocated: applyNow ? allocated : 0, unallocated: applyNow ? amount - allocated : amount,
     ref: rvRef.value.trim(), chequeNo: rvChq.value.trim(), bank: rvBank.value.trim(),
-    chequeDate: rvChqDate.value, pdcDate: rvPdcDate?.value || "", discount: num(rvDisc?.value),
+    chequeDate: rvChqDate.value, pdcDate: rvPdcDate?.value || "", discount: discTotal,
     allocations: allocs, status, createdAt: Date.now(), createdBy: who(), applied: applyNow
   };
   try{
     const write = (async ()=>{
       const recRef = await addDoc(col("receipts"), data);
       if(applyNow){
-        for(const a of allocs){
-          const inv = invoices.find(i=> i.id === a.invoiceId);
+        // Discount with no invoice allocation stays customer-ledger-only (discounts collection below).
+        const discShares = (allocs.length && discTotal > 0)
+          ? distributeProportionally(discTotal, allocs.map(a=> a.amount))
+          : allocs.map(()=> 0);
+        for(let i = 0; i < allocs.length; i++){
+          const a = allocs[i];
+          const inv = invoices.find(x=> x.id === a.invoiceId);
           if(!inv) continue;
-          await updateDoc(doc(db,"invoices", a.invoiceId), { paid: num(inv.paid) + a.amount, updatedAt: Date.now(), updatedBy: who() });
+          const patch = invoiceMoneyPatch(inv, {
+            paidDelta: a.amount,
+            creditedDelta: discShares[i] || 0,
+            updatedBy: who()
+          });
+          await updateDoc(doc(db,"invoices", a.invoiceId), patch);
+          Object.assign(inv, patch);
         }
       }
       if(isCheque && rvChq.value.trim()){
@@ -1458,10 +3054,11 @@ async function saveReceipt(){
           receiptId: recRef.id, receiptNo: data.rvNo, createdAt: Date.now()
         });
       }
-      if(num(rvDisc?.value) > 0){
+      // Only post discount into books when money actually applied
+      if(applyNow && discTotal > 0){
         await addDoc(col("discounts"), {
           date: rvDate.value, customer, type:"Payment", ref: data.rvNo, method:"Fixed",
-          amount: num(rvDisc.value), reason: "Receipt discount", approvedBy: who(), createdAt: Date.now()
+          amount: discTotal, reason: "Receipt discount", approvedBy: who(), createdAt: Date.now()
         });
       }
       await logActivity({ action:"add", staffName: who(), module:"Receipt", record: data.rvNo, customer, summary: "Receipt " + data.rvNo, newValue: money(amount) });
@@ -1472,16 +3069,23 @@ async function saveReceipt(){
 }
 
 function fillAllocSelect(){
+  const allocReceipt = document.getElementById("allocReceipt");
+  if(!allocReceipt) return;
   const list = receipts.filter(r=> num(r.unallocated) > 0.009 && receiptAffectsBalance(r));
   allocReceipt.innerHTML = list.map(r=> `<option value="${r.id}">${esc(r.rvNo)} — ${money(r.unallocated)}</option>`).join("");
   fillAllocRows();
 }
 
 function fillAllocRows(){
+  const allocReceipt = document.getElementById("allocReceipt");
+  const allocCustomer = document.getElementById("allocCustomer");
+  const allocUnalloc = document.getElementById("allocUnalloc");
+  const allocRows = document.getElementById("allocRows");
+  if(!allocReceipt || !allocRows) return;
   const r = receipts.find(x=> x.id === allocReceipt.value);
-  if(!r){ allocCustomer.value = ""; allocUnalloc.value = ""; allocRows.innerHTML = ""; return; }
-  allocCustomer.value = r.customer;
-  allocUnalloc.value = money(r.unallocated);
+  if(!r){ if(allocCustomer) allocCustomer.value = ""; if(allocUnalloc) allocUnalloc.value = ""; allocRows.innerHTML = ""; return; }
+  if(allocCustomer) allocCustomer.value = r.customer;
+  if(allocUnalloc) allocUnalloc.value = money(r.unallocated);
   const open = invoices.filter(i=> i.customer === r.customer && i.status !== "Draft" && invBalance(i) > 0);
   allocRows.innerHTML = open.map(i=> `<tr>
     <td><input type="checkbox" checked></td>
@@ -1493,9 +3097,10 @@ function fillAllocRows(){
 }
 
 async function saveAllocation(){
-  const r = receipts.find(x=> x.id === allocReceipt.value);
+  const allocReceipt = document.getElementById("allocReceipt");
+  const r = receipts.find(x=> x.id === allocReceipt?.value);
   if(!r) return toast("Select a receipt");
-  const allocs = [...document.querySelectorAll("#allocRows input")].map(inp=>({
+  const allocs = [...document.querySelectorAll("#allocRows input[data-inv]")].map(inp=>({
     invoiceId: inp.dataset.inv, amount: Math.min(num(inp.value), num(inp.dataset.max))
   })).filter(a=> a.amount > 0);
   const sum = allocs.reduce((s,a)=> s+a.amount, 0);
@@ -1505,7 +3110,9 @@ async function saveAllocation(){
     for(const a of allocs){
       const inv = invoices.find(i=> i.id === a.invoiceId);
       if(!inv) continue;
-      await updateDoc(doc(db,"invoices", a.invoiceId), { paid: num(inv.paid)+a.amount, updatedAt: Date.now() });
+      const patch = invoiceMoneyPatch(inv, { paidDelta: a.amount });
+      await updateDoc(doc(db,"invoices", a.invoiceId), patch);
+      Object.assign(inv, patch);
     }
     await updateDoc(doc(db,"receipts", r.id), {
       allocated: num(r.allocated)+sum,
@@ -1517,12 +3124,114 @@ async function saveAllocation(){
   }catch(e){ toast(e.message); }
 }
 
+function fillCnAllocSelect(preferId){
+  const sel = document.getElementById("allocCn");
+  if(!sel) return;
+  const list = creditNotes.filter(n=> cnOpenCredit(n) > 0.009)
+    .sort((a,b)=> String(b.date||"").localeCompare(String(a.date||"")));
+  const keep = preferId || sel.value || "";
+  sel.innerHTML = list.length
+    ? list.map(n=> `<option value="${n.id}">${esc(n.cnNo)} — ${money(cnOpenCredit(n))} open · ${esc(n.customer)}</option>`).join("")
+    : `<option value="">No open credit notes</option>`;
+  if(keep && [...sel.options].some(o=> o.value === keep)) sel.value = keep;
+  fillCnAllocRows();
+}
+
+function fillCnAllocRows(){
+  const sel = document.getElementById("allocCn");
+  const custEl = document.getElementById("allocCnCustomer");
+  const openEl = document.getElementById("allocCnOpen");
+  const rows = document.getElementById("cnAllocRows");
+  if(!rows) return;
+  const n = creditNotes.find(x=> x.id === sel?.value);
+  if(!n){
+    if(custEl) custEl.value = "";
+    if(openEl) openEl.value = "";
+    rows.innerHTML = `<tr><td colspan="6" class="empty">Select a credit note with open credit</td></tr>`;
+    return;
+  }
+  const open = cnOpenCredit(n);
+  if(custEl) custEl.value = n.customer || "";
+  if(openEl) openEl.value = money(open);
+  const invs = invoices
+    .filter(i=> i.customer === n.customer && i.status !== "Draft" && invBalance(i) > 0.009)
+    .sort((a,b)=> String(a.dueDate||a.invDate).localeCompare(String(b.dueDate||b.invDate)));
+  let left = open;
+  rows.innerHTML = invs.length ? invs.map(i=>{
+    const bal = invBalance(i);
+    let suggest = 0;
+    if(left > 0.009){
+      suggest = Math.min(left, bal);
+      left = roundMoney(left - suggest);
+    }
+    return `<tr>
+      <td><b>${esc(i.invNo)}</b></td><td>${esc(i.invDate)}</td><td>${esc(i.dueDate)}</td>
+      <td>${money(bal)}</td>
+      <td><input type="number" min="0" step="0.01" data-cn-inv="${i.id}" data-max="${bal}" value="${suggest || 0}"></td>
+      <td>${badge(invStatus(i))}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="6" class="empty">No open invoices for this customer</td></tr>`;
+}
+
+async function saveCnAllocation(){
+  const sel = document.getElementById("allocCn");
+  const n = creditNotes.find(x=> x.id === sel?.value);
+  if(!n) return toast("Select a credit note");
+  const open = cnOpenCredit(n);
+  if(open <= 0.009) return toast("No open credit on this CN");
+  const allocs = [...document.querySelectorAll("#cnAllocRows input[data-cn-inv]")].map(inp=>{
+    const inv = invoices.find(i=> i.id === inp.dataset.cnInv);
+    return {
+      invoiceId: inp.dataset.cnInv,
+      invoiceNo: inv?.invNo || "",
+      amount: Math.min(num(inp.value), num(inp.dataset.max))
+    };
+  }).filter(a=> a.amount > 0.009);
+  const sum = roundMoney(allocs.reduce((s,a)=> s + a.amount, 0));
+  if(sum <= 0) return toast("Enter credit amounts");
+  if(sum > open + 0.01) return toast("Exceeds open credit on CN");
+  try{
+    for(const a of allocs){
+      const inv = invoices.find(i=> i.id === a.invoiceId);
+      if(!inv) continue;
+      const patch = invoiceMoneyPatch(inv, { creditedDelta: a.amount, updatedBy: who() });
+      await updateDoc(doc(db, "invoices", a.invoiceId), patch);
+      Object.assign(inv, patch);
+    }
+    const prevAlloc = Array.isArray(n.allocations) ? n.allocations : [];
+    // Migrate legacy single-invoice link into allocations list if needed
+    let baseAlloc = prevAlloc;
+    if(!prevAlloc.length && String(n.invoice || "").trim()){
+      const inv = invoices.find(i=> i.invNo === n.invoice && i.customer === n.customer);
+      baseAlloc = [{ invoiceId: inv?.id || "", invoiceNo: n.invoice, amount: num(n.amount) }];
+    }
+    const nextAlloc = [...baseAlloc, ...allocs];
+    const allocated = roundMoney(nextAlloc.reduce((s,a)=> s + num(a.amount), 0));
+    const patchCn = {
+      allocations: nextAlloc,
+      allocated,
+      unallocated: Math.max(0, roundMoney(num(n.amount) - allocated)),
+      updatedAt: Date.now(),
+      updatedBy: who()
+    };
+    await updateDoc(doc(db, "creditNotes", n.id), patchCn);
+    Object.assign(n, patchCn);
+    await logActivity({
+      action: "edit", staffName: who(), module: "CN Allocation",
+      record: n.cnNo, customer: n.customer, summary: "CN allocated " + money(sum)
+    });
+    toast("Credit note allocated to invoice(s)");
+    fillCnAllocSelect(n.id);
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
 function ledgerLines(name){
   const lines = [];
   invoices.filter(i=> i.customer===name && i.status !== "Draft").forEach(i=> lines.push({ date:i.invDate, ref:i.invNo, desc:"Credit Invoice", debit:num(i.total), credit:0 }));
   receipts.filter(r=> r.customer===name && receiptAffectsBalance(r)).forEach(r=> lines.push({ date:r.date, ref:r.rvNo, desc:"Receipt "+(r.method||""), debit:0, credit:num(r.amount) }));
-  creditNotes.filter(n=> n.customer===name && n.status !== "Draft").forEach(n=> lines.push({ date:n.date, ref:n.cnNo, desc:"Credit Note", debit:0, credit:num(n.amount) }));
-  debitNotes.filter(n=> n.customer===name && n.status !== "Draft").forEach(n=> lines.push({ date:n.date, ref:n.dnNo, desc:"Debit Note", debit:num(n.amount), credit:0 }));
+  creditNotes.filter(n=> n.customer===name && noteIsLive(n)).forEach(n=> lines.push({ date:n.date, ref:n.cnNo, desc:"Credit Note", debit:0, credit:num(n.amount) }));
+  // Invoice-linked debit notes already increase invoice.total — only list unlinked DNs here
+  unlinkedDebitNotes(name).forEach(n=> lines.push({ date:n.date, ref:n.dnNo, desc:"Debit Note", debit:num(n.amount), credit:0 }));
   discounts.filter(d=> d.customer===name).forEach(d=> lines.push({ date:d.date, ref:d.ref||"", desc:"Discount", debit:0, credit:num(d.amount) }));
   cheques.filter(c=> c.customer===name && c.status==="Cleared" && !findChequeReceipt(c)).forEach(c=>
     lines.push({ date:c.pdcDate||c.chequeDate, ref:c.chequeNo, desc:"Cheque cleared", debit:0, credit:num(c.amount) })
@@ -1568,49 +3277,138 @@ function fillStatement(){
 }
 
 function renderNotes(tbodyId, list, noField){
-  document.getElementById(tbodyId).innerHTML = list.length ? list.map(n=> `<tr>
-    <td>${esc(n[noField])}</td><td>${esc(n.date)}</td><td>${esc(n.customer)}</td>
-    <td>${esc(n.invoice||n.ref||"")}</td><td>${esc(n.reason)}</td><td>${money(n.amount)}</td><td>${badge(n.status||"Posted")}</td>
-  </tr>`).join("") : `<tr><td colspan="7" class="empty">None</td></tr>`;
+  const isCn = tbodyId === "cnRows";
+  const isDn = tbodyId === "dnRows";
+  const el = document.getElementById(tbodyId);
+  if(!el) return;
+  const cols = isCn ? 9 : (isDn ? 8 : 7);
+  el.innerHTML = list.length ? list.map(n=>{
+    const open = isCn ? cnOpenCredit(n) : 0;
+    const live = noteIsLive(n);
+    let actions = "—";
+    if(live){
+      const bits = [];
+      if(isCn && open > 0.009){
+        bits.push(`<button class="btn small" type="button" data-alloc-cn="${n.id}">Allocate</button>`);
+      }
+      bits.push(`<button class="btn small danger" type="button" data-void-note="${tbodyId}:${n.id}">Void</button>`);
+      actions = bits.join(" ");
+    }
+    return `<tr>
+      <td>${esc(n[noField])}</td><td>${esc(n.date)}</td><td>${esc(n.customer)}</td>
+      <td>${esc(n.invoice||n.ref||"")}</td><td>${esc(n.reason)}</td><td>${money(n.amount)}</td>
+      ${isCn ? `<td class="${open?"orange":""}">${money(open)}</td>` : ""}
+      <td>${badge(n.status||"Posted")}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="${cols}" class="empty">None</td></tr>`;
+  el.querySelectorAll("[data-void-note]").forEach(b=>{
+    b.onclick = ()=>{
+      const [kind, id] = String(b.dataset.voidNote || "").split(":");
+      if(kind === "cnRows") voidCreditNote(id);
+      else if(kind === "dnRows") voidDebitNote(id);
+    };
+  });
+  el.querySelectorAll("[data-alloc-cn]").forEach(b=>{
+    b.onclick = ()=>{
+      showPage("allocation");
+      const sel = document.getElementById("allocCn");
+      if(sel){ sel.value = b.dataset.allocCn; fillCnAllocRows(); }
+      toast("Select invoices and Save CN Allocation");
+    };
+  });
 }
 
-function fillNoteInvoices(sel, customer){
-  const list = invoices.filter(i=> i.customer === customer && i.status !== "Draft");
-  sel.innerHTML = `<option value="">—</option>` + list.map(i=> `<option value="${esc(i.invNo)}">${esc(i.invNo)} (${money(i.total)})</option>`).join("");
+function fillNoteInvoices(sel, customer, selected){
+  if(!sel) return;
+  const list = invoicesForCustomer(customer, "");
+  const keep = selected != null ? selected : (sel.value || "");
+  sel.innerHTML = `<option value="">—</option>` + list.map(i=>
+    `<option value="${esc(i.invNo)}">${esc(i.invNo)} (${money(invBalance(i))} due)</option>`
+  ).join("");
+  if(keep && [...sel.options].some(o=> o.value === keep)) sel.value = keep;
+  else sel.value = "";
+  syncInvoiceComboInput(sel);
 }
 
 function resetCn(){
-  cnId.value = "";
-  cnNo.value = nextNo("CN-", creditNotes, "cnNo");
-  cnDate.value = today(); cnAmount.value = ""; cnReason.value = ""; cnStatus.value = "Posted";
-  customerOptions(cnCustomer, "");
-  fillNoteInvoices(cnInvoice, "");
+  const cnId = document.getElementById("cnId");
+  const cnNo = document.getElementById("cnNo");
+  const cnDate = document.getElementById("cnDate");
+  const cnAmount = document.getElementById("cnAmount");
+  const cnReason = document.getElementById("cnReason");
+  const cnStatus = document.getElementById("cnStatus");
+  const cnCustomer = document.getElementById("cnCustomer");
+  const cnInvoice = document.getElementById("cnInvoice");
+  if(cnId) cnId.value = "";
+  if(cnNo) cnNo.value = nextNo("CN-", creditNotes, "cnNo");
+  if(cnDate) cnDate.value = today();
+  if(cnAmount) cnAmount.value = "";
+  if(cnReason) cnReason.value = "";
+  if(cnStatus) cnStatus.value = "Posted";
+  if(cnCustomer) customerOptions(cnCustomer, "");
+  if(cnInvoice) fillNoteInvoices(cnInvoice, "");
 }
 
 function resetDn(){
-  dnId.value = "";
-  dnNo.value = nextNo("DN-", debitNotes, "dnNo");
-  dnDate.value = today(); dnAmount.value = ""; dnReason.value = ""; dnRef.value = ""; dnStatus.value = "Posted";
-  customerOptions(dnCustomer, "");
+  const dnId = document.getElementById("dnId");
+  const dnNo = document.getElementById("dnNo");
+  const dnDate = document.getElementById("dnDate");
+  const dnAmount = document.getElementById("dnAmount");
+  const dnReason = document.getElementById("dnReason");
+  const dnRef = document.getElementById("dnRef");
+  const dnStatus = document.getElementById("dnStatus");
+  const dnCustomer = document.getElementById("dnCustomer");
+  const dnInvoice = document.getElementById("dnInvoice");
+  if(dnId) dnId.value = "";
+  if(dnNo) dnNo.value = nextNo("DN-", debitNotes, "dnNo");
+  if(dnDate) dnDate.value = today();
+  if(dnAmount) dnAmount.value = "";
+  if(dnReason) dnReason.value = "";
+  if(dnRef) dnRef.value = "";
+  if(dnStatus) dnStatus.value = "Posted";
+  if(dnCustomer) customerOptions(dnCustomer, "");
+  if(dnInvoice) fillNoteInvoices(dnInvoice, "");
 }
 
 async function saveCn(){
-  const customer = cnCustomer.value;
-  const amount = num(cnAmount.value);
+  const cnCustomer = document.getElementById("cnCustomer");
+  const cnAmount = document.getElementById("cnAmount");
+  const cnNo = document.getElementById("cnNo");
+  const cnDate = document.getElementById("cnDate");
+  const cnInvoice = document.getElementById("cnInvoice");
+  const cnReason = document.getElementById("cnReason");
+  const cnStatus = document.getElementById("cnStatus");
+  const customer = cnCustomer?.value || "";
+  const amount = num(cnAmount?.value);
   if(!customer) return toast("Select customer");
   if(amount <= 0) return toast("Enter amount");
+  const cnTrim = (cnNo?.value || "").trim();
+  const status = cnStatus?.value || "Posted";
+  const invNo = (cnInvoice?.value || "").trim();
+  const dupCn = creditNotes.find(n=> String(n.cnNo||"").trim().toLowerCase() === cnTrim.toLowerCase());
+  if(dupCn && !confirm(`This Credit Note No. is already used (${dupCn.cnNo}, ${dupCn.customer}, ${money(dupCn.amount)}, ${dupCn.date||"—"}). Continue anyway?`)) return;
   try{
     const write = (async ()=>{
+      const inv = invNo ? invoices.find(i=> i.invNo === invNo && i.customer === customer) : null;
+      const linked = status !== "Draft" && !!inv;
+      const allocations = linked
+        ? [{ invoiceId: inv.id, invoiceNo: inv.invNo, amount }]
+        : [];
       await addDoc(col("creditNotes"), {
-        cnNo: cnNo.value, date: cnDate.value, customer, invoice: cnInvoice.value,
-        reason: cnReason.value.trim(), amount, status: cnStatus.value,
+        cnNo: cnTrim, date: cnDate?.value || today(), customer, invoice: invNo,
+        reason: (cnReason?.value || "").trim(), amount, status,
+        allocations,
+        allocated: linked ? amount : 0,
+        unallocated: linked ? 0 : (status === "Draft" ? 0 : amount),
         createdAt: Date.now(), createdBy: who()
       });
-      if(cnStatus.value !== "Draft" && cnInvoice.value){
-        const inv = invoices.find(i=> i.invNo === cnInvoice.value && i.customer === customer);
-        if(inv) await updateDoc(doc(db,"invoices", inv.id), { credited: num(inv.credited) + amount, updatedAt: Date.now() });
+      if(linked){
+        const patch = invoiceMoneyPatch(inv, { creditedDelta: amount });
+        await updateDoc(doc(db,"invoices", inv.id), patch);
+        Object.assign(inv, patch);
       }
-      await logActivity({ action:"add", staffName: who(), module:"Credit Note", record: cnNo.value, customer, summary: "CN " + cnNo.value, newValue: money(amount) });
+      await logActivity({ action:"add", staffName: who(), module:"Credit Note", record: cnTrim, customer, summary: "CN " + cnTrim, newValue: money(amount) });
     })();
     closeModal("cnModal");
     commitWrite(write, { okMsg: "Credit note posted" });
@@ -1618,21 +3416,160 @@ async function saveCn(){
 }
 
 async function saveDn(){
-  const customer = dnCustomer.value;
-  const amount = num(dnAmount.value);
+  const dnCustomer = document.getElementById("dnCustomer");
+  const dnAmount = document.getElementById("dnAmount");
+  const dnNo = document.getElementById("dnNo");
+  const dnDate = document.getElementById("dnDate");
+  const dnRef = document.getElementById("dnRef");
+  const dnInvoice = document.getElementById("dnInvoice");
+  const dnReason = document.getElementById("dnReason");
+  const dnStatus = document.getElementById("dnStatus");
+  const customer = dnCustomer?.value || "";
+  const amount = num(dnAmount?.value);
   if(!customer) return toast("Select customer");
   if(amount <= 0) return toast("Enter amount");
+  const dnTrim = (dnNo?.value || "").trim();
+  const invNo = (dnInvoice?.value || "").trim();
+  const status = dnStatus?.value || "Posted";
+  const dupDn = debitNotes.find(n=> String(n.dnNo||"").trim().toLowerCase() === dnTrim.toLowerCase());
+  if(dupDn && !confirm(`This Debit Note No. is already used (${dupDn.dnNo}, ${dupDn.customer}, ${money(dupDn.amount)}, ${dupDn.date||"—"}). Continue anyway?`)) return;
   try{
     const write = (async ()=>{
       await addDoc(col("debitNotes"), {
-        dnNo: dnNo.value, date: dnDate.value, customer, ref: dnRef.value.trim(),
-        reason: dnReason.value.trim(), amount, status: dnStatus.value,
+        dnNo: dnTrim, date: dnDate?.value || today(), customer,
+        invoice: invNo,
+        ref: (dnRef?.value || "").trim(),
+        reason: (dnReason?.value || "").trim(), amount, status,
         createdAt: Date.now(), createdBy: who()
       });
-      await logActivity({ action:"add", staffName: who(), module:"Debit Note", record: dnNo.value, customer, summary: "DN " + dnNo.value, newValue: money(amount) });
+      // Linked + Posted → raise invoice.total so dashboard/aging/invBalance stay in sync
+      if(noteIsLive({ status }) && invNo){
+        const inv = invoices.find(i=> i.invNo === invNo && i.customer === customer);
+        if(inv){
+          const nextTotal = roundMoney(num(inv.total) + amount);
+          const patch = { total: nextTotal, updatedAt: Date.now(), updatedBy: who() };
+          await updateDoc(doc(db, "invoices", inv.id), patch);
+          Object.assign(inv, patch);
+        }
+      }
+      await logActivity({ action:"add", staffName: who(), module:"Debit Note", record: dnTrim, customer, summary: "DN " + dnTrim, newValue: money(amount) });
     })();
     closeModal("dnModal");
     commitWrite(write, { okMsg: "Debit note posted" });
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+async function voidCreditNote(id){
+  const n = creditNotes.find(x=> x.id === id);
+  if(!n) return toast("Credit note not found");
+  if(!noteIsLive(n)) return toast("Already voided / not active");
+  const msg = `Void credit note ${n.cnNo} (${money(n.amount)})?\nCustomer: ${n.customer}\n\nThis reverses invoice credits and removes it from the ledger.`;
+  if(!confirm(msg)) return;
+  try{
+    const write = (async ()=>{
+      let targets = Array.isArray(n.allocations) ? n.allocations.filter(a=> num(a.amount) > 0) : [];
+      if(!targets.length && String(n.invoice || "").trim()){
+        const inv = invoices.find(i=> i.invNo === n.invoice && i.customer === n.customer);
+        targets = [{ invoiceId: inv?.id, invoiceNo: n.invoice, amount: num(n.amount) }];
+      }
+      for(const a of targets){
+        const inv = invoices.find(i=>
+          (a.invoiceId && i.id === a.invoiceId) ||
+          (a.invoiceNo && i.invNo === a.invoiceNo && i.customer === n.customer)
+        );
+        if(!inv) continue;
+        const patch = invoiceMoneyPatch(inv, { creditedDelta: -num(a.amount), updatedBy: who() });
+        await updateDoc(doc(db, "invoices", inv.id), patch);
+        Object.assign(inv, patch);
+      }
+      const patchCn = {
+        status: "Voided",
+        voidedAt: Date.now(),
+        voidedBy: who(),
+        allocated: 0,
+        unallocated: 0,
+        allocations: [],
+        invoice: "",
+        updatedAt: Date.now()
+      };
+      await updateDoc(doc(db, "creditNotes", n.id), patchCn);
+      Object.assign(n, patchCn);
+      await logActivity({
+        action: "void", staffName: who(), module: "Credit Note",
+        record: n.cnNo, customer: n.customer, summary: "Voided CN " + n.cnNo, oldValue: money(n.amount)
+      });
+    })();
+    commitWrite(write, { okMsg: "Credit note voided" });
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+async function voidDebitNote(id){
+  const n = debitNotes.find(x=> x.id === id);
+  if(!n) return toast("Debit note not found");
+  if(!noteIsLive(n)) return toast("Already voided / not active");
+  const invNo = String(n.invoice || "").trim();
+  const inv = invNo ? invoices.find(i=> i.invNo === invNo && i.customer === n.customer) : null;
+  if(inv){
+    const nextTotal = roundMoney(num(inv.total) - num(n.amount));
+    const floor = roundMoney(num(inv.paid) + num(inv.credited));
+    if(nextTotal + 0.009 < floor){
+      return toast(`Cannot void — invoice ${inv.invNo} paid/credited (${money(floor)}) exceeds total after void (${money(nextTotal)}). Reverse payments first.`);
+    }
+  }
+  if(!confirm(`Void debit note ${n.dnNo} (${money(n.amount)})?\nCustomer: ${n.customer}`)) return;
+  try{
+    const write = (async ()=>{
+      if(inv){
+        const nextTotal = roundMoney(Math.max(0, num(inv.total) - num(n.amount)));
+        const patch = { total: nextTotal, updatedAt: Date.now(), updatedBy: who() };
+        await updateDoc(doc(db, "invoices", inv.id), patch);
+        Object.assign(inv, patch);
+      }
+      const patchDn = { status: "Voided", voidedAt: Date.now(), voidedBy: who(), updatedAt: Date.now() };
+      await updateDoc(doc(db, "debitNotes", n.id), patchDn);
+      Object.assign(n, patchDn);
+      await logActivity({
+        action: "void", staffName: who(), module: "Debit Note",
+        record: n.dnNo, customer: n.customer, summary: "Voided DN " + n.dnNo, oldValue: money(n.amount)
+      });
+    })();
+    commitWrite(write, { okMsg: "Debit note voided" });
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+async function voidReceipt(id){
+  const r = receipts.find(x=> x.id === id);
+  if(!r) return toast("Receipt not found");
+  const st = r.status || "Posted";
+  if(st === "Voided" || st === "Cancelled" || st === "Bounced") return toast("Already voided / cancelled");
+  const mustReverse = !!(r.applied || receiptAffectsBalance(r));
+  const msg = mustReverse
+    ? `Void receipt ${r.rvNo} (${money(r.amount)})?\nThis reverses invoice paid/discount and removes it from the ledger.`
+    : `Cancel receipt ${r.rvNo} (${money(r.amount)})?\nNot yet applied to invoices (e.g. pending cheque).`;
+  if(!confirm(msg)) return;
+  try{
+    const write = (async ()=>{
+      if(mustReverse){
+        await reverseReceiptFromInvoices(r, "Cancelled");
+      }else{
+        await updateDoc(doc(db, "receipts", r.id), {
+          status: "Cancelled", applied: false, updatedAt: Date.now()
+        });
+        Object.assign(r, { status: "Cancelled", applied: false });
+      }
+      const chq = cheques.find(c=>
+        (c.receiptId && c.receiptId === r.id) || (c.receiptNo && c.receiptNo === r.rvNo)
+      );
+      if(chq && chq.status !== "Cancelled" && chq.status !== "Voided" && chq.status !== "Bounced"){
+        await updateDoc(doc(db, "cheques", chq.id), { status: "Cancelled", updatedAt: Date.now() });
+        Object.assign(chq, { status: "Cancelled" });
+      }
+      await logActivity({
+        action: "void", staffName: who(), module: "Receipt",
+        record: r.rvNo, customer: r.customer, summary: "Voided RV " + r.rvNo, oldValue: money(r.amount)
+      });
+    })();
+    commitWrite(write, { okMsg: "Receipt voided" });
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
@@ -1646,39 +3583,199 @@ function renderCheques(){
 }
 
 function resetCheque(){
-  chqId.value = ""; chqNo.value = ""; chqBank.value = ""; chqAmt.value = "";
-  chqDate.value = today(); chqPdc.value = today(); chqStatus.value = "Pending";
-  customerOptions(chqCustomer, "");
+  const chqId = document.getElementById("chqId");
+  const chqNo = document.getElementById("chqNo");
+  const chqBank = document.getElementById("chqBank");
+  const chqAmt = document.getElementById("chqAmt");
+  const chqDate = document.getElementById("chqDate");
+  const chqPdc = document.getElementById("chqPdc");
+  const chqStatus = document.getElementById("chqStatus");
+  const chqCustomer = document.getElementById("chqCustomer");
+  const chqInvoice = document.getElementById("chqInvoice");
+  if(chqId) chqId.value = "";
+  if(chqNo) chqNo.value = "";
+  if(chqBank) chqBank.value = "";
+  if(chqAmt) chqAmt.value = "";
+  if(chqDate) chqDate.value = today();
+  if(chqPdc) chqPdc.value = today();
+  if(chqStatus) chqStatus.value = "Pending";
+  if(chqCustomer) customerOptions(chqCustomer, "");
+  if(chqInvoice) fillNoteInvoices(chqInvoice, "");
 }
 
 function editCheque(id){
   const c = cheques.find(x=> x.id === id);
   if(!c) return;
-  chqId.value = c.id; chqNo.value = c.chequeNo||""; customerOptions(chqCustomer, c.customer);
-  chqBank.value = c.bank||""; chqDate.value = c.chequeDate||""; chqPdc.value = c.pdcDate||"";
-  chqAmt.value = c.amount||0; chqStatus.value = c.status||"Pending";
+  const chqId = document.getElementById("chqId");
+  const chqNo = document.getElementById("chqNo");
+  const chqBank = document.getElementById("chqBank");
+  const chqAmt = document.getElementById("chqAmt");
+  const chqDate = document.getElementById("chqDate");
+  const chqPdc = document.getElementById("chqPdc");
+  const chqStatus = document.getElementById("chqStatus");
+  const chqCustomer = document.getElementById("chqCustomer");
+  const chqInvoice = document.getElementById("chqInvoice");
+  if(chqId) chqId.value = c.id;
+  if(chqNo) chqNo.value = c.chequeNo||"";
+  if(chqCustomer) customerOptions(chqCustomer, c.customer);
+  if(chqInvoice) fillNoteInvoices(chqInvoice, c.customer || "", c.invoice || "");
+  if(chqBank) chqBank.value = c.bank||"";
+  if(chqDate) chqDate.value = c.chequeDate||"";
+  if(chqPdc) chqPdc.value = c.pdcDate||"";
+  if(chqAmt) chqAmt.value = c.amount||0;
+  if(chqStatus) chqStatus.value = c.status||"Pending";
   openModal("chequeModal");
 }
 
-async function applyReceiptToInvoices(r){
-  for(const a of (r.allocations||[])){
-    const inv = invoices.find(i=> i.id === a.invoiceId);
-    if(!inv) continue;
-    await updateDoc(doc(db,"invoices", a.invoiceId), { paid: num(inv.paid)+num(a.amount), updatedAt: Date.now() });
-  }
-  const allocSum = (r.allocations||[]).reduce((s,a)=> s + num(a.amount), 0);
-  await updateDoc(doc(db,"receipts", r.id), {
-    applied: true, allocated: allocSum, unallocated: Math.max(0, num(r.amount) - allocSum), status: "Cleared"
+async function recalculateInvoiceBalances(){
+  if(!isOwnerRole()) throw new Error("Only owner");
+  const paidMap = {};
+  const creditedMap = {};
+
+  receipts.filter(r=> r.applied && receiptAffectsBalance(r)).forEach(r=>{
+    const allocs = r.allocations || [];
+    if(!allocs.length) return;
+    const disc = num(r.discount);
+    const shares = disc > 0 ? distributeProportionally(disc, allocs.map(a=> num(a.amount))) : allocs.map(()=> 0);
+    allocs.forEach((a, i)=>{
+      if(!a.invoiceId) return;
+      paidMap[a.invoiceId] = roundMoney((paidMap[a.invoiceId] || 0) + num(a.amount));
+      creditedMap[a.invoiceId] = roundMoney((creditedMap[a.invoiceId] || 0) + (shares[i] || 0));
+    });
   });
+
+  // Standalone cleared cheques applied directly to an invoice (no receipt)
+  cheques.filter(c=> c.status === "Cleared" && c.appliedToInvoice && c.invoice).forEach(c=>{
+    const inv = invoices.find(i=> i.invNo === c.invoice && i.customer === c.customer);
+    if(!inv) return;
+    paidMap[inv.id] = roundMoney((paidMap[inv.id] || 0) + num(c.appliedAmount || c.amount));
+  });
+
+  creditNotes.filter(n=> noteIsLive(n)).forEach(n=>{
+    const parts = Array.isArray(n.allocations) && n.allocations.length
+      ? n.allocations
+      : (String(n.invoice || "").trim()
+          ? [{ invoiceNo: n.invoice, amount: num(n.amount) }]
+          : []);
+    parts.forEach(a=>{
+      const inv = invoices.find(i=>
+        (a.invoiceId && i.id === a.invoiceId) ||
+        (a.invoiceNo && i.invNo === a.invoiceNo && i.customer === n.customer)
+      );
+      if(!inv) return;
+      creditedMap[inv.id] = roundMoney((creditedMap[inv.id] || 0) + num(a.amount));
+    });
+  });
+
+  discounts.filter(d=> d.type === "Invoice" && d.ref).forEach(d=>{
+    const inv = invoices.find(i=> i.invNo === d.ref && i.customer === d.customer);
+    if(!inv) return;
+    creditedMap[inv.id] = roundMoney((creditedMap[inv.id] || 0) + num(d.amount));
+  });
+
+  let fixed = 0;
+  const details = [];
+  const targets = invoices.filter(i=> i.status !== "Draft");
+  for(const inv of targets){
+    const paid = roundMoney(paidMap[inv.id] || 0);
+    const credited = roundMoney(creditedMap[inv.id] || 0);
+    const bal = Math.max(0, roundMoney(num(inv.total) - paid - credited));
+    const paidDate = bal <= 0.009 ? (inv.paidDate || today()) : "";
+    const oldPaid = roundMoney(num(inv.paid));
+    const oldCredited = roundMoney(num(inv.credited));
+    const changed =
+      oldPaid !== paid ||
+      oldCredited !== credited ||
+      String(inv.paidDate || "") !== String(paidDate);
+    if(!changed) continue;
+    await updateDoc(doc(db, "invoices", inv.id), { paid, credited, paidDate, updatedAt: Date.now() });
+    Object.assign(inv, { paid, credited, paidDate });
+    fixed++;
+    details.push(`${inv.invNo}: paid ${oldPaid}→${paid}, credited ${oldCredited}→${credited}`);
+  }
+  return { checked: targets.length, fixed, details };
 }
 
-async function reverseReceiptFromInvoices(r){
-  for(const a of (r.allocations||[])){
-    const inv = invoices.find(i=> i.id === a.invoiceId);
-    if(!inv) continue;
-    await updateDoc(doc(db,"invoices", a.invoiceId), { paid: Math.max(0, num(inv.paid)-num(a.amount)), updatedAt: Date.now() });
+async function applyReceiptToInvoices(r){
+  const st = r?.status || "";
+  if(st === "Cancelled" || st === "Voided" || st === "Bounced"){
+    throw new Error("Receipt " + (r.rvNo || "") + " was voided/cancelled — cannot apply again");
   }
-  await updateDoc(doc(db,"receipts", r.id), { applied: false, allocated: 0, unallocated: num(r.amount), status: "Bounced" });
+  if(r.applied){
+    throw new Error("Receipt " + (r.rvNo || "") + " already applied");
+  }
+  const allocs = r.allocations || [];
+  const discTotal = num(r.discount);
+  const discShares = (allocs.length && discTotal > 0)
+    ? distributeProportionally(discTotal, allocs.map(a=> num(a.amount)))
+    : allocs.map(()=> 0);
+  for(let i = 0; i < allocs.length; i++){
+    const a = allocs[i];
+    const inv = invoices.find(x=> x.id === a.invoiceId);
+    if(!inv) continue;
+    const patch = invoiceMoneyPatch(inv, {
+      paidDelta: num(a.amount),
+      creditedDelta: discShares[i] || 0
+    });
+    await updateDoc(doc(db,"invoices", a.invoiceId), patch);
+    Object.assign(inv, patch);
+  }
+  // Ensure Payment discount exists on ledger when clearing a PDC that had discount at create
+  if(discTotal > 0.009){
+    const hasDisc = discounts.some(d=>
+      d.type === "Payment"
+      && d.customer === r.customer
+      && String(d.ref || "") === String(r.rvNo || "")
+    );
+    if(!hasDisc){
+      const ref = await addDoc(col("discounts"), {
+        date: r.date || today(), customer: r.customer, type: "Payment", ref: r.rvNo || "",
+        method: "Fixed", amount: discTotal, reason: "Receipt discount",
+        approvedBy: who(), createdAt: Date.now()
+      });
+      discounts.push({ id: ref.id, date: r.date || today(), customer: r.customer, type: "Payment", ref: r.rvNo || "", amount: discTotal });
+    }
+  }
+  const allocSum = allocs.reduce((s,a)=> s + num(a.amount), 0);
+  // Keep original non-cheque status as Posted; cheque/PDC clear → Cleared
+  const nextStatus = String(r.method || "").includes("Cheque") ? "Cleared" : (r.status === "Posted" ? "Posted" : "Cleared");
+  await updateDoc(doc(db,"receipts", r.id), {
+    applied: true, allocated: allocSum, unallocated: Math.max(0, num(r.amount) - allocSum), status: nextStatus
+  });
+  Object.assign(r, { applied: true, allocated: allocSum, unallocated: Math.max(0, num(r.amount) - allocSum), status: nextStatus });
+}
+
+async function reverseReceiptFromInvoices(r, nextStatus = "Bounced"){
+  const allocs = r.allocations || [];
+  const discTotal = num(r.discount);
+  const discShares = (allocs.length && discTotal > 0)
+    ? distributeProportionally(discTotal, allocs.map(a=> num(a.amount)))
+    : allocs.map(()=> 0);
+  for(let i = 0; i < allocs.length; i++){
+    const a = allocs[i];
+    const inv = invoices.find(x=> x.id === a.invoiceId);
+    if(!inv) continue;
+    const patch = invoiceMoneyPatch(inv, {
+      paidDelta: -num(a.amount),
+      creditedDelta: -(discShares[i] || 0)
+    });
+    await updateDoc(doc(db,"invoices", a.invoiceId), patch);
+    Object.assign(inv, patch);
+  }
+  // Remove Payment discounts tied to this RV so ledger does not keep orphan credit
+  const discRows = discounts.filter(d=>
+    d.type === "Payment"
+    && d.customer === r.customer
+    && String(d.ref || "") === String(r.rvNo || "")
+  );
+  for(const d of discRows){
+    await deleteDoc(doc(db, "discounts", d.id));
+    const idx = discounts.findIndex(x=> x.id === d.id);
+    if(idx >= 0) discounts.splice(idx, 1);
+  }
+  const st = nextStatus || "Bounced";
+  await updateDoc(doc(db,"receipts", r.id), { applied: false, allocated: 0, unallocated: num(r.amount), status: st });
+  Object.assign(r, { applied: false, allocated: 0, unallocated: num(r.amount), status: st });
 }
 
 function findChequeReceipt(chq){
@@ -1686,24 +3783,79 @@ function findChequeReceipt(chq){
 }
 
 async function saveCheque(){
-  if(!chqNo.value.trim()) return toast("Cheque no required");
-  const prev = cheques.find(x=> x.id === chqId.value);
+  const chqId = document.getElementById("chqId");
+  const chqNo = document.getElementById("chqNo");
+  const chqCustomer = document.getElementById("chqCustomer");
+  const chqInvoice = document.getElementById("chqInvoice");
+  const chqBank = document.getElementById("chqBank");
+  const chqDate = document.getElementById("chqDate");
+  const chqPdc = document.getElementById("chqPdc");
+  const chqAmt = document.getElementById("chqAmt");
+  const chqStatus = document.getElementById("chqStatus");
+  if(!chqNo || !chqNo.value.trim()) return toast("Cheque no required");
+  if(!chqCustomer?.value) return toast("Select customer");
+  const chqTrim = chqNo.value.trim();
+  const dupChq = cheques.find(c=> c.id !== (chqId?.value||"") && String(c.chequeNo||"").trim().toLowerCase() === chqTrim.toLowerCase());
+  if(dupChq && !confirm(`This Cheque No. is already used (${dupChq.chequeNo}, ${dupChq.customer}, ${money(dupChq.amount)}, ${dupChq.chequeDate||"—"}). Continue anyway?`)) return;
+  const prev = cheques.find(x=> x.id === chqId?.value);
   const data = {
-    chequeNo: chqNo.value.trim(), customer: chqCustomer.value, bank: chqBank.value.trim(),
-    chequeDate: chqDate.value, pdcDate: chqPdc.value, amount: num(chqAmt.value),
-    status: chqStatus.value, updatedAt: Date.now()
+    chequeNo: chqTrim, customer: chqCustomer.value, invoice: chqInvoice?.value || "",
+    bank: (chqBank?.value || "").trim(),
+    chequeDate: chqDate?.value || "", pdcDate: chqPdc?.value || "", amount: num(chqAmt?.value),
+    status: chqStatus?.value || "Pending",
+    appliedToInvoice: !!(prev && prev.appliedToInvoice),
+    updatedAt: Date.now()
   };
   try{
     const write = (async ()=>{
-      if(chqId.value) await updateDoc(doc(db,"cheques", chqId.value), data);
-      else await addDoc(col("cheques"), { ...data, createdAt: Date.now() });
+      const wasCleared = (prev?.status || "") === "Cleared";
+      const nowCleared = data.status === "Cleared";
       const r = findChequeReceipt(prev || data);
-      if(r && prev && prev.status !== "Cleared" && data.status === "Cleared" && !r.applied){
-        await applyReceiptToInvoices(r);
+
+      // Entering Cleared
+      if(!wasCleared && nowCleared){
+        if(r){
+          const rst = r.status || "";
+          if(rst === "Cancelled" || rst === "Voided" || rst === "Bounced"){
+            throw new Error("Linked receipt " + (r.rvNo || "") + " was voided — cannot clear this cheque. Create a new receipt.");
+          }
+          if(!r.applied){
+            await applyReceiptToInvoices(r);
+          }
+        }else if(data.invoice){
+          const inv = invoices.find(i=> i.invNo === data.invoice && i.customer === data.customer);
+          if(inv){
+            const pay = Math.min(num(data.amount), invBalance(inv));
+            if(pay > 0.009){
+              const patch = invoiceMoneyPatch(inv, { paidDelta: pay, updatedBy: who() });
+              await updateDoc(doc(db, "invoices", inv.id), patch);
+              Object.assign(inv, patch);
+              data.appliedToInvoice = true;
+              data.appliedAmount = pay;
+            }
+          }
+        }
       }
-      if(r && prev && prev.status === "Cleared" && data.status === "Bounced" && r.applied){
-        await reverseReceiptFromInvoices(r);
+
+      // Leaving Cleared (Bounced / Pending / Cancelled / Deposited)
+      if(wasCleared && !nowCleared){
+        if(r && r.applied){
+          await reverseReceiptFromInvoices(r, data.status || "Pending");
+        }else if(prev?.appliedToInvoice && prev.invoice){
+          const inv = invoices.find(i=> i.invNo === prev.invoice && i.customer === prev.customer);
+          const pay = num(prev.appliedAmount || prev.amount);
+          if(inv && pay > 0.009){
+            const patch = invoiceMoneyPatch(inv, { paidDelta: -pay, updatedBy: who() });
+            await updateDoc(doc(db, "invoices", inv.id), patch);
+            Object.assign(inv, patch);
+          }
+          data.appliedToInvoice = false;
+          data.appliedAmount = 0;
+        }
       }
+
+      if(chqId?.value) await updateDoc(doc(db,"cheques", chqId.value), data);
+      else await addDoc(col("cheques"), { ...data, createdAt: Date.now() });
       await logActivity({ action:"edit", staffName: who(), module:"Cheque", record: data.chequeNo, oldValue: prev?.status||"", newValue: data.status, summary: "Cheque " + data.chequeNo });
     })();
     closeModal("chequeModal");
@@ -1719,27 +3871,48 @@ function renderDiscounts(){
 }
 
 function resetDisc(){
-  discDate.value = today(); discAmt.value = ""; discRef.value = ""; discReason.value = "";
-  discType.value = "Payment"; discMethod.value = "Fixed";
-  customerOptions(discCustomer, "");
+  const discDate = document.getElementById("discDate");
+  const discAmt = document.getElementById("discAmt");
+  const discRef = document.getElementById("discRef");
+  const discReason = document.getElementById("discReason");
+  const discType = document.getElementById("discType");
+  const discMethod = document.getElementById("discMethod");
+  const discCustomer = document.getElementById("discCustomer");
+  if(discDate) discDate.value = today();
+  if(discAmt) discAmt.value = "";
+  if(discRef) discRef.value = "";
+  if(discReason) discReason.value = "";
+  if(discType) discType.value = "Payment";
+  if(discMethod) discMethod.value = "Fixed";
+  if(discCustomer) customerOptions(discCustomer, "");
 }
 
 async function saveDisc(){
-  if(!discCustomer.value) return toast("Select customer");
-  const amount = num(discAmt.value);
+  const discCustomer = document.getElementById("discCustomer");
+  const discAmt = document.getElementById("discAmt");
+  const discDate = document.getElementById("discDate");
+  const discType = document.getElementById("discType");
+  const discRef = document.getElementById("discRef");
+  const discMethod = document.getElementById("discMethod");
+  const discReason = document.getElementById("discReason");
+  if(!discCustomer?.value) return toast("Select customer");
+  const amount = num(discAmt?.value);
   if(amount <= 0) return toast("Enter amount");
   try{
     const write = (async ()=>{
       await addDoc(col("discounts"), {
-        date: discDate.value, customer: discCustomer.value, type: discType.value, ref: discRef.value.trim(),
-        method: discMethod.value, amount, reason: discReason.value.trim(),
+        date: discDate?.value || today(), customer: discCustomer.value, type: discType?.value || "Payment", ref: (discRef?.value || "").trim(),
+        method: discMethod?.value || "Fixed", amount, reason: (discReason?.value || "").trim(),
         approvedBy: who(), createdAt: Date.now()
       });
-      if(discType.value === "Invoice" && discRef.value.trim()){
+      if(discType?.value === "Invoice" && (discRef?.value || "").trim()){
         const inv = invoices.find(i=> i.invNo === discRef.value.trim() && i.customer === discCustomer.value);
-        if(inv) await updateDoc(doc(db,"invoices", inv.id), { credited: num(inv.credited) + amount, updatedAt: Date.now() });
+        if(inv){
+          const patch = invoiceMoneyPatch(inv, { creditedDelta: amount });
+          await updateDoc(doc(db,"invoices", inv.id), patch);
+          Object.assign(inv, patch);
+        }
       }
-      await logActivity({ action:"add", staffName: who(), module:"Discount", record: discRef.value.trim(), customer: discCustomer.value, summary: "Discount", newValue: money(amount) });
     })();
     closeModal("discModal");
     commitWrite(write, { okMsg: "Discount saved" });
@@ -2026,7 +4199,7 @@ async function archiveDeleteOld(){
   if(!window._archiveReady || window._archiveReady.before !== before){
     return toast("First download CSV for this cutoff date");
   }
-  if(!confirm("এই ডেটা স্থায়ীভাবে মুছে যাবে, আগে CSV ডাউনলোড হয়েছে তো?")) return;
+  if(!confirm("This data will be permanently deleted. Did you already download the CSV?")) return;
   const word = prompt('Type DELETE to confirm permanent delete:');
   if(String(word || "").trim() !== "DELETE") return toast("Cancelled");
   const { invs, recs, cns, dns, chqs } = window._archiveReady;
@@ -2096,7 +4269,13 @@ function exportStatementPdf(download){
   const title = `Statement — ${name}`;
   const body = statementTableHtml(name, asOf);
   if(download) downloadHtmlDocument(`statement-${name.replace(/\s+/g,"_")}.html`, title, body);
-  printHtmlDocument(title, body);
+  try{
+    printHtmlDocument(title, body);
+  }catch(err){
+    console.warn("Statement print failed", err);
+    if(!download) downloadHtmlDocument(`statement-${name.replace(/\s+/g,"_")}.html`, title, body);
+    toast("Print blocked — HTML downloaded instead");
+  }
 }
 
 function exportLatestInvoicePdf(){
@@ -2151,8 +4330,13 @@ function exportLedger(kind){
     toast("Ledger CSV downloaded");
   }else{
     const body = tableFromRows(["Date","Reference","Description","Debit","Credit","Balance"], rows);
-    printHtmlDocument(`Ledger — ${name}`, body);
+    try{
+      printHtmlDocument(`Ledger — ${name}`, body);
+    }catch(err){
+      console.warn("Ledger PDF print failed", err);
+    }
     downloadHtmlDocument(`ledger-${name.replace(/\s+/g,"_")}.html`, `Ledger — ${name}`, body);
+    toast("Print dialog / HTML ready — use Save as PDF");
   }
 }
 
@@ -2193,7 +4377,15 @@ function runGlobalSearch(q){
   });
   vehicles.forEach(v=>{
     if(`${v.plate} ${v.vin} ${v.make} ${v.model} ${v.customer} ${v.engine}`.toLowerCase().includes(ql))
-      hits.push({ type:"Vehicle", ref:v.plate, detail:`${v.make} ${v.model} · ${v.vin||""}`, page:"invoices", go:()=>{ showPage("invoices"); invoiceSearch.value=v.plate||q; renderInvoices(); }});
+      hits.push({ type:"Vehicle", ref:v.plate, detail:`${v.make} ${v.model} · ${v.vin||""}`, page:"vehicles", go:()=>{ showPage("vehicles"); const s=document.getElementById("vehicleSearch"); if(s){ s.value=v.plate||q; renderVehicles(); } }});
+  });
+  products.forEach(p=>{
+    if(`${p.name} ${p.code} ${p.category}`.toLowerCase().includes(ql))
+      hits.push({ type:"Product", ref:p.code||p.name, detail:p.name, page:"product-catalog", go:()=>{ showPage("product-catalog"); const s=document.getElementById("productSearch"); if(s){ s.value=q; renderProducts(); } }});
+  });
+  services.forEach(s=>{
+    if(`${s.name} ${s.category}`.toLowerCase().includes(ql))
+      hits.push({ type:"Service", ref:s.name, detail:s.category||"Service", page:"service-catalog", go:()=>{ showPage("service-catalog"); const el=document.getElementById("serviceSearch"); if(el){ el.value=q; renderServices(); } }});
   });
   cheques.forEach(c=>{
     if(`${c.chequeNo} ${c.customer} ${c.bank}`.toLowerCase().includes(ql))
@@ -2220,6 +4412,13 @@ function runGlobalSearch(q){
 
 function refreshNotifications(){
   const items = [];
+  if(window._s4ExpiryBanner){
+    items.push({
+      title: window._s4ExpiryBanner.title,
+      detail: window._s4ExpiryBanner.detail,
+      page: "settings"
+    });
+  }
   const overdue = invoices.filter(i=> invStatus(i) === "Overdue");
   if(overdue.length) items.push({ title:`${overdue.length} overdue invoice(s)`, detail: money(overdue.reduce((s,i)=>s+invBalance(i),0)), page:"aging" });
   const pendingChq = cheques.filter(c=> c.status === "Pending" || c.status === "Deposited");
@@ -2239,7 +4438,15 @@ function refreshNotifications(){
       ? items.map(it=> `<div class="notif-item" data-page="${it.page}"><b>${esc(it.title)}</b><span class="muted">${esc(it.detail)}</span></div>`).join("")
       : `<div class="notif-item muted">No alerts</div>`;
     list.querySelectorAll("[data-page]").forEach(el=>{
-      el.onclick = ()=>{ document.getElementById("notifPanel").hidden = true; showPage(el.dataset.page); };
+      el.onclick = ()=>{
+        document.getElementById("notifPanel").hidden = true;
+        if(el.dataset.page === "settings"){
+          showPage("settings");
+          showSettingsView("help");
+        }else{
+          showPage(el.dataset.page);
+        }
+      };
     });
   }
 }
@@ -2299,7 +4506,8 @@ function runPeriodReport(){
   const mode = document.getElementById("rptMode").value;
   const year = num(document.getElementById("rptYear").value) || new Date().getFullYear();
   const monthIndex0 = num(document.getElementById("rptMonth").value);
-  const bundle = buildReportBundle(invoices, mode, year, monthIndex0);
+  const posted = invoices.filter(i=> i.status !== "Draft");
+  const bundle = buildReportBundle(posted, mode, year, monthIndex0);
   window._periodBundle = bundle;
   const panel = document.getElementById("reportPanel");
   const htmlBox = document.getElementById("periodReportHtml");
@@ -2317,7 +4525,8 @@ function exportPeriodCsv(){
   const mode = document.getElementById("rptMode").value;
   const year = num(document.getElementById("rptYear").value) || new Date().getFullYear();
   const monthIndex0 = num(document.getElementById("rptMonth").value);
-  const bundle = window._periodBundle || buildReportBundle(invoices, mode, year, monthIndex0);
+  const posted = invoices.filter(i=> i.status !== "Draft");
+  const bundle = window._periodBundle || buildReportBundle(posted, mode, year, monthIndex0);
   downloadTextFile(`s4-report-${year}.csv`, invoicesToCsv(bundle.periodInvoices, "en"));
   toast("Period CSV downloaded");
 }

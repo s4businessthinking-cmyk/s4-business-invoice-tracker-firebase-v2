@@ -1,25 +1,25 @@
-// ============================================================
+﻿// ============================================================
 // PER-SHOP / PER-BUILD UPDATE CONFIG
 // ============================================================
-// এই ফাইলটা firebase-config.js এর মতোই — প্রতিটা release build এর
-// আগে এখানে current version এবং GitHub repo বসাতে হবে।
+// à¦à¦‡ à¦«à¦¾à¦‡à¦²à¦Ÿà¦¾ firebase-config.js à¦à¦° à¦®à¦¤à§‹à¦‡ â€” à¦ªà§à¦°à¦¤à¦¿à¦Ÿà¦¾ release build à¦à¦°
+// à¦†à¦—à§‡ à¦à¦–à¦¾à¦¨à§‡ current version à¦à¦¬à¦‚ GitHub repo à¦¬à¦¸à¦¾à¦¤à§‡ à¦¹à¦¬à§‡à¥¤
 //
-// - githubOwner / githubRepo: যেই GitHub repo-তে exe/apk এর release
-//   push করা হবে (Releases ট্যাবে .exe এবং .apk ফাইল asset হিসেবে
-//   attach থাকতে হবে, tag নাম হতে হবে "vX.Y.Z" ফরম্যাটে, যেমন v1.0.0)
-// - currentVersion: এই বিল্ডের নিজের ভার্সন — desktop/package.json
-//   এর "version" ফিল্ডের সাথে অবশ্যই মিলতে হবে, নইলে update loop হবে
-// - exeAssetKeyword: GitHub release-এর asset ফাইলগুলোর মধ্যে কোনটা
-//   .exe সেটা খুঁজে বের করার জন্য ফাইলনামের অংশ (যেমন "Setup" বা
-//   ".exe" দিয়ে filter হবে, .exe সবসময় auto-match হয়)
-// - apkAssetKeyword: .apk ফাইল খুঁজে বের করার জন্য (optional, .apk
-//   auto-match হয়, আলাদা কিছু না দিলে প্রথম .apk asset নেবে)
+// - githubOwner / githubRepo: à¦¯à§‡à¦‡ GitHub repo-à¦¤à§‡ exe/apk à¦à¦° release
+//   push à¦•à¦°à¦¾ à¦¹à¦¬à§‡ (Releases à¦Ÿà§à¦¯à¦¾à¦¬à§‡ .exe à¦à¦¬à¦‚ .apk à¦«à¦¾à¦‡à¦² asset à¦¹à¦¿à¦¸à§‡à¦¬à§‡
+//   attach à¦¥à¦¾à¦•à¦¤à§‡ à¦¹à¦¬à§‡, tag à¦¨à¦¾à¦® à¦¹à¦¤à§‡ à¦¹à¦¬à§‡ "vX.Y.Z" à¦«à¦°à¦®à§à¦¯à¦¾à¦Ÿà§‡, à¦¯à§‡à¦®à¦¨ v1.0.0)
+// - currentVersion: à¦à¦‡ à¦¬à¦¿à¦²à§à¦¡à§‡à¦° à¦¨à¦¿à¦œà§‡à¦° à¦­à¦¾à¦°à§à¦¸à¦¨ â€” desktop/package.json
+//   à¦à¦° "version" à¦«à¦¿à¦²à§à¦¡à§‡à¦° à¦¸à¦¾à¦¥à§‡ à¦…à¦¬à¦¶à§à¦¯à¦‡ à¦®à¦¿à¦²à¦¤à§‡ à¦¹à¦¬à§‡, à¦¨à¦‡à¦²à§‡ update loop à¦¹à¦¬à§‡
+// - exeAssetKeyword: GitHub release-à¦à¦° asset à¦«à¦¾à¦‡à¦²à¦—à§à¦²à§‹à¦° à¦®à¦§à§à¦¯à§‡ à¦•à§‹à¦¨à¦Ÿà¦¾
+//   .exe à¦¸à§‡à¦Ÿà¦¾ à¦–à§à¦à¦œà§‡ à¦¬à§‡à¦° à¦•à¦°à¦¾à¦° à¦œà¦¨à§à¦¯ à¦«à¦¾à¦‡à¦²à¦¨à¦¾à¦®à§‡à¦° à¦…à¦‚à¦¶ (à¦¯à§‡à¦®à¦¨ "Setup" à¦¬à¦¾
+//   ".exe" à¦¦à¦¿à¦¯à¦¼à§‡ filter à¦¹à¦¬à§‡, .exe à¦¸à¦¬à¦¸à¦®à¦¯à¦¼ auto-match à¦¹à¦¯à¦¼)
+// - apkAssetKeyword: .apk à¦«à¦¾à¦‡à¦² à¦–à§à¦à¦œà§‡ à¦¬à§‡à¦° à¦•à¦°à¦¾à¦° à¦œà¦¨à§à¦¯ (optional, .apk
+//   auto-match à¦¹à¦¯à¦¼, à¦†à¦²à¦¾à¦¦à¦¾ à¦•à¦¿à¦›à§ à¦¨à¦¾ à¦¦à¦¿à¦²à§‡ à¦ªà§à¦°à¦¥à¦® .apk asset à¦¨à§‡à¦¬à§‡)
 // ============================================================
 
 export const updateConfig = {
   githubOwner: "s4businessthinking-cmyk",
   githubRepo: "s4-business-invoice-tracker-firebase-v2",
-  currentVersion: "1.0.7",
+  currentVersion: "1.0.8",
   exeAssetKeyword: "",
   apkAssetKeyword: ""
 };

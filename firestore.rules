@@ -47,6 +47,9 @@ service cloud.firestore {
       return data.email is string && data.email.lower() == authEmail();
     }
 
+    // Owner confirmed public read of shop/info (name/address/phone/TRN/ownerEmail) is intentional
+    // for the pre-login branding screen. If restricted later, split into a public subset (name, logo)
+    // and a private doc for TRN/phone/ownerEmail.
     match /shop/info {
       // Public read is intentional: login/setup screens may show shop branding
       // (name) before auth. Sensitive ops still require isOwner() for write.
@@ -108,6 +111,12 @@ service cloud.firestore {
       allow read, create, update, delete: if isActiveMember();
     }
     match /vehicles/{id} {
+      allow read, create, update, delete: if isActiveMember();
+    }
+    match /productCatalog/{id} {
+      allow read, create, update, delete: if isActiveMember();
+    }
+    match /serviceCatalog/{id} {
       allow read, create, update, delete: if isActiveMember();
     }
     match /receipts/{id} {

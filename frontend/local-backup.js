@@ -9,6 +9,8 @@ export function buildBackupSnapshot(parts){
     invoices: parts.invoices || [],
     customers: parts.customers || [],
     vehicles: parts.vehicles || [],
+    products: parts.products || [],
+    services: parts.services || [],
     receipts: parts.receipts || [],
     creditNotes: parts.creditNotes || [],
     debitNotes: parts.debitNotes || [],
@@ -78,6 +80,8 @@ export async function restoreLocalBackup(db, fileOrText){
   }
   await batchSetCollection(db, "customers", data.customers);
   await batchSetCollection(db, "vehicles", data.vehicles);
+  await batchSetCollection(db, "productCatalog", data.products);
+  await batchSetCollection(db, "serviceCatalog", data.services);
   await batchSetCollection(db, "invoices", data.invoices);
   await batchSetCollection(db, "receipts", data.receipts);
   await batchSetCollection(db, "creditNotes", data.creditNotes);

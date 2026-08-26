@@ -41,19 +41,20 @@ function paidInYear(inv, year){
 }
 
 export function statusOf(inv){
-  const due = (Number(inv.total) || 0) - (Number(inv.paid) || 0);
-  if(due <= 0) return "Paid";
-  if(!inv.paid || Number(inv.paid) === 0) return "Pending";
+  const due = Math.max(0, (Number(inv.total) || 0) - (Number(inv.paid) || 0) - (Number(inv.credited) || 0));
+  if(due <= 0.009) return "Paid";
+  if((!inv.paid || Number(inv.paid) === 0) && (!inv.credited || Number(inv.credited) === 0)) return "Pending";
   return "Partial";
 }
 
 function sumInvoices(list){
-  let total = 0, paid = 0, count = list.length;
+  let total = 0, paid = 0, credited = 0, count = list.length;
   list.forEach(inv=>{
     total += Number(inv.total) || 0;
     paid += Number(inv.paid) || 0;
+    credited += Number(inv.credited) || 0;
   });
-  return { count, total, paid, due: total - paid };
+  return { count, total, paid, credited, due: Math.max(0, total - paid - credited) };
 }
 
 function filterByPeriod(invoices, mode, year, monthIndex0){
@@ -118,7 +119,7 @@ export function dueAgingReport(allInvoices, asOf = new Date()){
     const d = parseYmd(inv.invDate);
     if(!d) return;
     const days = Math.floor((asOf - d) / (24 * 60 * 60 * 1000));
-    const dueAmt = (Number(inv.total) || 0) - (Number(inv.paid) || 0);
+    const dueAmt = Math.max(0, (Number(inv.total) || 0) - (Number(inv.paid) || 0) - (Number(inv.credited) || 0));
     const bucket = buckets.find(b => days >= b.min && days <= b.max);
     if(bucket){ bucket.count++; bucket.due += dueAmt; }
   });
@@ -135,15 +136,12 @@ export function buildReportBundle(invoices, mode, year, monthIndex0){
   const byStaff = staffBreakdown(periodInvoices);
   const aging = dueAgingReport(invoices);
 
-  const monthNamesBn = ["জানুয়ারি","ফেব্রুয়ারি","মার্চ","এপ্রিল","মে","জুন","জুলাই","আগস্ট","সেপ্টেম্বর","অক্টোবর","নভেম্বর","ডিসেম্বর"];
   const monthNamesEn = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
-  const titleBn = mode === "monthly"
-    ? `${monthNamesBn[monthIndex0]} ${year} — মাসিক রিপোর্ট`
-    : `${year} — বার্ষিক রিপোর্ট`;
   const titleEn = mode === "monthly"
     ? `${monthNamesEn[monthIndex0]} ${year} — Monthly Report`
     : `${year} — Annual Report`;
+  const titleBn = titleEn;
 
   return {
     mode, year, monthIndex0,
@@ -167,22 +165,15 @@ function escapeHtml(s){
   return String(s || "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
 }
 
-export function renderReportHtml(bundle, lang = "bn"){
-  const title = lang === "en" ? bundle.titleEn : bundle.titleBn;
-  const L = lang === "en" ? {
+export function renderReportHtml(bundle, lang = "en"){
+  const title = bundle.titleEn || bundle.titleBn;
+  const L = {
     s1: "1) Summary", s2: "2) By Customer", s3: "3) By Status",
     s4: "4) Collections (by paid date)", s5: "5) Outstanding Dues (all time)",
     s6: "Staff-wise (this period)", s7: "Due Aging (unpaid)",
     inv: "Invoices", total: "Total", paid: "Paid", due: "Due",
     customer: "Customer", status: "Status", staff: "Staff", count: "Count",
     bucket: "Age bucket", none: "None"
-  } : {
-    s1: "১) সারাংশ", s2: "২) কাস্টমার অনুযায়ী", s3: "৩) স্ট্যাটাস অনুযায়ী",
-    s4: "৪) সংগ্রহ (পরিশোধের তারিখ অনুযায়ী)", s5: "৫) বাকি তালিকা (সব সময়)",
-    s6: "স্টাফ অনুযায়ী (এই সময়কাল)", s7: "বাকি বয়স (Due Aging)",
-    inv: "ইনভয়েস", total: "মোট", paid: "পরিশোধিত", due: "বাকি",
-    customer: "কাস্টমার", status: "স্ট্যাটাস", staff: "স্টাফ", count: "সংখ্যা",
-    bucket: "বয়স", none: "কিছু নেই"
   };
 
   const s = bundle.summary;
@@ -224,15 +215,15 @@ export function renderReportHtml(bundle, lang = "bn"){
 }
 
 /** CSV export (#6) — period invoices */
-export function invoicesToCsv(invoices, lang = "bn"){
+export function invoicesToCsv(invoices, lang = "en"){
   const headers = lang === "en"
-    ? ["Customer","Car","Invoice No","Invoice Date","Paid Date","Total","Paid","Due","Status","Created By","Updated By","Notes"]
-    : ["Customer","Car","Invoice No","Invoice Date","Paid Date","Total","Paid","Due","Status","Created By","Updated By","Notes"];
+    ? ["Customer","Vehicle","Invoice No","Invoice Date","Paid Date","Total","Paid","Credited","Due","Status","Created By","Updated By","Notes"]
+    : ["Customer","Vehicle","Invoice No","Invoice Date","Paid Date","Total","Paid","Credited","Due","Status","Created By","Updated By","Notes"];
   const rows = invoices.map(inv=>{
-    const due = (Number(inv.total)||0) - (Number(inv.paid)||0);
+    const due = Math.max(0, (Number(inv.total)||0) - (Number(inv.paid)||0) - (Number(inv.credited)||0));
     return [
-      inv.customer, inv.car, inv.invNo, inv.invDate, inv.paidDate,
-      inv.total, inv.paid, due, statusOf(inv),
+      inv.customer, inv.vehicle, inv.invNo, inv.invDate, inv.paidDate,
+      inv.total, inv.paid, inv.credited || 0, due, statusOf(inv),
       inv.createdBy || "", inv.updatedBy || "", inv.notes || ""
     ];
   });

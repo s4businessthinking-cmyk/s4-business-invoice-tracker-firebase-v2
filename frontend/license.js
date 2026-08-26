@@ -109,16 +109,13 @@ async function getStableMachineSeed(){
     }
   }catch(_){}
 
-  // Browser/PWA: no random UUID — only stable environment signals
+  // Browser/PWA: stable signals only — exclude screen width/height/colorDepth
+  // (orientation / zoom / external monitor can change them and invalidate a device-locked license).
   const nav = typeof navigator !== "undefined" ? navigator : {};
-  const scr = typeof screen !== "undefined" ? screen : {};
   const parts = [
     nav.userAgentData?.platform || nav.platform || "",
-    nav.language || "",
     String(nav.hardwareConcurrency || ""),
     String(nav.deviceMemory || ""),
-    String(scr.width || "") + "x" + String(scr.height || ""),
-    String(scr.colorDepth || ""),
     Intl.DateTimeFormat().resolvedOptions().timeZone || "",
     nav.userAgentData?.architecture || "",
     nav.userAgentData?.bitness || ""
@@ -348,9 +345,18 @@ export async function getAccessStatus(){
     }catch(_){}
   }
 
+  let blockedReason = "TRIAL_EXPIRED";
   if(stored?.key){
     const verification = await verifyLicenseKey(stored.key);
     if(verification.ok){
+      let daysRemaining = null;
+      const expIso = verification.payload?.expiresAt;
+      if(expIso){
+        const exp = new Date(expIso).getTime();
+        if(Number.isFinite(exp)){
+          daysRemaining = Math.max(0, Math.ceil((exp - Date.now()) / 86400000));
+        }
+      }
       return {
         allowed: true,
         mode: "license",
@@ -358,9 +364,11 @@ export async function getAccessStatus(){
         payload: verification.payload,
         deviceFingerprint,
         maskedFingerprint,
-        daysRemaining: null
+        daysRemaining,
+        expiresAt: expIso || null
       };
     }
+    if(verification.reason === "LICENSE_EXPIRED") blockedReason = "LICENSE_EXPIRED";
     // invalid/expired license → fall through to trial check
   }
 
@@ -382,7 +390,7 @@ export async function getAccessStatus(){
     allowed: false,
     mode: "blocked",
     status: LICENSE_STATUS.TRIAL_EXPIRED,
-    reason: "TRIAL_EXPIRED",
+    reason: blockedReason,
     deviceFingerprint,
     maskedFingerprint,
     daysRemaining: 0,

@@ -71,6 +71,12 @@ export async function loadMember(uid){
 export async function tryRestoreSession(){
   const user = await waitForAuthReady();
   if(!user) return null;
+  try{ await reload(user); }catch(_){}
+  if(!user.emailVerified){
+    await signOut(_auth);
+    currentMember = null;
+    return null;
+  }
   const member = await loadMember(user.uid);
   if(!member) return null;
   return { user, member };
@@ -341,6 +347,9 @@ export async function deactivateStaff(staffUid){
 export const DEFAULT_STAFF_PERMISSIONS = {
   dashboard: true,
   customers: true,
+  vehicles: true,
+  "product-catalog": true,
+  "service-catalog": true,
   ledger: true,
   statements: true,
   aging: true,
@@ -361,6 +370,9 @@ export const DEFAULT_STAFF_PERMISSIONS = {
 export const PERMISSION_LABELS = [
   ["dashboard", "Dashboard"],
   ["customers", "Customer Master"],
+  ["vehicles", "Vehicles"],
+  ["product-catalog", "Product Catalog"],
+  ["service-catalog", "Service Catalog"],
   ["ledger", "Ledger"],
   ["statements", "Statements"],
   ["aging", "Aging"],
@@ -399,33 +411,7 @@ export async function updateStaffPermissions(staffUid, permissions){
   });
 }
 
-export function authErrorText(code, lang = "bn"){
-  const bn = {
-    EMAIL_REQUIRED: "সঠিক email address লিখুন।",
-    SHOP_NAME_REQUIRED: "দোকানের নাম লিখুন।",
-    PASSWORD_SHORT: "Password কমপক্ষে ৬ অক্ষরের হতে হবে।",
-    DISPLAY_NAME_REQUIRED: "স্টাফের নাম লিখুন।",
-    SHOP_EXISTS: "দোকান আগে থেকেই setup হয়েছে — Login করুন।",
-    NOT_A_MEMBER: "এই account দোকানের member নয়।",
-    EMAIL_NOT_VERIFIED: "Email verify করা হয়নি। Inbox চেক করুন এবং verification link-এ ক্লিক করুন।",
-    ALREADY_VERIFIED: "Email আগে থেকেই verified।",
-    NO_INVITE: "এই email-এ কোনো pending invite নেই। Owner-কে আগে invite করতে বলুন।",
-    ALREADY_MEMBER: "এই email ইতিমধ্যে active member।",
-    INVITE_PENDING: "এই email-এ ইতিমধ্যে pending invite আছে।",
-    "auth/invalid-api-key": "Firebase API key ভুল — firebase-config.js চেক করুন।",
-    "auth/operation-not-allowed": "Firebase Console-এ Email/Password Sign-In enable করুন।",
-    "auth/configuration-not-found": "Firebase Authentication এখনো চালু হয়নি। Console → Authentication → Get started → Email/Password ON করুন।",
-    "auth/unauthorized-domain": "এই domain authorized নয়। Console → Authorized domains-এ localhost যোগ করুন।",
-    "auth/email-already-in-use": "এই email দিয়ে account আগে থেকেই আছে — একই password দিয়ে Create Account আবার চাপুন, অথবা Login করুন।",
-    "permission-denied": "অনুমতি নেই। Owner invite আছে কিনা চেক করুন, একই email ব্যবহার করুন, এবং Firebase-এ firestore.rules Publish আছে কিনা দেখুন।",
-    "PERMISSION_DENIED": "অনুমতি নেই। Owner invite আছে কিনা চেক করুন, একই email ব্যবহার করুন, এবং Firebase-এ firestore.rules Publish আছে কিনা দেখুন।",
-    "auth/invalid-credential": "Email বা password ভুল।",
-    "auth/invalid-email": "Email ঠিক নয়।",
-    "auth/weak-password": "Password খুব দুর্বল।",
-    "auth/too-many-requests": "অনেকবার চেষ্টা হয়েছে — কিছুক্ষণ পর আবার করুন।",
-    "auth/user-not-found": "Account পাওয়া যায়নি।",
-    "auth/wrong-password": "Password ভুল।"
-  };
+export function authErrorText(code, lang = "en"){
   const en = {
     EMAIL_REQUIRED: "Enter a valid email address.",
     SHOP_NAME_REQUIRED: "Enter shop name.",
@@ -452,9 +438,8 @@ export function authErrorText(code, lang = "bn"){
     "auth/user-not-found": "Account not found.",
     "auth/wrong-password": "Wrong password."
   };
-  const t = lang === "en" ? en : bn;
-  if(t[code]) return t[code];
+  if(en[code]) return en[code];
   const raw = String(code || "");
-  if(/permission-denied|insufficient permissions/i.test(raw)) return t["permission-denied"];
-  return raw || (lang === "en" ? "Authentication failed." : "Login ব্যর্থ হয়েছে।");
+  if(/permission-denied|insufficient permissions/i.test(raw)) return en["permission-denied"];
+  return raw || "Authentication failed.";
 }

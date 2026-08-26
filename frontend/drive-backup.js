@@ -61,7 +61,7 @@ function loadGisScript(){
     s.async = true;
     s.defer = true;
     s.onload = () => resolve();
-    s.onerror = () => reject(new Error("Google sign-in script লোড করা যায়নি — ইন্টারনেট চেক করুন।"));
+    s.onerror = () => reject(new Error("Could not load Google sign-in script — check your internet connection."));
     document.head.appendChild(s);
   });
   return gisScriptLoading;
@@ -74,7 +74,7 @@ function isConfigured(){
 
 async function getAccessToken(){
   if(!isConfigured()){
-    throw new Error("Drive backup configure করা হয়নি (drive-backup-config.js এ Client ID বসান)।");
+    throw new Error("Drive backup is not configured (paste Client ID in Settings or drive-backup-config.js).");
   }
   if(cachedToken && Date.now() < cachedTokenExpiry - 30000){
     return cachedToken;
@@ -90,7 +90,7 @@ async function getAccessToken(){
   return new Promise((resolve, reject) => {
     tokenClient.callback = (resp) => {
       if(resp.error){
-        reject(new Error("Google Drive অনুমতি পাওয়া যায়নি: " + resp.error));
+        reject(new Error("Google Drive permission was not granted: " + resp.error));
         return;
       }
       cachedToken = resp.access_token;
@@ -100,7 +100,7 @@ async function getAccessToken(){
     tokenClient.error_callback = (err) => {
       console.error("Google Drive OAuth error:", err);
       const detail = err?.type || err?.message || "";
-      reject(new Error(`Google Drive সাইন-ইন বাতিল হয়েছে বা ব্যর্থ হয়েছে।${detail ? " (" + detail + ")" : ""}`));
+      reject(new Error(`Google Drive sign-in was cancelled or failed.${detail ? " (" + detail + ")" : ""}`));
     };
     tokenClient.requestAccessToken({ prompt: "" });
   });
@@ -116,7 +116,7 @@ async function driveFetch(url, token, options = {}){
   });
   if(!res.ok){
     const body = await res.text().catch(() => "");
-    throw new Error(`Drive API ব্যর্থ (${res.status}): ${body.slice(0, 200)}`);
+    throw new Error(`Drive API failed (${res.status}): ${body.slice(0, 200)}`);
   }
   return res;
 }

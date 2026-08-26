@@ -122,6 +122,29 @@ ipcMain.handle("s4:save-local-backup", (_e, payload) => {
   return { path: full, filename };
 });
 
+ipcMain.handle("s4:ask-close-backup", async () => {
+  const { dialog } = require("electron");
+  const win = BrowserWindow.getFocusedWindow() || mainWindow;
+  const result = await dialog.showMessageBox(win || undefined, {
+    type: "question",
+    buttons: ["Yes (Backup)", "No", "Cancel"],
+    defaultId: 0,
+    cancelId: 2,
+    title: "Data backup",
+    message: "Backup all data before closing? (Local + Google Drive)"
+  });
+  if(result.response === 0) return "yes";
+  if(result.response === 1) return "no";
+  return "cancel";
+});
+
+let allowWindowClose = false;
+ipcMain.handle("s4:allow-close", () => {
+  allowWindowClose = true;
+  if(mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+  return true;
+});
+
 log.transports.file.level = "info";
 autoUpdater.logger = log;
 autoUpdater.autoDownload = false;
@@ -230,6 +253,15 @@ function createWindow(){
 
   mainWindow.setMenuBarVisibility(false);
 
+  allowWindowClose = false;
+  mainWindow.on("close", (e) => {
+    if(allowWindowClose) return;
+    e.preventDefault();
+    if(mainWindow && !mainWindow.isDestroyed()){
+      mainWindow.webContents.send("s4:request-close-backup");
+    }
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if(
       url.includes("accounts.google.com") ||
@@ -265,12 +297,12 @@ autoUpdater.on("update-available", (info) => {
   const { dialog } = require("electron");
   dialog.showMessageBox(mainWindow, {
     type: "info",
-    buttons: ["এখনই ডাউনলোড করুন", "পরে"],
+    buttons: ["Download now", "Later"],
     defaultId: 0,
     cancelId: 1,
-    title: "নতুন আপডেট পাওয়া গেছে",
-    message: `নতুন ভার্সন v${info.version} পাওয়া গেছে।`,
-    detail: "ডাউনলোড শেষ হলে অ্যাপ রিস্টার্ট করে ইনস্টল করার অপশন দেখাবে।"
+    title: "Update available",
+    message: `New version v${info.version} is available.`,
+    detail: "After download finishes, you can restart the app to install."
   }).then(result => {
     if(result.response === 0){
       autoUpdater.downloadUpdate().catch(err => log.error("download failed", err));
@@ -288,7 +320,7 @@ autoUpdater.on("error", (err) => {
 
 autoUpdater.on("download-progress", (progress) => {
   if(mainWindow){
-    mainWindow.setTitle(`S4-BUSINESS-INVOICE TRACKER — ডাউনলোড হচ্ছে ${Math.round(progress.percent)}%`);
+    mainWindow.setTitle(`S4-BUSINESS-INVOICE TRACKER — Downloading ${Math.round(progress.percent)}%`);
   }
 });
 
@@ -299,13 +331,14 @@ autoUpdater.on("update-downloaded", (info) => {
   }
   dialog.showMessageBox(mainWindow, {
     type: "info",
-    buttons: ["এখনই রিস্টার্ট করুন", "পরে (পরের বার বন্ধ করলে ইনস্টল হবে)"],
+    buttons: ["Restart now", "Later (installs next time you quit)"],
     defaultId: 0,
     cancelId: 1,
-    title: "আপডেট ডাউনলোড সম্পন্ন",
-    message: `v${info.version} ইনস্টলের জন্য প্রস্তুত।`
+    title: "Update downloaded",
+    message: `v${info.version} is ready to install.`
   }).then(result => {
     if(result.response === 0){
+      allowWindowClose = true;
       autoUpdater.quitAndInstall();
     }
   });

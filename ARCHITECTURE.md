@@ -1,8 +1,8 @@
 # S4-BUSINESS INVOICE TRACKER — Architecture Guide (LOCKED)
 
-> **লকড সিদ্ধান্ত (Aug 2026):** Login/Firebase = B1। **সফটওয়্যারের স্ক্রিন/মডিউল = `s4_business_tracker.html`।**
+> **লকড সিদ্ধান্ত (Aug 2026):** Login/Firebase = B1। **সফটওয়্যারের স্ক্রিন/মডিউল = `frontend/index.html` + `frontend/*.js`।**
 
-**প্রোডাক্ট UI (লক):** `s4_business_tracker.html` — Dashboard, Customer Master, Ledger, Statements, Aging, Invoices, Credit/Debit Notes, Receipts, Payment Allocation, Cheque/PDC, Discounts, Vehicle Master, Vehicle History, Reports, WhatsApp, Users & Roles, Audit, Settings, Backup।
+**প্রোডাক্ট UI (লক):** `frontend/` — Dashboard, Customer Master, Ledger, Statements, Aging, Invoices, Credit/Debit Notes, Receipts, Payment Allocation, Cheque/PDC, Discounts, Vehicle Master, Reports, WhatsApp, Users & Roles, Audit, Settings, Backup।
 
 ---
 
@@ -163,19 +163,20 @@ S4-BUSINESS-INVOICE-TRACKER-firebase-v2/
 }
 ```
 
-### `customers/{id}` · `vehicles/{id}` · `receipts/{id}` · notes/cheques/discounts
+### `customers/{id}` · `vehicles/{id}` · `productCatalog/{id}` · `serviceCatalog/{id}` · `receipts/{id}` · notes/cheques/discounts
 
-`s4_business_tracker.html` অনুযায়ী — Customer Master, Vehicle Master, Receipt + allocation। Invoice-এ `items[]`, `dueDate`, `paid`, `total`।
+`frontend/index.html` + modules — Customer Master, Vehicle Master, Product/Service Catalog, Receipt + allocation। Invoice field `vehicle` (plain string plate/description), `items[]`, `dueDate`, `paid`, `credited`, `total`।
 
 ```json
 {
   "customer": "...",
-  "car": "...",
+  "vehicle": "...",
   "invNo": "...",
   "invDate": "2026-08-01",
   "paidDate": "2026-08-10",
   "total": 15000,
   "paid": 10000,
+  "credited": 0,
   "notes": "",
   "createdBy": "Rahim",
   "updatedBy": "Karim",
@@ -183,6 +184,10 @@ S4-BUSINESS-INVOICE-TRACKER-firebase-v2/
   "updatedAt": 1710000000000
 }
 ```
+
+`productCatalog`: `name`, `code`, `price`, `vat`, `category`.  
+`serviceCatalog`: `name` (description), `price`, `vat`, `category` (no part number).  
+Debit notes linked to an invoice raise that invoice's `total`; unlinked debit notes count in ledger + Current aging.
 
 ### `activity/{id}` — আগের মতো
 

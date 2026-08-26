@@ -47,8 +47,8 @@ export function subscribeRecentActivity(onRows, onError){
   }, onError || (()=>{}));
 }
 
-export function formatActivityRow(row, lang = "bn"){
-  const when = row.at ? new Date(row.at).toLocaleString(lang === "en" ? "en-US" : "bn-BD") : "—";
+export function formatActivityRow(row, lang = "en"){
+  const when = row.at ? new Date(row.at).toLocaleString("en-US") : "—";
   const who = row.staffName || "—";
   const what = row.summary || row.action || "—";
   return { when, who, what };

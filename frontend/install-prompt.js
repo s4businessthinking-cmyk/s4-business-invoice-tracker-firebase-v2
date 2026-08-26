@@ -26,7 +26,7 @@ function isIOS(){
 }
 
 function currentLang(){
-  try{ return localStorage.getItem("lang_pref_v1") || "bn"; }catch(e){ return "bn"; }
+  try{ return localStorage.getItem("lang_pref_v1") || "en"; }catch(e){ return "en"; }
 }
 
 function recentlyDismissed(){
@@ -62,7 +62,7 @@ function baseBannerEl(id){
 
 function showAndroidInstallBanner(deferredPrompt){
   if(document.getElementById("s4InstallBanner")) return;
-  const bn = { title: "অ্যাপটি ইনস্টল করুন", sub: "হোম স্ক্রিনে যোগ করে দ্রুত খুলুন, ইন্টারনেট ছাড়াও কাজ করবে।", install: "📲 ইনস্টল করুন", later: "পরে" };
+  const bn = { title: "Install this app", sub: "Add it to your home screen for quick, offline-ready access.", install: "📲 Install", later: "Later" };
   const en = { title: "Install this app", sub: "Add it to your home screen for quick, offline-ready access.", install: "📲 Install", later: "Later" };
   const txt = currentLang() === "en" ? en : bn;
 
@@ -99,7 +99,7 @@ function showAndroidInstallBanner(deferredPrompt){
 
 function showIOSInstallBanner(){
   if(document.getElementById("s4InstallBanner")) return;
-  const bn = { title: "হোম স্ক্রিনে যোগ করুন", sub: "নিচের Share বাটনে চাপুন, তারপর \"Add to Home Screen\" বেছে নিন।", got: "বুঝেছি" };
+  const bn = { title: "Add to Home Screen", sub: "Tap the Share button below, then choose \"Add to Home Screen\".", got: "Got it" };
   const en = { title: "Add to Home Screen", sub: "Tap the Share button below, then choose \"Add to Home Screen\".", got: "Got it" };
   const txt = currentLang() === "en" ? en : bn;
 

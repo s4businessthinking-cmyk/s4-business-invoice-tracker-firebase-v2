@@ -1,9 +1,14 @@
-const CACHE='s4-invoice-v19-staff-invite-107';
+// CORE_ASSETS — keep every frontend/*.js module listed (except sw.js itself).
+// In v1.0.4, license.js and doc-export.js were missing here → blank screen on
+// second offline launch (fixed in v1.0.6). Run: node scripts/check-sw-cache.js
+// before cutting a release (see RELEASE.md).
+const CACHE='s4-invoice-v47-hisab-reaudit';
 const CORE_ASSETS=[
   './',
   './index.html',
   './manifest.webmanifest',
   './tracker.css',
+  './boot-entry.js',
   './boot.js',
   './app.js',
   './theme.js',
@@ -30,16 +35,18 @@ const CORE_ASSETS=[
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];
-self.addEventListener('install', e=>e.waitUntil(
-  caches.open(CACHE).then(c=>
-    Promise.allSettled(CORE_ASSETS.map(u=>c.add(u).catch(()=>{})))
-  )
-));
+self.addEventListener('install', e=>{
+  self.skipWaiting();
+  e.waitUntil(
+    caches.open(CACHE).then(c=>
+      Promise.allSettled(CORE_ASSETS.map(u=>c.add(u).catch(()=>{})))
+    )
+  );
+});
 self.addEventListener('activate', e=>{
   e.waitUntil(
-    caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))
+    caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=> self.clients.claim())
   );
-  self.clients.claim();
 });
 self.addEventListener('fetch', e=>{
   if(e.request.method!=='GET') return;
