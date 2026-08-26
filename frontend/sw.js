@@ -2,7 +2,7 @@
 // In v1.0.4, license.js and doc-export.js were missing here → blank screen on
 // second offline launch (fixed in v1.0.6). Run: node scripts/check-sw-cache.js
 // before cutting a release (see RELEASE.md).
-const CACHE='s4-invoice-v47-hisab-reaudit';
+const CACHE='s4-invoice-v49-product-bulk-del';
 const CORE_ASSETS=[
   './',
   './index.html',

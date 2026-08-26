@@ -15,7 +15,7 @@ import {
 } from "./drive-backup.js";
 import { buildBackupSnapshot, saveLocalBackup, restoreLocalBackup } from "./local-backup.js";
 import { loadSavedFirebaseConfig, buildInviteCode } from "./firebase-config.js";
-import { printHtmlDocument, downloadHtmlDocument, tableFromRows } from "./doc-export.js?v=47";
+import { printHtmlDocument, downloadHtmlDocument, tableFromRows } from "./doc-export.js?v=49";
 import { buildReportBundle, renderReportHtml, invoicesToCsv, downloadTextFile } from "./reports.js";
 import {
   getAccessStatus, activateLicense, licenseErrorText, maskFingerprint
@@ -1049,6 +1049,16 @@ function bindUi(){
     const f = e.target.files?.[0];
     e.target.value = "";
     if(f) importCatalogCsv("service", f);
+  });
+  document.getElementById("deleteSelectedServicesBtn")?.addEventListener("click", deleteSelectedServices);
+  document.getElementById("deleteAllServicesBtn")?.addEventListener("click", deleteAllServices);
+  document.getElementById("serviceSelectAll")?.addEventListener("change", e=>{
+    document.querySelectorAll('#serviceRows input.catalog-check').forEach(cb=>{ cb.checked = !!e.target.checked; });
+  });
+  document.getElementById("deleteSelectedProductsBtn")?.addEventListener("click", deleteSelectedProducts);
+  document.getElementById("deleteAllProductsBtn")?.addEventListener("click", deleteAllProducts);
+  document.getElementById("productSelectAll")?.addEventListener("change", e=>{
+    document.querySelectorAll('#productRows input.catalog-check').forEach(cb=>{ cb.checked = !!e.target.checked; });
   });
   document.getElementById("saveEntryToCatalogBtn")?.addEventListener("click", saveEntryToCatalog);
   document.getElementById("saveInvoiceBtn").onclick = ()=> saveInvoice("Posted");
@@ -2347,12 +2357,15 @@ function renderProducts(){
     return blob.includes(q);
   }).sort((a,b)=> String(a.name||"").localeCompare(String(b.name||"")));
   tbody.innerHTML = rows.length ? rows.map(p=> `<tr>
+    <td><input type="checkbox" class="catalog-check" data-kind="product" value="${esc(p.id)}"></td>
     <td>${esc(p.name)}</td><td>${esc(p.code)}</td><td>${money(p.price)}</td><td>${esc(p.vat ?? "")}%</td><td>${esc(p.category)}</td>
     <td>
       <button class="btn small" type="button" data-edit-p="${p.id}">Open</button>
       <button class="btn small danger" type="button" data-del-p="${p.id}">Delete</button>
     </td>
-  </tr>`).join("") : `<tr><td colspan="6" class="empty">No products — add one</td></tr>`;
+  </tr>`).join("") : `<tr><td colspan="7" class="empty">No products — add one</td></tr>`;
+  const selAll = document.getElementById("productSelectAll");
+  if(selAll) selAll.checked = false;
   tbody.querySelectorAll("[data-edit-p]").forEach(b=> b.onclick = ()=> editProduct(b.dataset.editP));
   tbody.querySelectorAll("[data-del-p]").forEach(b=> b.onclick = ()=> deleteProduct(b.dataset.delP));
 }
@@ -2421,12 +2434,15 @@ function renderServices(){
     return blob.includes(q);
   }).sort((a,b)=> String(a.name||"").localeCompare(String(b.name||"")));
   tbody.innerHTML = rows.length ? rows.map(s=> `<tr>
+    <td><input type="checkbox" class="catalog-check" data-kind="service" value="${esc(s.id)}"></td>
     <td>${esc(s.name)}</td><td>${money(s.price)}</td><td>${esc(s.vat ?? "")}%</td><td>${esc(s.category)}</td>
     <td>
       <button class="btn small" type="button" data-edit-s="${s.id}">Open</button>
       <button class="btn small danger" type="button" data-del-s="${s.id}">Delete</button>
     </td>
-  </tr>`).join("") : `<tr><td colspan="5" class="empty">No services — add one</td></tr>`;
+  </tr>`).join("") : `<tr><td colspan="6" class="empty">No services — add one</td></tr>`;
+  const selAll = document.getElementById("serviceSelectAll");
+  if(selAll) selAll.checked = false;
   tbody.querySelectorAll("[data-edit-s]").forEach(b=> b.onclick = ()=> editService(b.dataset.editS));
   tbody.querySelectorAll("[data-del-s]").forEach(b=> b.onclick = ()=> deleteService(b.dataset.delS));
 }
@@ -2481,6 +2497,70 @@ async function deleteService(id){
   if(!confirm(`Delete service ${s.name || id}?`)) return;
   try{
     commitWrite(deleteDoc(doc(db, "serviceCatalog", id)), { okMsg: "Service deleted" });
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+/** Firestore batch delete (max 450 per commit). */
+async function deleteCatalogDocs(collectionName, ids){
+  const list = [...new Set((ids || []).filter(Boolean))];
+  if(!list.length) return 0;
+  const CHUNK = 450;
+  for(let i = 0; i < list.length; i += CHUNK){
+    const slice = list.slice(i, i + CHUNK);
+    const batch = writeBatch(db);
+    slice.forEach(id=> batch.delete(doc(db, collectionName, id)));
+    await batch.commit();
+  }
+  return list.length;
+}
+
+async function deleteSelectedServices(){
+  const ids = [...document.querySelectorAll('#serviceRows input.catalog-check:checked')].map(el=> el.value);
+  if(!ids.length) return toast("Select at least one service");
+  if(!confirm(`Delete ${ids.length} selected service(s)?\nThis cannot be undone.`)) return;
+  try{
+    toast(`Deleting ${ids.length}…`);
+    const n = await deleteCatalogDocs("serviceCatalog", ids);
+    await logActivity({ action:"delete", staffName: who(), module:"Service Catalog", summary: `Bulk deleted ${n} services` });
+    toast(`Deleted ${n} service(s)`);
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+async function deleteAllServices(){
+  const n = services.length;
+  if(!n) return toast("Service catalog is empty");
+  if(!confirm(`Delete ALL ${n} services from catalog?\nThis cannot be undone.`)) return;
+  if(!confirm(`Final confirm: permanently delete all ${n} services?`)) return;
+  try{
+    toast(`Deleting ${n}…`);
+    const count = await deleteCatalogDocs("serviceCatalog", services.map(s=> s.id));
+    await logActivity({ action:"delete", staffName: who(), module:"Service Catalog", summary: `Cleared all ${count} services` });
+    toast(`Deleted all ${count} services`);
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+async function deleteSelectedProducts(){
+  const ids = [...document.querySelectorAll('#productRows input.catalog-check:checked')].map(el=> el.value);
+  if(!ids.length) return toast("Select at least one product");
+  if(!confirm(`Delete ${ids.length} selected product(s)?\nThis cannot be undone.`)) return;
+  try{
+    toast(`Deleting ${ids.length}…`);
+    const n = await deleteCatalogDocs("productCatalog", ids);
+    await logActivity({ action:"delete", staffName: who(), module:"Product Catalog", summary: `Bulk deleted ${n} products` });
+    toast(`Deleted ${n} product(s)`);
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
+async function deleteAllProducts(){
+  const n = products.length;
+  if(!n) return toast("Product catalog is empty");
+  if(!confirm(`Delete ALL ${n} products from catalog?\nThis cannot be undone.`)) return;
+  if(!confirm(`Final confirm: permanently delete all ${n} products?`)) return;
+  try{
+    toast(`Deleting ${n}…`);
+    const count = await deleteCatalogDocs("productCatalog", products.map(p=> p.id));
+    await logActivity({ action:"delete", staffName: who(), module:"Product Catalog", summary: `Cleared all ${count} products` });
+    toast(`Deleted all ${count} products`);
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 

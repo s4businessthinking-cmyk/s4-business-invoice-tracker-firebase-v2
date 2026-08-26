@@ -18,7 +18,7 @@ import {
 } from "./auth.js";
 import { initActivityLog } from "./activity-log.js";
 import { startSplash, hideSplash, setSplashStatus } from "./splash.js";
-import { startTracker, stopTracker } from "./app.js?v=47";
+import { startTracker, stopTracker } from "./app.js?v=49";
 import { getAccessStatus } from "./license.js";
 
 const isDesktopApp = typeof window !== "undefined" && !!window.s4Desktop;
@@ -408,5 +408,5 @@ if(document.readyState === "loading"){
 }
 
 if(!isDesktopApp && "serviceWorker" in navigator){
-  window.addEventListener("load", ()=> navigator.serviceWorker.register("./sw.js?v=47").catch(()=>{}));
+  window.addEventListener("load", ()=> navigator.serviceWorker.register("./sw.js?v=49").catch(()=>{}));
 }

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>S4-BUSINESS-INVOICE TRACKER</title>
-<link rel="stylesheet" href="tracker.css?v=47">
+<link rel="stylesheet" href="tracker.css?v=49">
 <link rel="icon" href="icons/favicon.ico" sizes="any">
 <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
 <link rel="icon" href="icons/icon-512.png" type="image/png" sizes="512x512">
@@ -16,11 +16,11 @@
 <script>
 (function(){
   // One-time bust: old Service Worker was serving stale index.html (plain <select>)
-  var VER = "ui47-hisab-reaudit";
+  var VER = "ui49-product-bulk-del";
   try{
     if(localStorage.getItem("s4_frontend_ui_ver") === VER) return;
     localStorage.setItem("s4_frontend_ui_ver", VER);
-    var done = function(){ location.replace(location.pathname + "?v=47&_=" + Date.now()); };
+    var done = function(){ location.replace(location.pathname + "?v=49&_=" + Date.now()); };
     var clearCaches = function(){
       if(!("caches" in window)) return Promise.resolve();
       return caches.keys().then(function(keys){
@@ -235,9 +235,15 @@
 <button class="btn" type="button" id="importProductsBtn">Import CSV</button>
 <button class="btn primary" type="button" id="addProductBtn">+ Add Product</button>
 </div></div>
-<div class="panel"><div class="panel-body"><div class="toolbar"><input class="search" id="productSearch" placeholder="Name, part number, category..."></div>
+<div class="panel"><div class="panel-body">
+<div class="toolbar catalog-bulk-bar">
+<input class="search" id="productSearch" placeholder="Name, part number, category...">
+<button class="btn danger" type="button" id="deleteSelectedProductsBtn">Delete selected</button>
+<button class="btn danger" type="button" id="deleteAllProductsBtn">Delete all products</button>
+</div>
 <input type="file" id="importProductsFile" accept=".csv,text/csv" hidden>
-<div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Code</th><th>Price</th><th>VAT %</th><th>Category</th><th>Action</th></tr></thead><tbody id="productRows"></tbody></table></div></div></div>
+<div class="table-wrap"><table class="table"><thead><tr><th style="width:40px"><input type="checkbox" id="productSelectAll" title="Select all visible"></th><th>Name</th><th>Code</th><th>Price</th><th>VAT %</th><th>Category</th><th>Action</th></tr></thead><tbody id="productRows"></tbody></table></div>
+</div></div>
 </section>
 
 <section class="page" id="service-catalog">
@@ -246,9 +252,15 @@
 <button class="btn" type="button" id="importServicesBtn">Import CSV</button>
 <button class="btn primary" type="button" id="addServiceBtn">+ Add Service</button>
 </div></div>
-<div class="panel"><div class="panel-body"><div class="toolbar"><input class="search" id="serviceSearch" placeholder="Description, category..."></div>
+<div class="panel"><div class="panel-body">
+<div class="toolbar catalog-bulk-bar">
+<input class="search" id="serviceSearch" placeholder="Description, category...">
+<button class="btn danger" type="button" id="deleteSelectedServicesBtn">Delete selected</button>
+<button class="btn danger" type="button" id="deleteAllServicesBtn">Delete all services</button>
+</div>
 <input type="file" id="importServicesFile" accept=".csv,text/csv" hidden>
-<div class="table-wrap"><table class="table"><thead><tr><th>Description</th><th>Price</th><th>VAT %</th><th>Category</th><th>Action</th></tr></thead><tbody id="serviceRows"></tbody></table></div></div></div>
+<div class="table-wrap"><table class="table"><thead><tr><th style="width:40px"><input type="checkbox" id="serviceSelectAll" title="Select all visible"></th><th>Description</th><th>Price</th><th>VAT %</th><th>Category</th><th>Action</th></tr></thead><tbody id="serviceRows"></tbody></table></div>
+</div></div>
 </section>
 
 <section class="page" id="ledger">
@@ -974,6 +986,6 @@
     </div>
   </div>
 </div>
-<script type="module" src="./boot-entry.js?v=47"></script>
+<script type="module" src="./boot-entry.js?v=49"></script>
 </body>
 </html>
