@@ -1,15 +1,16 @@
 # S4 Invoice Tracker — Desktop (exe) build + auto-update
 
-## একবার সেটআপ (প্রথম শপ বিল্ডের আগে)
+## একবার সেটআপ (প্রথম বিল্ডের আগে)
 
-1. `package.json` এর `build.publish` এ `PASTE_GITHUB_OWNER` /
-   `PASTE_GITHUB_REPO` বসান — যেই repo-তে release push হবে।
-2. `../frontend/update-config.js` এ একই owner/repo বসান, এবং
-   `currentVersion` কে এই `package.json` এর `"version"` এর সাথে
-   হুবহু মিলিয়ে রাখুন (দুই জায়গায় ভার্সন আলাদা হলে infinite update
-   loop বা ভুল detection হবে)।
-3. `../frontend/firebase-config.js` এ সেই দোকানের real Firebase
-   config বসান (এটা আলাদা এক-বারের কাজ, README.md এ ব্যাখ্যা আছে)।
+1. `package.json` → `build.publish` এ GitHub `owner` / `repo` আছে কিনা চেক করুন
+   (বর্তমান: `s4businessthinking-cmyk` / `s4-business-invoice-tracker-firebase-v2`)।
+2. `../frontend/update-config.js` এ একই owner/repo এবং
+   `currentVersion` = এই `package.json` এর `"version"` (এখন `1.0.10`)।
+   দুই জায়গায় ভার্সন আলাদা হলে update detection ভুল হবে।
+
+**Firebase config ফাইলে bake করবেন না (B1)।**  
+Customer ইনস্টলের পর Settings/Auth স্ক্রিনে নিজের Firebase Web config paste করে।  
+`frontend/firebase-config.js` শুধু paste/parse/storage helper — shop keys সেখানে লেখা হয় না।
 
 ## Local build (test)
 
@@ -23,10 +24,8 @@ npm run build
 
 ## নতুন ভার্সন রিলিজ করা (auto-update পাঠানো)
 
-1. `desktop/package.json` এর `"version"` বাড়ান (যেমন `1.0.0` →
-   `1.0.1`)।
-2. `../frontend/update-config.js` এর `currentVersion` একই ভ্যালুতে
-   বাড়ান।
+1. `desktop/package.json` এর `"version"` বাড়ান (যেমন `1.0.10` → `1.0.11`)।
+2. `../frontend/update-config.js` এর `currentVersion` একই ভ্যালুতে বাড়ান।
 3. GitHub-এ push করুন।
 4. একটা GitHub Personal Access Token (repo scope) লাগবে —
    টার্মিনালে `GH_TOKEN` environment variable হিসেবে সেট করুন:

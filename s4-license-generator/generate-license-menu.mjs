@@ -24,10 +24,12 @@ const FEATURES = [
   "receivables"
 ];
 
+// CUSTOM has no fixed length — askCustomDays() supplies the day count.
 const PLAN_DAYS = {
   MONTHLY: 30,
   YEARLY: 365,
   LIFETIME: null,
+  CUSTOM: null,
 };
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));

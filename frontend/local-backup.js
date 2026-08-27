@@ -1,5 +1,6 @@
 // Shared backup snapshot + local file save/restore
 import { writeBatch, doc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { deliverText } from "./file-delivery.js";
 
 export function buildBackupSnapshot(parts){
   return {
@@ -25,28 +26,29 @@ function backupFilename(shopName){
   return `backup-${safe}-${d}.json`;
 }
 
-function downloadBlob(filename, text){
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
 export async function saveLocalBackup(parts){
   const snap = buildBackupSnapshot(parts);
   const text = JSON.stringify(snap, null, 2);
   const name = backupFilename(snap.shop?.name);
   if(typeof window !== "undefined" && window.s4Desktop?.saveLocalBackup){
-    const res = await window.s4Desktop.saveLocalBackup({ filename: name, jsonText: text });
-    return { mode: "desktop", path: res?.path || "", filename: name, size: text.length };
+    try{
+      const res = await window.s4Desktop.saveLocalBackup({ filename: name, jsonText: text });
+      return { mode: "desktop", path: res?.path || "", filename: name, size: text.length };
+    }catch(err){
+      // Desktop write rejected (bad filename, disk error) — fall through to the
+      // browser download so the user still gets the backup file.
+      console.warn("Desktop backup failed, falling back to download:", err);
+    }
   }
-  downloadBlob(name, text);
-  return { mode: "download", path: "", filename: name, size: text.length };
+  const mode = await deliverText(name, text, "application/json;charset=utf-8", "Local backup");
+  return { mode: mode?.mode || "download", path: "", filename: name, size: text.length };
 }
 
 export function validateBackupSnapshot(data){
   if(!data || typeof data !== "object") throw new Error("Invalid backup file");
+  if(data.version != null && Number(data.version) < 1){
+    throw new Error("Unsupported backup version");
+  }
   if(!Array.isArray(data.invoices) && !Array.isArray(data.customers)){
     throw new Error("Backup missing invoices/customers arrays");
   }

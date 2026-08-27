@@ -68,6 +68,104 @@ export async function loadMember(uid){
   return currentMember;
 }
 
+async function deletePendingSetup(uid){
+  try{ await deleteDoc(doc(_db, "pendingSetups", uid)); }catch(_){}
+}
+
+/** After email verify: finish owner shop+member or staff member from pendingSetups/{uid}. */
+async function completePendingSetup(user){
+  if(!user?.uid || !_db) return null;
+  const pendingRef = doc(_db, "pendingSetups", user.uid);
+  const pendingSnap = await getDoc(pendingRef);
+  if(!pendingSnap.exists()) return null;
+  const pending = pendingSnap.data() || {};
+  const em = normalizeEmail(user.email || pending.email);
+
+  if(pending.type === "owner"){
+    const shopRef = doc(_db, "shop", "info");
+    const shopSnap = await getDoc(shopRef);
+    if(shopSnap.exists()){
+      const ownerUid = shopSnap.data()?.ownerUid;
+      if(ownerUid && ownerUid !== user.uid){
+        await deletePendingSetup(user.uid);
+        throw new Error("SHOP_EXISTS");
+      }
+    }else{
+      await setDoc(shopRef, {
+        name: String(pending.shopName || "").trim(),
+        addr: String(pending.addr || "").trim(),
+        phone: String(pending.phone || "").trim(),
+        ownerUid: user.uid,
+        ownerEmail: em,
+        createdAt: pending.createdAt || Date.now()
+      });
+    }
+    const memberRef = doc(_db, "members", user.uid);
+    if(!(await getDoc(memberRef)).exists()){
+      await setDoc(memberRef, {
+        uid: user.uid,
+        email: em,
+        displayName: String(pending.displayName || pending.shopName || "").trim() || em,
+        role: "owner",
+        status: "active",
+        joinedAt: Date.now()
+      });
+    }
+    await deletePendingSetup(user.uid);
+    return loadMember(user.uid);
+  }
+
+  if(pending.type === "staff"){
+    const inviteId = String(pending.inviteId || "").trim();
+    if(!inviteId){
+      await deletePendingSetup(user.uid);
+      throw new Error("NO_INVITE");
+    }
+    const inviteRef = doc(_db, "invites", inviteId);
+    const inviteSnap = await getDoc(inviteRef);
+    if(!inviteSnap.exists()){
+      await deletePendingSetup(user.uid);
+      throw new Error("NO_INVITE");
+    }
+    const inviteData = inviteSnap.data() || {};
+    if(normalizeEmail(inviteData.email) !== em || inviteData.status !== "pending"){
+      if(inviteData.status === "accepted" && inviteData.memberUid === user.uid){
+        await deletePendingSetup(user.uid);
+        return loadMember(user.uid);
+      }
+      await deletePendingSetup(user.uid);
+      throw new Error("NO_INVITE");
+    }
+    const memberRef = doc(_db, "members", user.uid);
+    if(!(await getDoc(memberRef)).exists()){
+      await setDoc(memberRef, {
+        uid: user.uid,
+        email: em,
+        displayName: String(pending.displayName || inviteData.displayName || "").trim() || em,
+        role: "staff",
+        status: "active",
+        inviteId,
+        invitedBy: inviteData.invitedBy || "",
+        permissions: { ...DEFAULT_STAFF_PERMISSIONS },
+        joinedAt: Date.now()
+      });
+    }
+    if(inviteData.status === "pending"){
+      await updateDoc(inviteRef, {
+        status: "accepted",
+        acceptedAt: Date.now(),
+        memberUid: user.uid,
+        email: em
+      });
+    }
+    await deletePendingSetup(user.uid);
+    return loadMember(user.uid);
+  }
+
+  await deletePendingSetup(user.uid);
+  return null;
+}
+
 export async function tryRestoreSession(){
   const user = await waitForAuthReady();
   if(!user) return null;
@@ -77,13 +175,21 @@ export async function tryRestoreSession(){
     currentMember = null;
     return null;
   }
-  const member = await loadMember(user.uid);
+  let member = await loadMember(user.uid);
+  if(!member){
+    try{
+      member = await completePendingSetup(user);
+    }catch(err){
+      console.warn("completePendingSetup failed:", err);
+      member = null;
+    }
+  }
   if(!member) return null;
   return { user, member };
 }
 
 // ============================================================
-// OWNER SETUP — email/password, send verification, sign out
+// OWNER SETUP — Auth + pendingSetups only; Firestore shop after verify
 // ============================================================
 export async function ownerSetupShop({ email, password, shopName, addr, phone, ownerDisplayName }){
   const em = normalizeEmail(email);
@@ -91,35 +197,75 @@ export async function ownerSetupShop({ email, password, shopName, addr, phone, o
   if(!shopName?.trim()) throw new Error("SHOP_NAME_REQUIRED");
   if(String(password || "").length < 6) throw new Error("PASSWORD_SHORT");
 
-  const shopSnap = await getDoc(doc(_db, "shop", "info"));
-  if(shopSnap.exists()) throw new Error("SHOP_EXISTS");
+  let cred;
+  let createdNow = false;
+  try{
+    cred = await createUserWithEmailAndPassword(_auth, em, password);
+    createdNow = true;
+  }catch(e){
+    if(e.code === "auth/email-already-in-use"){
+      cred = await signInWithEmailAndPassword(_auth, em, password);
+    }else{
+      throw e;
+    }
+  }
 
-  const cred = await createUserWithEmailAndPassword(_auth, em, password);
-  const uid = cred.user.uid;
-  const displayName = (ownerDisplayName || shopName).trim();
+  try{ await cred.user.getIdToken(true); }catch(_){}
 
-  // send verification email before writing to Firestore
-  await sendEmailVerification(cred.user);
+  try{
+    const shopSnap = await getDoc(doc(_db, "shop", "info"));
+    if(shopSnap.exists()){
+      const ownerUid = shopSnap.data()?.ownerUid;
+      if(ownerUid && ownerUid !== cred.user.uid){
+        await signOut(_auth);
+        throw new Error("SHOP_EXISTS");
+      }
+      // Same owner recovering — refresh pending if member missing
+      const mem = await getDoc(doc(_db, "members", cred.user.uid));
+      if(mem.exists() && mem.data()?.status === "active"){
+        await signOut(_auth);
+        throw new Error("SHOP_EXISTS");
+      }
+    }
 
-  await setDoc(doc(_db, "shop", "info"), {
-    name: shopName.trim(),
-    addr: (addr || "").trim(),
-    phone: (phone || "").trim(),
-    ownerUid: uid,
-    ownerEmail: em,
-    createdAt: Date.now()
-  });
+    const displayName = (ownerDisplayName || shopName).trim();
+    await setDoc(doc(_db, "pendingSetups", cred.user.uid), {
+      type: "owner",
+      email: em,
+      shopName: shopName.trim(),
+      addr: (addr || "").trim(),
+      phone: (phone || "").trim(),
+      displayName,
+      createdAt: Date.now()
+    });
 
-  await setDoc(doc(_db, "members", uid), {
-    uid,
-    email: em,
-    displayName,
-    role: "owner",
-    status: "active",
-    joinedAt: Date.now()
-  });
+    if(!cred.user.emailVerified){
+      await sendEmailVerification(cred.user);
+    }else{
+      await completePendingSetup(cred.user);
+    }
+  }catch(e){
+    // Rules deny shop/info to non-owners once shop exists — treat as occupied.
+    const denied = e?.code === "permission-denied"
+      || /permission.?denied|insufficient permissions/i.test(String(e?.message || e || ""));
+    if(denied){
+      if(createdNow){
+        try{ await cred.user.delete(); }catch(_){}
+      }
+      await signOut(_auth).catch(()=>{});
+      currentMember = null;
+      throw new Error("SHOP_EXISTS");
+    }
+    // Only remove brand-new Auth users blocked by an existing other-owner shop.
+    // Keep the account if verification/pending write already started (retry via Login).
+    if(createdNow && (e.message === "SHOP_EXISTS" || e.code === "SHOP_EXISTS")){
+      try{ await cred.user.delete(); }catch(_){}
+    }
+    await signOut(_auth).catch(()=>{});
+    currentMember = null;
+    throw e;
+  }
 
-  // sign out immediately — must verify email before logging in
   await signOut(_auth);
   currentMember = null;
   return { emailSent: true, email: em };
@@ -134,7 +280,6 @@ export async function loginWithEmail({ email, password }){
 
   const cred = await signInWithEmailAndPassword(_auth, em, password);
 
-  // reload to get latest emailVerified status
   await reload(cred.user);
 
   if(!cred.user.emailVerified){
@@ -142,18 +287,16 @@ export async function loginWithEmail({ email, password }){
     throw new Error("EMAIL_NOT_VERIFIED");
   }
 
-  const member = await loadMember(cred.user.uid);
+  let member = await loadMember(cred.user.uid);
+  if(!member){
+    member = await completePendingSetup(cred.user);
+  }
   if(!member) throw new Error("NOT_A_MEMBER");
   return member;
 }
 
 // ============================================================
-// STAFF INVITE ACCEPT — email/password, send verification, sign out
-// ------------------------------------------------------------
-// IMPORTANT: Invite documents are only readable when signed in
-// (email match). So we create/sign-in Auth first, THEN read the
-// invite and write members/ — otherwise Firestore returns
-// permission-denied and the invite stays "pending".
+// STAFF INVITE ACCEPT — Auth first, pending until email verified
 // ============================================================
 export async function staffAcceptInvite({ email, password, displayName, inviteId = "" }){
   const em = normalizeEmail(email);
@@ -184,7 +327,6 @@ export async function staffAcceptInvite({ email, password, displayName, inviteId
   const uid = cred.user.uid;
   const authEmail = normalizeEmail(cred.user.email || em);
 
-  // Ensure Firestore sees the Auth token (avoids race → permission-denied)
   try{ await cred.user.getIdToken(true); }catch(_){}
 
   try{
@@ -201,7 +343,6 @@ export async function staffAcceptInvite({ email, password, displayName, inviteId
     }
 
     if(!inviteDocRef){
-      // Prefer pending+email (works even if rules allow pending without auth)
       let inviteSnap;
       try{
         inviteSnap = await getDocs(
@@ -216,8 +357,7 @@ export async function staffAcceptInvite({ email, password, displayName, inviteId
           query(collection(_db, "invites"), where("email", "==", authEmail))
         );
       }
-      inviteDocRef = inviteSnap.docs.find(d=> (d.data() || {}).status === "pending") || inviteSnap.docs[0] || null;
-      if(inviteDocRef && (inviteDocRef.data() || {}).status !== "pending") inviteDocRef = null;
+      inviteDocRef = inviteSnap.docs.find(d=> (d.data() || {}).status === "pending") || null;
     }
 
     if(!inviteDocRef){
@@ -228,36 +368,18 @@ export async function staffAcceptInvite({ email, password, displayName, inviteId
       throw new Error("NO_INVITE");
     }
 
-    const inviteIdResolved = inviteDocRef.id;
-    const inviteData = inviteDocRef.data() || {};
-
-    const memberRef = doc(_db, "members", uid);
-    const memberSnap = await getDoc(memberRef);
-    if(!memberSnap.exists()){
-      await setDoc(memberRef, {
-        uid,
-        email: authEmail,
-        displayName: name,
-        role: "staff",
-        status: "active",
-        inviteId: inviteIdResolved,
-        invitedBy: inviteData.invitedBy || "",
-        permissions: { ...DEFAULT_STAFF_PERMISSIONS },
-        joinedAt: Date.now()
-      });
-    }
-
-    if(inviteData.status === "pending"){
-      await updateDoc(doc(_db, "invites", inviteIdResolved), {
-        status: "accepted",
-        acceptedAt: Date.now(),
-        memberUid: uid,
-        email: authEmail
-      });
-    }
+    await setDoc(doc(_db, "pendingSetups", uid), {
+      type: "staff",
+      email: authEmail,
+      displayName: name,
+      inviteId: inviteDocRef.id,
+      createdAt: Date.now()
+    });
 
     if(!cred.user.emailVerified){
       await sendEmailVerification(cred.user);
+    }else{
+      await completePendingSetup(cred.user);
     }
   }catch(e){
     await signOut(_auth).catch(()=>{});
@@ -432,14 +554,9 @@ export function authErrorText(code, lang = "en"){
     "permission-denied": "Permission denied. Confirm owner invite, use the same email, and publish firestore.rules in Firebase Console.",
     "PERMISSION_DENIED": "Permission denied. Confirm owner invite, use the same email, and publish firestore.rules in Firebase Console.",
     "auth/invalid-credential": "Wrong email or password.",
-    "auth/invalid-email": "Invalid email.",
-    "auth/weak-password": "Password is too weak.",
-    "auth/too-many-requests": "Too many attempts — try again later.",
-    "auth/user-not-found": "Account not found.",
-    "auth/wrong-password": "Wrong password."
+    "auth/user-not-found": "No account for this email.",
+    "auth/wrong-password": "Wrong password.",
+    "auth/too-many-requests": "Too many attempts. Try again later."
   };
-  if(en[code]) return en[code];
-  const raw = String(code || "");
-  if(/permission-denied|insufficient permissions/i.test(raw)) return en["permission-denied"];
-  return raw || "Authentication failed.";
+  return en[code] || en[String(code)] || String(code || "Unknown error");
 }

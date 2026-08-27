@@ -10,6 +10,8 @@
 // Extra: Staff-wise breakdown, Due aging buckets
 // ============================================================
 
+import { deliverBlob } from "./file-delivery.js";
+
 function parseYmd(s){
   if(!s) return null;
   const d = new Date(String(s).slice(0, 10) + "T00:00:00");
@@ -157,15 +159,17 @@ export function buildReportBundle(invoices, mode, year, monthIndex0){
   };
 }
 
-export function fmtMoney(n){
-  return (Number(n) || 0).toLocaleString("en-IN") + " Tk";
+export function fmtMoney(n, currency = "AED"){
+  const cur = String(currency || "AED").replace(/[<>"'&\\/]/g, "").slice(0, 12) || "AED";
+  return cur + " " + (Number(n) || 0).toLocaleString("en-AE", { maximumFractionDigits: 2 });
 }
 
 function escapeHtml(s){
   return String(s || "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
 }
 
-export function renderReportHtml(bundle, lang = "en"){
+export function renderReportHtml(bundle, lang = "en", currency = "AED"){
+  const money = (n)=> fmtMoney(n, currency);
   const title = bundle.titleEn || bundle.titleBn;
   const L = {
     s1: "1) Summary", s2: "2) By Customer", s3: "3) By Status",
@@ -179,35 +183,35 @@ export function renderReportHtml(bundle, lang = "en"){
   const s = bundle.summary;
   let html = `<div class="r-title">${escapeHtml(title)}</div>`;
   html += `<div class="r-section"><h3>${L.s1}</h3><table class="r-table"><tr><th>${L.inv}</th><th>${L.total}</th><th>${L.paid}</th><th>${L.due}</th></tr>`;
-  html += `<tr><td>${s.count}</td><td>${fmtMoney(s.total)}</td><td>${fmtMoney(s.paid)}</td><td>${fmtMoney(s.due)}</td></tr></table></div>`;
+  html += `<tr><td>${s.count}</td><td>${money(s.total)}</td><td>${money(s.paid)}</td><td>${money(s.due)}</td></tr></table></div>`;
 
   html += `<div class="r-section"><h3>${L.s2}</h3><table class="r-table"><tr><th>${L.customer}</th><th>${L.inv}</th><th>${L.total}</th><th>${L.due}</th></tr>`;
   bundle.byCustomer.forEach(row=>{
-    html += `<tr><td>${escapeHtml(row.name)}</td><td>${row.count}</td><td>${fmtMoney(row.total)}</td><td>${fmtMoney(row.due)}</td></tr>`;
+    html += `<tr><td>${escapeHtml(row.name)}</td><td>${row.count}</td><td>${money(row.total)}</td><td>${money(row.due)}</td></tr>`;
   });
   if(!bundle.byCustomer.length) html += `<tr><td colspan="4">${L.none}</td></tr>`;
   html += `</table></div>`;
 
   html += `<div class="r-section"><h3>${L.s3}</h3><table class="r-table"><tr><th>${L.status}</th><th>${L.inv}</th><th>${L.total}</th><th>${L.due}</th></tr>`;
   bundle.byStatus.forEach(row=>{
-    html += `<tr><td>${row.status}</td><td>${row.count}</td><td>${fmtMoney(row.total)}</td><td>${fmtMoney(row.due)}</td></tr>`;
+    html += `<tr><td>${escapeHtml(row.status)}</td><td>${row.count}</td><td>${money(row.total)}</td><td>${money(row.due)}</td></tr>`;
   });
   html += `</table></div>`;
 
-  html += `<div class="r-section"><h3>${L.s4}</h3><p>${L.inv}: ${bundle.collections.count} · ${L.paid}: ${fmtMoney(bundle.collections.paid)}</p></div>`;
+  html += `<div class="r-section"><h3>${L.s4}</h3><p>${L.inv}: ${bundle.collections.count} · ${L.paid}: ${money(bundle.collections.paid)}</p></div>`;
 
-  html += `<div class="r-section"><h3>${L.s5}</h3><p>${L.inv}: ${bundle.outstanding.count} · ${L.due}: ${fmtMoney(bundle.outstanding.due)}</p></div>`;
+  html += `<div class="r-section"><h3>${L.s5}</h3><p>${L.inv}: ${bundle.outstanding.count} · ${L.due}: ${money(bundle.outstanding.due)}</p></div>`;
 
   html += `<div class="r-section"><h3>${L.s6}</h3><table class="r-table"><tr><th>${L.staff}</th><th>${L.inv}</th><th>${L.total}</th></tr>`;
   bundle.byStaff.forEach(row=>{
-    html += `<tr><td>${escapeHtml(row.staff)}</td><td>${row.count}</td><td>${fmtMoney(row.total)}</td></tr>`;
+    html += `<tr><td>${escapeHtml(row.staff)}</td><td>${row.count}</td><td>${money(row.total)}</td></tr>`;
   });
   if(!bundle.byStaff.length) html += `<tr><td colspan="3">${L.none}</td></tr>`;
   html += `</table></div>`;
 
   html += `<div class="r-section"><h3>${L.s7}</h3><table class="r-table"><tr><th>${L.bucket}</th><th>${L.inv}</th><th>${L.due}</th></tr>`;
   bundle.aging.forEach(row=>{
-    html += `<tr><td>${row.label}</td><td>${row.count}</td><td>${fmtMoney(row.due)}</td></tr>`;
+    html += `<tr><td>${escapeHtml(row.label)}</td><td>${row.count}</td><td>${money(row.due)}</td></tr>`;
   });
   html += `</table></div>`;
 
@@ -231,12 +235,7 @@ export function invoicesToCsv(invoices, lang = "en"){
   return [headers.map(esc).join(","), ...rows.map(r => r.map(esc).join(","))].join("\r\n");
 }
 
-export function downloadTextFile(filename, text, mime = "text/csv;charset=utf-8"){
+export async function downloadTextFile(filename, text, mime = "text/csv;charset=utf-8"){
   const blob = new Blob(["\uFEFF" + text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return deliverBlob(filename, blob, filename);
 }

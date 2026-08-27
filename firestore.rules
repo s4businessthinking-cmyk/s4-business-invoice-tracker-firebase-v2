@@ -2,15 +2,8 @@ rules_version = '2';
 
 // ============================================================
 // S4-BUSINESS INVOICE TRACKER — Firestore Security Rules
-// Email/Password auth ONLY (no Google Sign-In, no Anonymous)
-// Every account must verify its email before it can act as an
-// active member — client (auth.js) enforces this at login time.
-// Owner/Staff roles.
-// ============================================================
-// Firebase Console → Authentication → Sign-in method:
-//   ✅ Email/Password ON
-//   ❌ Google ON/OFF doesn't matter — app no longer uses it
-//   ❌ Anonymous OFF (security)
+// Email/Password auth ONLY · email verification required for
+// active membership · Owner/Staff with server-side module RBAC
 // ============================================================
 
 service cloud.firestore {
@@ -20,13 +13,20 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function emailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
     function memberPath() {
       return /databases/$(database)/documents/members/$(request.auth.uid);
     }
 
+    function shopPath() {
+      return /databases/$(database)/documents/shop/info;
+    }
+
     function isActiveMember() {
-      return isSignedIn()
-        && request.auth.token.email_verified == true
+      return emailVerified()
         && exists(memberPath())
         && get(memberPath()).data.status == 'active';
     }
@@ -47,96 +47,183 @@ service cloud.firestore {
       return data.email is string && data.email.lower() == authEmail();
     }
 
-    // Owner confirmed public read of shop/info (name/address/phone/TRN/ownerEmail) is intentional
-    // for the pre-login branding screen. If restricted later, split into a public subset (name, logo)
-    // and a private doc for TRN/phone/ownerEmail.
+    // Match frontend DEFAULT_STAFF_PERMISSIONS:
+    // users / audit / settings default false; all other modules default true.
+    // Explicit permissions[mod] always wins.
+    function defaultModuleAllow(mod) {
+      return mod != 'users' && mod != 'audit' && mod != 'settings';
+    }
+
+    function hasModule(mod) {
+      return isOwner() || (
+        isActiveMember()
+        && (
+          !('permissions' in get(memberPath()).data)
+            ? defaultModuleAllow(mod)
+            : (
+              !(mod in get(memberPath()).data.permissions)
+                ? defaultModuleAllow(mod)
+                : get(memberPath()).data.permissions[mod] == true
+            )
+        )
+      );
+    }
+
+    // Modules that legitimately patch invoice paid/credited/total (not full invoice CRUD).
+    function canPatchInvoiceMoney() {
+      return hasModule('invoices')
+        || hasModule('receipts')
+        || hasModule('allocation')
+        || hasModule('credit-notes')
+        || hasModule('debit-notes')
+        || hasModule('discounts')
+        || hasModule('cheques');
+    }
+
+    // Money-path modules may only touch settlement fields — not rewrite the whole invoice.
+    function invoiceMoneyKeysOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['paid', 'credited', 'paidDate', 'total', 'updatedAt', 'updatedBy']);
+    }
+
+    match /pendingSetups/{uid} {
+      allow read, create, update, delete: if isSignedIn() && uid == request.auth.uid;
+    }
+
     match /shop/info {
-      // Public read is intentional: login/setup screens may show shop branding
-      // (name) before auth. Sensitive ops still require isOwner() for write.
-      allow read: if true;
-      allow create: if isSignedIn()
-        && !exists(/databases/$(database)/documents/shop/info)
+      // Active members; pre-create probe; or the shop owner recovering setup.
+      // Other verified Auth users cannot read once the shop exists.
+      allow read: if isActiveMember()
+        || (emailVerified() && (
+          !exists(shopPath())
+          || resource.data.ownerUid == request.auth.uid
+        ));
+      allow create: if emailVerified()
+        && !exists(shopPath())
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.ownerEmail == authEmail();
-      allow update: if isOwner();
+      allow update: if isOwner() && hasModule('settings');
       allow delete: if false;
     }
 
     match /members/{uid} {
-      // Own profile readable while verifying email (before isActiveMember)
       allow read: if isActiveMember() || (isSignedIn() && uid == request.auth.uid);
-      allow create: if isSignedIn() && uid == request.auth.uid && (
-        (request.resource.data.role == 'owner'
+
+      allow create: if emailVerified() && uid == request.auth.uid && (
+        (
+          request.resource.data.role == 'owner'
           && request.resource.data.email == authEmail()
-          && request.resource.data.status == 'active')
+          && request.resource.data.status == 'active'
+          && (
+            !exists(shopPath())
+            || get(shopPath()).data.ownerUid == request.auth.uid
+          )
+        )
         ||
-        (request.resource.data.role == 'staff'
+        (
+          request.resource.data.role == 'staff'
           && request.resource.data.email == authEmail()
           && request.resource.data.status == 'active'
           && request.resource.data.inviteId is string
           && inviteEmailOk(inviteDoc(request.resource.data.inviteId).data)
-          && inviteDoc(request.resource.data.inviteId).data.status == 'pending')
+          && inviteDoc(request.resource.data.inviteId).data.status == 'pending'
+        )
       );
-      allow update: if isOwner()
-        || (uid == request.auth.uid
-            && resource.data.role == 'staff'
-            && request.resource.data.role == 'staff'
-            && request.resource.data.email == resource.data.email
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']));
+
+      allow update: if (
+          isOwner()
+          && hasModule('users')
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['displayName', 'permissions', 'permissionsUpdatedAt', 'status', 'removedAt'])
+        )
+        || (
+          uid == request.auth.uid
+          && resource.data.role == 'staff'
+          && request.resource.data.role == 'staff'
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName'])
+        );
+
       allow delete: if false;
     }
 
     match /invites/{inviteId} {
-      // Pending invites readable before login (staff signup looks up invite first).
-      // After login, any signed-in user can read (small shop).
-      allow read: if resource.data.status == 'pending' || isSignedIn();
+      allow read: if isSignedIn() && (
+        isOwner()
+        || hasModule('users')
+        || inviteEmailOk(resource.data)
+      );
       allow create: if isOwner()
+        && hasModule('users')
         && request.resource.data.status == 'pending'
         && request.resource.data.role == 'staff'
         && request.resource.data.invitedBy == request.auth.uid
         && request.resource.data.email is string;
-      allow update: if isOwner()
+      allow update: if (isOwner() && hasModule('users'))
         || (isSignedIn()
             && inviteEmailOk(resource.data)
             && resource.data.status == 'pending'
             && request.resource.data.status == 'accepted'
-            && inviteEmailOk(request.resource.data));
-      allow delete: if isOwner();
+            && inviteEmailOk(request.resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['status', 'acceptedAt', 'memberUid', 'email']));
+      allow delete: if isOwner() && hasModule('users');
     }
 
     match /invoices/{invoiceId} {
-      allow read, create, update, delete: if isActiveMember();
+      allow read: if hasModule('invoices') || hasModule('ledger') || hasModule('statements')
+        || hasModule('aging') || hasModule('reports') || hasModule('dashboard');
+      allow create, delete: if hasModule('invoices');
+      allow update: if hasModule('invoices')
+        || (canPatchInvoiceMoney() && invoiceMoneyKeysOnly());
     }
     match /customers/{id} {
-      allow read, create, update, delete: if isActiveMember();
+      allow read: if hasModule('customers') || hasModule('invoices') || hasModule('ledger')
+        || hasModule('statements') || hasModule('dashboard') || hasModule('communication');
+      allow create, update, delete: if hasModule('customers');
     }
     match /vehicles/{id} {
-      allow read, create, update, delete: if isActiveMember();
+      allow read: if hasModule('vehicles') || hasModule('invoices');
+      allow create, update, delete: if hasModule('vehicles');
     }
     match /productCatalog/{id} {
-      allow read, create, update, delete: if isActiveMember();
+      allow read: if hasModule('product-catalog') || hasModule('invoices');
+      allow create, update, delete: if hasModule('product-catalog');
     }
     match /serviceCatalog/{id} {
-      allow read, create, update, delete: if isActiveMember();
+      allow read: if hasModule('service-catalog') || hasModule('invoices');
+      allow create, update, delete: if hasModule('service-catalog');
     }
     match /receipts/{id} {
-      allow read, create, update, delete: if isActiveMember();
+      allow read: if hasModule('receipts') || hasModule('ledger') || hasModule('statements')
+        || hasModule('allocation') || hasModule('reports') || hasModule('dashboard');
+      allow create, update, delete: if hasModule('receipts') || hasModule('allocation');
     }
     match /creditNotes/{id} {
-      allow read, create, update, delete: if isActiveMember();
+      allow read: if hasModule('credit-notes') || hasModule('ledger') || hasModule('statements')
+        || hasModule('allocation');
+      allow create, update, delete: if hasModule('credit-notes') || hasModule('allocation');
     }
     match /debitNotes/{id} {
-      allow read, create, update, delete: if isActiveMember();
+      allow read: if hasModule('debit-notes') || hasModule('ledger') || hasModule('statements')
+        || hasModule('aging') || hasModule('dashboard');
+      allow create, update, delete: if hasModule('debit-notes');
     }
     match /cheques/{id} {
-      allow read, create, update, delete: if isActiveMember();
+      allow read: if hasModule('cheques') || hasModule('ledger') || hasModule('receipts');
+      allow create, update, delete: if hasModule('cheques');
     }
     match /discounts/{id} {
-      allow read, create, update, delete: if isActiveMember();
+      allow read: if hasModule('discounts') || hasModule('ledger') || hasModule('statements')
+        || hasModule('receipts');
+      allow create, update, delete: if hasModule('discounts') || hasModule('receipts');
     }
 
     match /activity/{activityId} {
-      allow read: if isActiveMember();
+      allow read: if hasModule('audit') || isOwner();
       allow create: if isActiveMember();
       allow update, delete: if false;
     }

@@ -100,26 +100,149 @@ ipcMain.handle("s4:load-trial-record", () => {
   return readJsonFile(sharedFile("trial.json")) || readJsonFile(path.join(app.getPath("userData"), "trial.json"));
 });
 ipcMain.handle("s4:save-trial-record", (_e, record) => {
-  writeJsonFile(sharedFile("trial.json"), record);
-  writeJsonFile(path.join(app.getPath("userData"), "trial.json"), record);
-  return true;
+  let ok = false;
+  try{
+    writeJsonFile(path.join(app.getPath("userData"), "trial.json"), record);
+    ok = true;
+  }catch(err){
+    log.warn("save trial userData failed", err?.message || err);
+  }
+  try{
+    writeJsonFile(sharedFile("trial.json"), record);
+    ok = true;
+  }catch(err){
+    log.warn("save trial ProgramData failed", err?.message || err);
+  }
+  return ok;
 });
 ipcMain.handle("s4:load-license-record", () => {
   return readJsonFile(sharedFile("license.json")) || readJsonFile(path.join(app.getPath("userData"), "license.json"));
 });
 ipcMain.handle("s4:save-license-record", (_e, record) => {
-  writeJsonFile(sharedFile("license.json"), record);
-  writeJsonFile(path.join(app.getPath("userData"), "license.json"), record);
-  return true;
+  let ok = false;
+  try{
+    writeJsonFile(path.join(app.getPath("userData"), "license.json"), record);
+    ok = true;
+  }catch(err){
+    log.warn("save license userData failed", err?.message || err);
+  }
+  try{
+    writeJsonFile(sharedFile("license.json"), record);
+    ok = true;
+  }catch(err){
+    log.warn("save license ProgramData failed", err?.message || err);
+  }
+  return ok;
 });
 ipcMain.handle("s4:save-local-backup", (_e, payload) => {
-  const filename = String(payload?.filename || `backup-${Date.now()}.json`).replace(/[<>:"/\\|?*]/g, "_");
+  const rawName = String(payload?.filename || `backup-${Date.now()}.json`)
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .replace(/^\.+/, "_");
+  const filename = path.basename(rawName) || `backup-${Date.now()}.json`;
   const jsonText = String(payload?.jsonText || "{}");
   const dir = path.join(app.getPath("documents"), "S4 Invoice Backups");
   fs.mkdirSync(dir, { recursive: true });
-  const full = path.join(dir, filename);
+  const full = path.resolve(path.join(dir, filename));
+  const rootNorm = path.resolve(dir);
+  const rootPrefix = rootNorm.endsWith(path.sep) ? rootNorm : rootNorm + path.sep;
+  if(full !== rootNorm && !full.startsWith(rootPrefix)){
+    throw new Error("Invalid backup filename");
+  }
   fs.writeFileSync(full, jsonText, "utf8");
   return { path: full, filename };
+});
+
+// Google Drive OAuth for desktop: system browser + fixed loopback port.
+// Redirect URI must be registered in Google Cloud Console when using a Web client:
+//   http://127.0.0.1:8765/oauth2redirect
+const DESKTOP_OAUTH_PORT = 8765;
+const DESKTOP_OAUTH_PATH = "/oauth2redirect";
+let oauthServer = null;
+
+function stopOAuthServer(){
+  if(oauthServer){
+    try{ oauthServer.close(); }catch(_){}
+    oauthServer = null;
+  }
+}
+
+ipcMain.handle("s4:drive-oauth-loopback", async (_e, payload) => {
+  const clientId = String(payload?.clientId || "").trim();
+  const scope = String(payload?.scope || "https://www.googleapis.com/auth/drive.file");
+  const codeChallenge = String(payload?.codeChallenge || "");
+  const state = String(payload?.state || "");
+  if(!clientId || !codeChallenge || !state){
+    return { error: "Missing OAuth parameters" };
+  }
+  const redirectUri = `http://127.0.0.1:${DESKTOP_OAUTH_PORT}${DESKTOP_OAUTH_PATH}`;
+  stopOAuthServer();
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if(settled) return;
+      settled = true;
+      clearTimeout(timer);
+      stopOAuthServer();
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ error: "Google Drive sign-in timed out." }), 5 * 60 * 1000);
+
+    oauthServer = http.createServer((req, res) => {
+      try{
+        const parsed = url.parse(req.url || "/", true);
+        if(parsed.pathname !== DESKTOP_OAUTH_PATH){
+          res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+          res.end("Not found");
+          return;
+        }
+        const q = parsed.query || {};
+        const htmlOk = "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:24px'><h2>Signed in</h2><p>You can close this tab and return to S4 Invoice Tracker.</p></body></html>";
+        const htmlErr = "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:24px'><h2>Sign-in failed</h2><p>You can close this tab.</p></body></html>";
+        if(q.error){
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(htmlErr);
+          finish({ error: String(q.error_description || q.error) });
+          return;
+        }
+        if(!q.code){
+          res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+          res.end("Missing code");
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(htmlOk);
+        finish({ code: String(q.code), state: String(q.state || ""), redirectUri });
+      }catch(err){
+        log.error("oauth callback error", err);
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Error");
+        finish({ error: String(err?.message || err) });
+      }
+    });
+
+    oauthServer.on("error", (err) => {
+      log.error("oauth server error", err);
+      finish({ error: "Could not start local OAuth server (is port 8765 free?): " + (err?.message || err) });
+    });
+
+    oauthServer.listen(DESKTOP_OAUTH_PORT, "127.0.0.1", () => {
+      const auth = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+      auth.searchParams.set("client_id", clientId);
+      auth.searchParams.set("redirect_uri", redirectUri);
+      auth.searchParams.set("response_type", "code");
+      auth.searchParams.set("scope", scope);
+      auth.searchParams.set("access_type", "online");
+      auth.searchParams.set("include_granted_scopes", "true");
+      auth.searchParams.set("prompt", "consent");
+      auth.searchParams.set("code_challenge", codeChallenge);
+      auth.searchParams.set("code_challenge_method", "S256");
+      auth.searchParams.set("state", state);
+      shell.openExternal(auth.toString()).catch(err => {
+        finish({ error: "Could not open system browser: " + (err?.message || err) });
+      });
+    });
+  });
 });
 
 ipcMain.handle("s4:ask-close-backup", async () => {
@@ -174,9 +297,12 @@ function frontendRoot(){
 }
 
 function safeFilePath(root, requestPath){
+  const rootNorm = path.normalize(root);
+  const rootPrefix = rootNorm.endsWith(path.sep) ? rootNorm : rootNorm + path.sep;
   const rel = decodeURIComponent(requestPath).replace(/^\/+/, "").split("/").join(path.sep);
-  const resolved = path.normalize(path.join(root, rel));
-  if(!resolved.startsWith(path.normalize(root))) return null;
+  const resolved = path.normalize(path.join(rootNorm, rel));
+  // Containment: exact root or a path under root + separator (blocks sibling "frontend_evil")
+  if(resolved !== rootNorm && !resolved.startsWith(rootPrefix)) return null;
   return resolved;
 }
 
@@ -262,15 +388,20 @@ function createWindow(){
     }
   });
 
+  // Always open external URLs in the system browser (never in-app).
+  // Google OAuth blocks Electron's embedded user-agent (disallowed_useragent);
+  // Drive backup uses the loopback OAuth IPC path instead of GIS popups.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if(
-      url.includes("accounts.google.com") ||
-      url.includes("firebaseapp.com") ||
-      url.includes("__/auth/handler")
-    ){
-      return { action: "allow" };
+    try{
+      const parsed = new URL(url);
+      if(parsed.protocol === "http:" || parsed.protocol === "https:" || parsed.protocol === "mailto:"){
+        shell.openExternal(url);
+      }else{
+        log.warn("blocked openExternal protocol", parsed.protocol);
+      }
+    }catch(err){
+      log.warn("blocked openExternal url", err?.message || err);
     }
-    shell.openExternal(url);
     return { action: "deny" };
   });
 

@@ -58,9 +58,16 @@ Auto-update path (optional):
 ```
 
 **কোনো VPS/backend server নেই।** সব ডেটা সেই দোকানের Firebase Firestore-এ;  
-app offline-first (local cache) + online হলে real-time sync।
+app offline-first (IndexedDB persistence; desktop falls back to memory if persistence fails) + online হলে real-time sync।
 
 **একই সফটওয়্যার → আলাদা দোকান = আলাদা Firebase** (config paste দিয়ে জোড়া)।
+
+### License / trial / pending setup
+- `frontend/license.js` — ECDSA P-256 verify (public JWK baked in); offline trial + paid license gate
+- `s4-license-generator/` — signs licenses with **private** JWK (gitignored); never ship private keys
+- `pendingSetups/{uid}` — owner/staff signup snapshot before email verify; completed after verify → `shop` + `members`
+- License `appId` (`com.s4.invoice.tracker`) is intentional and separate from Electron/Android package id
+- `maxDevices` is stored on the payload; binding is device-fingerprint based (no online device registry)
 
 ---
 
@@ -72,10 +79,13 @@ S4-BUSINESS-INVOICE-TRACKER-firebase-v2/
 ├── README.md                ← quick start
 ├── firestore.rules          ← প্রতি দোকানের Console-এ paste → Publish
 ├── firebase.json / .firebaserc
+├── s4-license-generator/    ← offline license signing (private keys local only)
+├── releases/                ← electron-builder publish artifacts
 │
 ├── frontend/
 │   ├── index.html           ← UI + Firestore + auth screens
 │   ├── auth.js              ← Email/Password + verify + owner/staff
+│   ├── license.js           ← trial / license verify (fail-closed)
 │   ├── firebase-config.js   ← B1: load/save/parse pasted config (keys ফাইলে নয়)
 │   ├── splash.js            ← loading splash
 │   ├── update-config.js     ← GitHub repo + version (release)
@@ -86,6 +96,9 @@ S4-BUSINESS-INVOICE-TRACKER-firebase-v2/
 │   ├── update-checker.js
 │   ├── drive-backup.js
 │   ├── install-prompt.js
+│   ├── boot.js / boot-entry.js
+│   ├── pdf-export.js / file-delivery.js / local-backup.js
+│   ├── doc-export.js
 │   ├── sw.js / manifest / icons /
 │   └── branding/            ← logo + login background
 │
@@ -298,7 +311,7 @@ desktop/main.js     → localhost static server + userData config file + updater
 | `auth/configuration-not-found` | Console → Authentication → Email/Password ON |
 | `auth/unauthorized-domain` | Authorized domains-এ `localhost` / `127.0.0.1` |
 | EMAIL_NOT_VERIFIED | Inbox → verification link → তারপর Login |
-| Drive backup fail on exe | HTTPS hosted PWA origin দরকার |
+| Drive backup fail on exe | Google Cloud OAuth client-এ redirect URI যোগ করুন: `http://127.0.0.1:8765/oauth2redirect` (Electron loopback). Client ID Settings → Backup-এ paste। |
 | Update banner না আসে | `update-config.js` owner/repo/version |
 | Activity খালি | `firestore.rules` Publish? |
 

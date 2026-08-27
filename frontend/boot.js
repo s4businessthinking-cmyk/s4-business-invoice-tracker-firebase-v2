@@ -1,4 +1,4 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+﻿import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
@@ -18,7 +18,7 @@ import {
 } from "./auth.js";
 import { initActivityLog } from "./activity-log.js";
 import { startSplash, hideSplash, setSplashStatus } from "./splash.js";
-import { startTracker, stopTracker } from "./app.js?v=49";
+import { startTracker, stopTracker } from "./app.js?v=66";
 import { getAccessStatus } from "./license.js";
 
 const isDesktopApp = typeof window !== "undefined" && !!window.s4Desktop;
@@ -114,21 +114,25 @@ function showVerifyScreen(email, msg){
 }
 
 function withTimeout(promise, ms, label = "TIMEOUT"){
+  let timer = null;
   return Promise.race([
     promise,
-    new Promise((_r, reject)=> setTimeout(()=> reject(new Error(label)), ms))
-  ]);
+    new Promise((_r, reject)=>{ timer = setTimeout(()=> reject(new Error(label)), ms); })
+  ]).finally(()=>{ if(timer) clearTimeout(timer); });
 }
 
 function wireFirebase(cfg){
   firebaseConfig = cfg;
   fbApp = initializeApp(cfg);
   auth = getAuth(fbApp);
-  db = isDesktopApp
-    ? getFirestore(fbApp)
-    : initializeFirestore(fbApp, {
-        localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-      });
+  try{
+    db = initializeFirestore(fbApp, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    });
+  }catch(e){
+    console.warn("Firestore persistence unavailable, using memory cache:", e);
+    db = getFirestore(fbApp);
+  }
   initActivityLog(db);
   initAuthModule(auth, db);
   shopDocRef = doc(db, "shop", "info");
@@ -136,12 +140,12 @@ function wireFirebase(cfg){
 }
 
 async function enterAppFromShopDoc(data){
-  // Start / continue 15-day trial (or use existing license) before opening app
+  // Fail closed: timeout/error must not open the app as a free trial.
   let access;
   try{
     access = await withTimeout(getAccessStatus(), 5000, "LICENSE_TIMEOUT");
   }catch(_){
-    access = { allowed: true, mode: "trial", daysRemaining: 15 };
+    access = { allowed: false, reason: "LICENSE_VERIFY_FAILED", deviceFingerprint: "", maskedFingerprint: "—" };
   }
   hideAuth();
   startTracker({ db, shop: data, member: getCurrentMember(), access });
@@ -170,18 +174,34 @@ async function startAuth(){
       return;
     }
     setSplashStatus("Connecting…");
-    if(await withTimeout(restoreSession(), 8000, "AUTH_TIMEOUT")){
+    // Keep the same promise — a timeout must neither abandon restore nor flash a false error.
+    const restorePromise = restoreSession();
+    restorePromise.catch(()=>{});
+    let restored = false;
+    try{
+      restored = await withTimeout(restorePromise, 12000, "AUTH_TIMEOUT");
+    }catch(e){
+      if(String(e?.message || e) !== "AUTH_TIMEOUT") throw e;
+      // restoreSession() has no internal timeout and can hang forever, so never keep
+      // waiting here — that leaves an auth card with every field hidden. Show the login
+      // form; if the in-flight restore later wins it calls hideAuth() on its own.
+      await hideSplash(lang);
+      showLogin();
+      authSubtitle.textContent = "Still signing you in… you can also log in manually";
+      return;
+    }
+    if(restored){
       await hideSplash(lang);
       return;
     }
     setSplashStatus("Almost ready…");
-    const snap = await withTimeout(getDoc(shopDocRef), 8000, "FIRESTORE_TIMEOUT");
+    // shop/info requires signed-in read — cannot probe existence before login.
     await hideSplash(lang);
-    if(snap.exists()) showLogin(); else showSetup();
+    showLogin();
   }catch{
     stopTracker();
     await hideSplash(lang);
-    showSetup();
+    showLogin();
     showAuthMessage("Connection failed. Check internet and try again.");
   }
 }
@@ -189,10 +209,10 @@ async function startAuth(){
 async function bootApp(){
   startSplash(lang);
   showAuthScreen();
-  // Never leave splash forever if license/Firebase hangs
+  // Never leave splash forever if license/Firebase hangs (must outlast restore soft-timeout).
   const splashWatchdog = setTimeout(()=>{
     hideSplash(lang).catch(()=>{});
-  }, 10000);
+  }, 15000);
   try{
     setSplashStatus("Starting…");
     // Start 15-day trial clock on first open (does not block login)
@@ -291,11 +311,16 @@ async function doLogin(){
   try{
     await loginWithEmail({ email, password: p });
     const snap = await getDoc(shopDocRef);
-    if(!snap.exists()) return showAuthMessage("Shop not set up.");
+    if(!snap.exists()){
+      await logoutUser();
+      return showAuthMessage("Shop not set up. Use Create Account (owner) first.");
+    }
     await enterAppFromShopDoc(snap.data());
   }catch(e){
     if((e.code || e.message) === "EMAIL_NOT_VERIFIED"){
       showVerifyScreen(email, `${email} is not verified yet. Check inbox, click the link, then Login.`);
+    } else if((e.code || e.message) === "SHOP_EXISTS"){
+      showAuthMessage(authErrorText("SHOP_EXISTS", lang));
     } else {
       showAuthMessage(authErrorText(e.code || e.message, lang));
     }
@@ -360,16 +385,8 @@ async function doLogout(){
 
 async function doTryOwnerSetup(){
   if(!requireFirebaseReady()) return;
-  try{
-    const snap = await getDoc(shopDocRef);
-    if(snap.exists()){
-      showAuthMessage("This Firebase shop already has an owner. Use Login or Forgot password.");
-      return;
-    }
-    showSetup();
-  }catch(e){
-    showAuthMessage(authErrorText(e.code || e.message, lang));
-  }
+  // Cannot read shop/info while signed out — existence is enforced in ownerSetupShop after Auth.
+  showSetup();
 }
 
 function startUi(){
@@ -408,5 +425,5 @@ if(document.readyState === "loading"){
 }
 
 if(!isDesktopApp && "serviceWorker" in navigator){
-  window.addEventListener("load", ()=> navigator.serviceWorker.register("./sw.js?v=49").catch(()=>{}));
+  window.addEventListener("load", ()=> navigator.serviceWorker.register("./sw.js?v=66").catch(()=>{}));
 }

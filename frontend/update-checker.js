@@ -99,10 +99,34 @@ function showBanner(release, asset, remoteVersion){
 
   const dlBtn = document.createElement("a");
   dlBtn.textContent = txt.download;
-  dlBtn.href = asset ? asset.browser_download_url : release.html_url;
+  const downloadUrl = asset ? asset.browser_download_url : release.html_url;
+  dlBtn.href = downloadUrl;
   dlBtn.target = "_blank";
   dlBtn.rel = "noopener noreferrer";
-  dlBtn.style.cssText = "background:#c8871e;color:#1c1a17;font-weight:700;padding:8px 14px;border-radius:8px;font-size:0.78rem;text-decoration:none;white-space:nowrap;";
+  dlBtn.style.cssText = "background:#c8871e;color:#1c1a17;font-weight:700;padding:8px 14px;border-radius:8px;font-size:0.78rem;text-decoration:none;white-space:nowrap;cursor:pointer;";
+
+  // Android WebView cannot download .apk via plain <a> — open system browser / Custom Tabs
+  const isAndroid = (() => {
+    try{
+      return !!(window.Capacitor?.isNativePlatform?.() &&
+        String(window.Capacitor.getPlatform?.() || "").toLowerCase() === "android");
+    }catch(_){ return false; }
+  })();
+  if(isAndroid){
+    dlBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      try{
+        const Browser = window.Capacitor?.Plugins?.Browser;
+        if(Browser?.open){
+          await Browser.open({ url: downloadUrl });
+          return;
+        }
+      }catch(err){
+        console.warn("Browser.open failed for update download", err);
+      }
+      window.open(downloadUrl, "_system");
+    });
+  }
 
   btnWrap.appendChild(laterBtn);
   btnWrap.appendChild(dlBtn);

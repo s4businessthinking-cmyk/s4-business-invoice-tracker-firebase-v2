@@ -1,17 +1,22 @@
 {
   "name": "s4-invoice-tracker-mobile",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "private": true,
   "description": "Capacitor Android shell for S4 Invoice Tracker PWA",
   "scripts": {
-    "sync": "npx cap sync android",
+    "sync": "powershell -ExecutionPolicy Bypass -File ./sync-www.ps1",
+    "sync:capacitor-only": "npx cap sync android",
     "open": "npx cap open android",
     "build:apk": "cd android && .\\gradlew.bat assembleRelease"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.0",
     "@capacitor/app": "^6.0.3",
-    "@capacitor/core": "^6.2.0"
+    "@capacitor/browser": "^6.0.6",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/filesystem": "^6.0.4",
+    "@capacitor/local-notifications": "^6.1.3",
+    "@capacitor/share": "^6.0.4"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.0"

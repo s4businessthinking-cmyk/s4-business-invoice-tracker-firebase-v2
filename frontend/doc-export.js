@@ -1,8 +1,11 @@
-// Printable document → browser "Save as PDF" + HTML download for WhatsApp attach
-// Uses a hidden iframe (not window.open) so popup blockers do not throw console errors.
+// Printable document helpers.
+// Desktop/PWA browser: iframe.print().
+// Android APK: print() is a no-op — deliver a printable HTML/PDF file via Share instead.
+
+import { deliverBlob, deliverText, isAndroidNative } from "./file-delivery.js";
 
 function buildDocHtml(title, bodyHtml){
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(title)}</title>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
 <style>
   body{font-family:Segoe UI,Arial,sans-serif;color:#172033;padding:28px;font-size:13px}
   h1{font-size:20px;margin:0 0 4px} .muted{color:#667085;font-size:12px;margin-bottom:18px}
@@ -31,36 +34,49 @@ function getPrintFrame(){
   return iframe;
 }
 
-export function printHtmlDocument(title, bodyHtml){
+/**
+ * Print when the platform supports it; on Android APK share a printable HTML file
+ * (WebView has no working print dialog).
+ * Returns Promise<boolean> — true if print dialog opened, false if file was shared/downloaded.
+ */
+export async function printHtmlDocument(title, bodyHtml){
   const html = buildDocHtml(title, bodyHtml);
+  const safeName = (title || "document").replace(/\s+/g, "_") + ".html";
+
+  if(isAndroidNative()){
+    try{
+      await deliverText(safeName, html, "text/html;charset=utf-8", title || "Print document");
+      return false;
+    }catch(err){
+      console.warn("Android print-share failed", err);
+      return false;
+    }
+  }
+
   try{
     const iframe = getPrintFrame();
     const doc = iframe.contentDocument || iframe.contentWindow?.document;
     if(!doc || !iframe.contentWindow){
-      downloadHtmlDocument((title || "document").replace(/\s+/g, "_") + ".html", title, bodyHtml);
+      await deliverText(safeName, html, "text/html;charset=utf-8", title || "Document");
       return false;
     }
     doc.open();
     doc.write(html);
     doc.close();
-    // Print in the same click gesture (no setTimeout) so browsers allow the dialog
     iframe.contentWindow.focus();
     iframe.contentWindow.print();
     return true;
   }catch(err){
-    console.warn("Print failed, downloading HTML instead", err);
-    downloadHtmlDocument((title || "document").replace(/\s+/g, "_") + ".html", title, bodyHtml);
+    console.warn("Print failed, delivering file instead", err);
+    await deliverText(safeName, html, "text/html;charset=utf-8", title || "Document");
     return false;
   }
 }
 
-export function downloadHtmlDocument(filename, title, bodyHtml){
+export async function downloadHtmlDocument(filename, title, bodyHtml){
   const html = buildDocHtml(title, bodyHtml);
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
-  a.download = filename.endsWith(".html") ? filename : filename + ".html";
-  a.click();
-  setTimeout(()=> URL.revokeObjectURL(a.href), 5000);
+  const name = filename.endsWith(".html") ? filename : filename + ".html";
+  await deliverText(name, html, "text/html;charset=utf-8", title || name);
 }
 
 function esc(s){
@@ -73,3 +89,5 @@ export function tableFromRows(headers, rows){
     || `<tr><td colspan="${headers.length}">No data</td></tr>`;
   return `<table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`;
 }
+
+export { deliverBlob, deliverText, isAndroidNative };

@@ -24,7 +24,7 @@ Ask the customer for the **device fingerprint** shown on the app’s license scr
 generate-license.bat --customerName "ABC Motors" --shopName "ABC Main" --plan YEARLY --deviceFingerprint "CUSTOMER_FP"
 ```
 
-Plans: `MONTHLY` (30d) · `YEARLY` (365d) · `LIFETIME`
+Plans: `MONTHLY` (30d) · `YEARLY` (365d) · `LIFETIME` · `CUSTOM` (requires `--days N`)
 
 ## Customer app flow
 
@@ -99,7 +99,7 @@ The customer generator:
 
 - creates a unique `licenseId` using `crypto.randomUUID()`
 - sets `issuedAt` and `notBefore` to the current time
-- supports `MONTHLY`, `YEARLY`, and `LIFETIME`
+- supports `MONTHLY`, `YEARLY`, `LIFETIME`, and `CUSTOM`
 - defaults `maxDevices` to `1`
 - optionally includes `deviceFingerprint`
 - writes the license key to `license-output.txt`
@@ -111,6 +111,7 @@ Plan expiry rules:
 MONTHLY   expires 30 days from now
 YEARLY    expires 365 days from now
 LIFETIME  expiresAt is null
+CUSTOM    expires --days N days from now (N required)
 ```
 
 Optional max device count:

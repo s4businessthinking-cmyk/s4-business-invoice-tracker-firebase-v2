@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>S4-BUSINESS-INVOICE TRACKER</title>
-<link rel="stylesheet" href="tracker.css?v=49">
+<link rel="stylesheet" href="tracker.css?v=66">
 <link rel="icon" href="icons/favicon.ico" sizes="any">
 <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
 <link rel="icon" href="icons/icon-512.png" type="image/png" sizes="512x512">
@@ -16,11 +16,11 @@
 <script>
 (function(){
   // One-time bust: old Service Worker was serving stale index.html (plain <select>)
-  var VER = "ui49-product-bulk-del";
+  var VER = "ui66-high-fixes";
   try{
     if(localStorage.getItem("s4_frontend_ui_ver") === VER) return;
     localStorage.setItem("s4_frontend_ui_ver", VER);
-    var done = function(){ location.replace(location.pathname + "?v=49&_=" + Date.now()); };
+    var done = function(){ location.replace(location.pathname + "?v=66&_=" + Date.now()); };
     var clearCaches = function(){
       if(!("caches" in window)) return Promise.resolve();
       return caches.keys().then(function(keys){
@@ -210,9 +210,9 @@
 <section class="page active" id="dashboard">
 <div class="page-head"><div><h1>Dashboard</h1><div class="muted">Credit sales and receivables</div></div><div class="actions"><button class="btn" type="button" data-open="receiptModal">+ Receipt</button><button class="btn primary" type="button" data-open="invoiceModal">+ New Invoice</button></div></div>
 <div class="cards" id="dashCards"></div>
-<div class="grid2">
+<div class="grid2 dash-split">
 <div class="panel"><div class="panel-head"><h2>Receivable Aging</h2><button class="btn small" type="button" data-page="aging">View Details</button></div><div class="panel-body aging" id="dashAging"></div></div>
-<div class="panel"><div class="panel-head"><h2>Critical Overdue</h2></div><div class="table-wrap"><table class="table"><tbody id="dashOverdue"></tbody></table></div></div>
+<div class="panel"><div class="panel-head"><h2>Critical Overdue</h2></div><div class="panel-body" id="dashOverdue"></div></div>
 </div>
 <div class="panel"><div class="panel-head"><h2>Recent Transactions</h2></div><div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Customer</th><th>Amount</th><th>Status</th></tr></thead><tbody id="dashRecent"></tbody></table></div></div>
 </section>
@@ -321,14 +321,14 @@
 </section>
 
 <section class="page" id="discounts">
-<div class="page-head"><div><h1>Discount Management</h1><div class="muted">Invoice and payment discounts</div></div><button class="btn primary" type="button" data-open="discModal">+ Discount</button></div>
-<div class="panel"><div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Reference</th><th>Method</th><th>Amount</th><th>Reason</th><th>Approved By</th></tr></thead><tbody id="discRows"></tbody></table></div></div>
+<div class="page-head"><div><h1>Discount Management</h1><div class="muted">Invoice discounts reduce invoice balance · Payment discounts are customer-ledger credit (advance/write-off)</div></div><button class="btn primary" type="button" data-open="discModal">+ Discount</button></div>
+<div class="panel"><div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Reference</th><th>Method</th><th>Amount</th><th>Reason</th><th>Approved By</th><th>Action</th></tr></thead><tbody id="discRows"></tbody></table></div></div>
 </section>
 
 <section class="page" id="statements">
 <div class="page-head"><div><h1>Customer Statements</h1><div class="muted">Print, PDF and share customer account statements</div></div><button class="btn primary" type="button" id="genStmtBtn">Generate Statement</button></div>
-<div class="panel"><div class="panel-body"><div class="form-grid"><div class="field span2"><label>CUSTOMER</label><select id="stmtCustomer"></select></div><div class="field"><label>AS OF</label><input id="stmtAsOf" type="date"></div></div></div></div>
-<div class="panel" id="stmtPrint"><div class="panel-head"><div><h2 id="stmtTitle">—</h2><div class="muted">Customer Statement</div></div><div class="actions"><button class="btn small" type="button" id="printStmtBtn">Print</button><button class="btn small" type="button" id="pdfStmtBtn">PDF</button><button class="btn small" type="button" id="waStmtBtn">WhatsApp</button></div></div>
+<div class="panel"><div class="panel-body"><div class="form-grid"><div class="field span2"><label>CUSTOMER</label><select id="stmtCustomer"></select></div><div class="field"><label>FROM DATE</label><input id="stmtFrom" type="date"></div><div class="field"><label>AS OF</label><input id="stmtAsOf" type="date"></div></div></div></div>
+<div class="panel" id="stmtPrint"><div class="panel-head"><div><h2 id="stmtTitle">—</h2><div class="muted" id="stmtClose">—</div></div><div class="actions"><button class="btn small" type="button" id="printStmtBtn">Print</button><button class="btn small" type="button" id="pdfStmtBtn">PDF</button><button class="btn small" type="button" id="waStmtBtn">WhatsApp</button></div></div>
 <div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Reference</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead><tbody id="stmtRows"></tbody></table></div></div>
 </section>
 
@@ -391,7 +391,7 @@
 </section>
 
 <section class="page" id="users">
-<div class="page-head"><div><h1>Users &amp; Roles</h1><div class="muted">Owner invite staff and set module permissions</div></div></div>
+<div class="page-head" id="usersPageHead"><div><h1>Users &amp; Roles</h1><div class="muted">Owner invite staff and set module permissions</div></div></div>
 <div class="panel" id="invitePanel"><div class="panel-body">
 <div class="form-grid">
 <div class="field"><label>STAFF EMAIL</label><input id="inviteEmail" type="email" placeholder="staff@email.com"></div>
@@ -406,11 +406,16 @@
 </div>
 <div id="teamList" style="margin-top:16px"></div>
 </div></div>
-<div class="panel" id="permPanel" style="display:none"><div class="panel-head"><h2>Permissions — <span id="permStaffName">Staff</span></h2>
-<button class="btn primary small" type="button" id="savePermBtn">Save Permissions</button></div>
-<div class="panel-body"><input type="hidden" id="permStaffUid">
+<div class="panel" id="permPanel" hidden>
+<div class="panel-head users-perm-head">
+<button type="button" class="btn small users-perm-back" id="permBackBtn">← Back</button>
+<div class="users-perm-title"><h2>Permissions</h2><div class="muted" id="permStaffName">Staff</div></div>
+<button class="btn primary small" type="button" id="savePermBtn">Save Permissions</button>
+</div>
+<div class="panel-body users-perm-body"><input type="hidden" id="permStaffUid">
 <div class="perm-grid" id="permGrid"></div>
-</div></div>
+</div>
+</div>
 </section>
 
 <section class="page" id="audit">
@@ -707,7 +712,7 @@
 <div class="drawer" id="invoiceModal"><div class="modal">
 <div class="modal-head"><div><h2>Credit Invoice</h2><div class="muted" id="invModalSub">Invoice builder</div></div><button class="close" type="button" data-close="invoiceModal">×</button></div>
 <div class="modal-body"><input type="hidden" id="invId">
-<div class="cards" style="grid-template-columns:repeat(4,1fr);margin:0 0 18px">
+<div class="cards inv-summary-cards">
 <div class="card"><div class="metric-label">CREDIT LIMIT</div><div class="metric" style="font-size:17px" id="invLim">—</div></div>
 <div class="card"><div class="metric-label">CURRENT DUE</div><div class="metric" style="font-size:17px" id="invDueNow">—</div></div>
 <div class="card"><div class="metric-label">CURRENT INVOICE</div><div class="metric" style="font-size:17px" id="invNowTot">—</div></div>
@@ -749,14 +754,14 @@
 <thead><tr><th style="width:22%">Item / Product</th><th style="width:12%">Code</th><th>Qty</th><th>Unit Price</th><th>Discount</th><th>VAT %</th><th>Total</th><th></th></tr></thead>
 <tbody class="inv-entry-row">
 <tr>
-<td><input id="invEntryName" placeholder="Type to search catalog…" autocomplete="off"></td>
-<td><input id="invEntryCode" placeholder="Code"></td>
-<td><input id="invEntryQty" type="number" value="1" min="0" step="1"></td>
-<td><input id="invEntryPrice" type="number" value="0" min="0" step="0.01"></td>
-<td><input id="invEntryDisc" type="number" value="0" min="0" step="0.01"></td>
-<td><input id="invEntryVat" type="number" value="5" min="0" step="0.01"></td>
-<td><b id="invEntryPreview">—</b></td>
-<td class="inv-entry-actions-cell">
+<td class="inv-name-cell" data-label="Item / Product"><input id="invEntryName" placeholder="Type to search catalog…" autocomplete="off"></td>
+<td data-label="Code"><input id="invEntryCode" placeholder="Code"></td>
+<td data-label="Qty"><input id="invEntryQty" type="number" value="1" min="0" step="1"></td>
+<td data-label="Unit Price"><input id="invEntryPrice" type="number" value="0" min="0" step="0.01"></td>
+<td data-label="Discount"><input id="invEntryDisc" type="number" value="0" min="0" step="0.01"></td>
+<td data-label="VAT %"><input id="invEntryVat" type="number" value="5" min="0" step="0.01"></td>
+<td data-label="Line total"><b id="invEntryPreview">—</b></td>
+<td class="inv-entry-actions-cell" data-label="Actions">
 <div class="inv-entry-actions">
 <button class="btn primary small" type="button" id="addInvItemBtn">Add</button>
 <button class="btn small" type="button" id="saveEntryToCatalogBtn" title="Save typed item into Product or Service catalog">Save…</button>
@@ -813,18 +818,15 @@
 <div class="field"><label>PAYMENT METHOD</label><select id="rvMethod"><option>Cash</option><option>Cheque</option><option>PDC Cheque</option><option>Bank Transfer</option><option>Card</option><option>Online Payment</option></select></div>
 <div class="field"><label>AMOUNT (cash / cheque face)</label><input id="rvAmount" type="number" title="Cash received only — do not include discount"></div>
 <div class="field"><label>REFERENCE</label><input id="rvRef"></div>
-<div class="field"><label>CHEQUE NO.</label><input id="rvChq"></div>
-<div class="field"><label>BANK</label><input id="rvBank"></div>
-<div class="field"><label>CHEQUE DATE</label><input id="rvChqDate" type="date"></div>
-<div class="field"><label>PDC DATE</label><input id="rvPdcDate" type="date"></div>
-<div class="field"><label>STATUS</label><select id="rvStatus"><option>Posted</option><option>Pending</option><option>Deposited</option><option>Cleared</option><option>Bounced</option><option>Cancelled</option></select></div>
+<div class="field cheque-only"><label>CHEQUE NO.</label><input id="rvChq"></div>
+<div class="field cheque-only"><label>BANK</label><input id="rvBank"></div>
+<div class="field cheque-only"><label>CHEQUE DATE</label><input id="rvChqDate" type="date"></div>
+<div class="field pdc-only"><label>PDC DATE</label><input id="rvPdcDate" type="date"></div>
+<div class="field"><label>STATUS</label><select id="rvStatus"><option value="Posted">Posted</option><option value="Pending">Pending</option><option value="Deposited">Deposited</option><option value="Cleared">Cleared</option><option value="Bounced">Bounced</option><option value="Cancelled">Cancelled</option></select></div>
 <div class="field"><label>DISCOUNT (extra write-off)</label><input id="rvDisc" type="number" value="0" title="Separate from Amount — settles invoice via credit, not cash"></div>
 </div>
 <div class="panel" style="margin-top:18px"><div class="panel-head"><h2>Invoice Allocation</h2><b id="rvAllocHead">Select customer first</b></div>
-<p class="muted" id="rvAllocHint" style="padding:0 18px;margin:8px 0 0">Select customer → open invoices appear → type invoice no. to find → enter Allocate → Post Receipt</p>
-<div class="toolbar" style="padding:10px 18px 0">
-<input class="search" id="rvAllocFilter" placeholder="Type invoice no. to find (e.g. INV-2026-0042)…" autocomplete="off">
-</div>
+<p class="muted" id="rvAllocHint" style="padding:0 18px;margin:8px 0 0">Select customer → open invoices appear (oldest due first, amounts pre-filled) → adjust Allocate if needed → Post Receipt</p>
 <div class="table-wrap"><table class="table"><thead><tr><th>Invoice No</th><th>Date</th><th>Due</th><th>Outstanding</th><th>Allocate</th><th>Status</th></tr></thead><tbody id="rvAllocRows"><tr><td colspan="6" class="empty">Select a customer to load invoices</td></tr></tbody></table></div>
 </div>
 </div>
@@ -933,9 +935,9 @@
 <select id="discCustomer" class="cust-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
 </div>
-<div class="field"><label>TYPE</label><select id="discType"><option>Payment</option><option>Invoice</option></select></div>
-<div class="field"><label>REFERENCE</label><input id="discRef"></div>
-<div class="field"><label>METHOD</label><select id="discMethod"><option>Fixed</option><option>Percent</option></select></div>
+<div class="field"><label>TYPE</label><select id="discType"><option value="Invoice">Invoice (reduces invoice balance)</option><option value="Payment">Payment (ledger credit only)</option></select></div>
+<div class="field"><label>REFERENCE</label><input id="discRef" placeholder="Invoice no. required for Invoice type"></div>
+<div class="field"><label>METHOD</label><select id="discMethod"><option value="Fixed">Fixed amount</option></select></div>
 <div class="field"><label>AMOUNT</label><input id="discAmt" type="number"></div>
 <div class="field span3"><label>REASON</label><input id="discReason"></div>
 </div></div>
@@ -986,6 +988,6 @@
     </div>
   </div>
 </div>
-<script type="module" src="./boot-entry.js?v=49"></script>
+<script type="module" src="./boot-entry.js?v=66"></script>
 </body>
 </html>

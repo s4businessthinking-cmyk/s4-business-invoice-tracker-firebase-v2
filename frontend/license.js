@@ -199,6 +199,13 @@ function validatePayload(payload, { deviceFingerprint }){
     return { ok:false, reason:"DEVICE_FINGERPRINT_MISMATCH" };
   }
 
+  const maxDevices = Number(payload.maxDevices);
+  if(!Number.isInteger(maxDevices) || maxDevices < 1){
+    return { ok:false, reason:"INVALID_MAX_DEVICES" };
+  }
+  // Offline product: one fingerprint bind when set; maxDevices is contractual metadata
+  // (no online multi-device registry).
+
   return { ok:true, plan };
 }
 
@@ -254,10 +261,21 @@ export async function activateLicense(licenseKey){
     activatedAt: new Date().toISOString()
   };
   localStorage.setItem(LICENSE_STORAGE_KEY, JSON.stringify(record));
+  let desktopStored = null;
   try{
-    if(window.s4Desktop?.saveLicenseRecord) await window.s4Desktop.saveLicenseRecord(record);
-  }catch(_){}
-  return { ...verification, stored:true, record };
+    if(window.s4Desktop?.saveLicenseRecord){
+      desktopStored = await window.s4Desktop.saveLicenseRecord(record) === true;
+      if(!desktopStored){
+        // Both desktop paths failed to write — license survives only in localStorage,
+        // so clearing browser data would lose the activation.
+        console.warn("Desktop license record was not persisted to disk.");
+      }
+    }
+  }catch(err){
+    desktopStored = false;
+    console.warn("saveLicenseRecord failed:", err);
+  }
+  return { ...verification, stored:true, desktopStored, record };
 }
 
 export function loadStoredLicense(){
@@ -289,8 +307,15 @@ async function loadTrialRecord(fingerprint){
 async function saveTrialRecord(record){
   localStorage.setItem(TRIAL_STORAGE_KEY, JSON.stringify(record));
   try{
-    if(window.s4Desktop?.saveTrialRecord) await window.s4Desktop.saveTrialRecord(record);
-  }catch(_){}
+    if(window.s4Desktop?.saveTrialRecord){
+      const ok = await window.s4Desktop.saveTrialRecord(record);
+      // If neither desktop path is writable the trial clock can be reset by
+      // clearing localStorage, so make that visible in logs.
+      if(ok !== true) console.warn("Desktop trial record was not persisted to disk.");
+    }
+  }catch(err){
+    console.warn("saveTrialRecord failed:", err);
+  }
 }
 
 export async function ensureTrialStarted(fingerprint){
@@ -435,6 +460,7 @@ export function licenseErrorText(reason){
     LICENSE_NOT_YET_VALID: "License is not valid yet.",
     LICENSE_EXPIRED: "License expired. Contact S4 for renewal.",
     DEVICE_FINGERPRINT_MISMATCH: "This license is locked to another PC. Ask for a key with this PC’s fingerprint.",
+    INVALID_MAX_DEVICES: "License maxDevices must be a positive integer.",
     SIGNATURE_INVALID: "License signature invalid (wrong or tampered key).",
     LICENSE_VERIFY_FAILED: "Could not verify license.",
     TRIAL_EXPIRED: "15-day free trial ended. Activate a license in Settings.",

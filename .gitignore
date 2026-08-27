@@ -19,6 +19,10 @@ Thumbs.db
 *.keystore
 mobile/android/keystore.properties
 
+# Firebase service config (project-specific, never commit)
+google-services.json
+GoogleService-Info.plist
+
 # Temp / zip
 *.zip
 !releases/*.zip

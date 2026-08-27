@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("s4Desktop", {
   saveLocalBackup: (payload) => ipcRenderer.invoke("s4:save-local-backup", payload),
   askCloseBackup: () => ipcRenderer.invoke("s4:ask-close-backup"),
   allowClose: () => ipcRenderer.invoke("s4:allow-close"),
+  driveOAuthLoopback: (payload) => ipcRenderer.invoke("s4:drive-oauth-loopback", payload),
   onCloseBackupRequest: (cb) => {
     ipcRenderer.removeAllListeners("s4:request-close-backup");
     ipcRenderer.on("s4:request-close-backup", () => {

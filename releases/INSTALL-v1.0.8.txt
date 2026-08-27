@@ -1,0 +1,25 @@
+﻿S4-BUSINESS-INVOICE TRACKER v1.0.8 — Complete pack
+
+FILES
+- S4-Invoice-Tracker-Setup-1.0.8.exe  → Windows PC install
+- S4-Invoice-Tracker-1.0.8.apk        → Android install
+- S4-Invoice-Tracker-PWA-1.0.8.zip    → Web / iPhone PWA host files
+
+SAME ACCOUNT EVERYWHERE
+1) Same Firebase config on every device
+2) Same owner/staff email + password
+3) Data syncs via Firebase
+
+WINDOWS
+Run Setup exe → install → open app → Firebase config → login
+
+ANDROID
+Install APK (allow unknown sources) → same Firebase config → login
+
+iPHONE (PWA)
+1) Host the PWA zip contents (or open your Firebase Hosting URL) in Safari
+2) Share → Add to Home Screen
+3) Open from home screen like an app
+4) Same Firebase config + login
+
+After install: Firebase Console → Firestore → Rules → publish latest firestore.rules if not already.

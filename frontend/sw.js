@@ -1,8 +1,8 @@
-// CORE_ASSETS — keep every frontend/*.js module listed (except sw.js itself).
+﻿// CORE_ASSETS — keep every frontend/*.js module listed (except sw.js itself).
 // In v1.0.4, license.js and doc-export.js were missing here → blank screen on
 // second offline launch (fixed in v1.0.6). Run: node scripts/check-sw-cache.js
 // before cutting a release (see RELEASE.md).
-const CACHE='s4-invoice-v49-product-bulk-del';
+const CACHE='s4-invoice-v66-high-fixes';
 const CORE_ASSETS=[
   './',
   './index.html',
@@ -18,7 +18,11 @@ const CORE_ASSETS=[
   './drive-backup-config.js',
   './drive-backup.js',
   './local-backup.js',
+  './file-delivery.js',
   './doc-export.js',
+  './pdf-export.js',
+  './vendor/jspdf.umd.min.js',
+  './vendor/jspdf.plugin.autotable.min.js',
   './license.js',
   './install-prompt.js',
   './auth.js',
@@ -53,5 +57,10 @@ self.addEventListener('fetch', e=>{
   // Never cache Firebase/Google network calls — those must always hit
   // the network (or fail fast so Firestore's own offline cache kicks in).
   if(e.request.url.includes('googleapis.com') || e.request.url.includes('gstatic.com')) return;
-  e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));
+  e.respondWith(
+    fetch(e.request).catch(()=>
+      // ignoreSearch: ./app.js?v=66 must hit precached ./app.js (URL-exact match fails offline)
+      caches.match(e.request, { ignoreSearch: true })
+    )
+  );
 });

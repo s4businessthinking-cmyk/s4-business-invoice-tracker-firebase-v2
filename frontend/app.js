@@ -1,4 +1,4 @@
-import {
+﻿import {
   collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query,
   setDoc, getDoc, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -15,11 +15,29 @@ import {
 } from "./drive-backup.js";
 import { buildBackupSnapshot, saveLocalBackup, restoreLocalBackup } from "./local-backup.js";
 import { loadSavedFirebaseConfig, buildInviteCode } from "./firebase-config.js";
-import { printHtmlDocument, downloadHtmlDocument, tableFromRows } from "./doc-export.js?v=49";
+import { printHtmlDocument, downloadHtmlDocument, tableFromRows } from "./doc-export.js?v=66";
+import {
+  downloadInvoicePdf, downloadStatementPdf, downloadReceiptPdf, downloadReminderPdf, downloadTablePdf
+} from "./pdf-export.js?v=66";
+import { deliverText, openExternalUrl, deliveryToast, isAndroidNative } from "./file-delivery.js?v=66";
 import { buildReportBundle, renderReportHtml, invoicesToCsv, downloadTextFile } from "./reports.js";
 import {
   getAccessStatus, activateLicense, licenseErrorText, maskFingerprint
 } from "./license.js";
+import { setMemberDisplayName, getStaffName } from "./staff.js";
+
+const MODAL_PERM = {
+  customerModal: "customers",
+  vehicleModal: "vehicles",
+  productModal: "product-catalog",
+  serviceModal: "service-catalog",
+  invoiceModal: "invoices",
+  receiptModal: "receipts",
+  cnModal: "credit-notes",
+  dnModal: "debit-notes",
+  chequeModal: "cheques",
+  discModal: "discounts"
+};
 
 let db = null;
 let shop = {};
@@ -44,6 +62,12 @@ const INVOICE_WIP_KEY = "s4_invoice_wip_v1";
 const INVOICE_MODE_KEY = "s4_invoice_entry_mode_v1";
 let _invoiceWipTimer = null;
 let _editingExistingInvoice = false;
+// Guards a double-click on Post/Draft creating the same invoice twice, since a new
+// invoice has no invId until its addDoc resolves.
+let _invoiceSaving = false;
+let _receiptSaving = false;
+let _allocSaving = false;
+let _cnAllocSaving = false;
 let _invoiceLineItems = [];
 let _invoiceEntryModeMem = null;
 /** Temporary mode while editing one invoice (WIP) — must NOT overwrite shop preference */
@@ -54,9 +78,23 @@ function col(name){ return collection(db, name); }
 function today(){ return new Date().toISOString().slice(0,10); }
 function num(v){ return Number(v) || 0; }
 function esc(s){ return String(s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
-function cur(){ return shop.currency || "AED"; }
+function cur(){ return sanitizeCurrency(shop.currency); }
+function sanitizeCurrency(v){
+  const s = String(v || "AED").trim().replace(/[<>"'&\\/]/g, "").slice(0, 12);
+  return s || "AED";
+}
 function money(n){ return cur() + " " + num(n).toLocaleString("en-AE", { maximumFractionDigits: 2 }); }
-function who(){ return member?.displayName || "User"; }
+function who(){ return member?.displayName || getStaffName() || "User"; }
+function requireModule(pageId){
+  if(memberCan(member, pageId)) return true;
+  toast("You do not have permission for this action.");
+  return false;
+}
+function requireAnyModule(pageIds, msg){
+  if(pageIds.some(id=> memberCan(member, id))) return true;
+  toast(msg || "You do not have permission for this action.");
+  return false;
+}
 function toast(msg){
   const t = document.getElementById("toast");
   t.textContent = msg;
@@ -78,14 +116,16 @@ function friendlyFirestoreError(e){
 function isAppOnline(){
   try{ return navigator.onLine !== false; }catch(_){ return true; }
 }
-/** Fire Firestore write without blocking UI; toast now, report failures later. */
+/** Fire Firestore write without blocking UI; toast only after success (or offline queue note). */
 function commitWrite(writePromise, { okMsg = "Saved", offlineMsg = "Saved — will sync when online" } = {}){
-  toast(isAppOnline() ? okMsg : offlineMsg);
-  Promise.resolve(writePromise).catch(err=>{
+  const p = Promise.resolve(writePromise);
+  p.then(()=>{
+    toast(isAppOnline() ? okMsg : offlineMsg);
+  }).catch(err=>{
     console.error("Firestore write failed:", err);
     toast(friendlyFirestoreError(err));
   });
-  return writePromise;
+  return p;
 }
 let _ignoreDrawerCloseUntil = 0;
 
@@ -147,6 +187,11 @@ function openFormModal(id, opts = {}){
     display: "",
     prepareError: null
   };
+  const need = MODAL_PERM[id];
+  if(need && !memberCan(member, need)){
+    toast("You do not have permission for this action.");
+    return info;
+  }
   if(!openModal(id, opts)) return info;
   info.opened = true;
   try{ info.display = getComputedStyle(el).display; }catch(_){}
@@ -228,6 +273,12 @@ function handleAppBack(){
     return true;
   }
 
+  const usersPage = document.getElementById("users");
+  if(usersPage?.classList.contains("active") && usersPage.classList.contains("users-perm-open")){
+    closePermissions();
+    return true;
+  }
+
   const sidebar = document.getElementById("sidebar");
   if(sidebar?.classList.contains("open")){
     sidebar.classList.remove("open");
@@ -235,8 +286,9 @@ function handleAppBack(){
   }
 
   const active = document.querySelector(".page.active");
-  if(active && active.id !== "dashboard"){
-    showPage("dashboard");
+  const home = firstAllowedPage();
+  if(active && home && active.id !== home){
+    showPage(home);
     return true;
   }
   return false;
@@ -266,16 +318,36 @@ function wireAppBackControls(){
   });
 }
 
+function firstAllowedPage(){
+  const order = [
+    "dashboard","customers","vehicles","product-catalog","service-catalog","ledger","statements","aging",
+    "invoices","credit-notes","debit-notes","receipts","allocation","cheques","discounts","reports",
+    "communication","users","audit","settings"
+  ];
+  for(const id of order){
+    if(memberCan(member, id)) return id;
+  }
+  return null;
+}
+
 function showPage(id){
-  if(!memberCan(member, id) && id !== "dashboard"){
+  if(!id){
+    toast("No modules enabled for your account");
+    return;
+  }
+  if(!memberCan(member, id)){
     toast("No permission for this module");
     return;
   }
+  if(id !== "users") closePermissions();
   document.querySelectorAll(".page").forEach(p=> p.classList.toggle("active", p.id === id));
   document.querySelectorAll(".nav button[data-page]").forEach(n=> n.classList.toggle("active", n.dataset.page === id));
   document.getElementById("sidebar").classList.remove("open");
   const backBtn = document.getElementById("mobileBackBtn");
-  if(backBtn) backBtn.hidden = (id === "dashboard");
+  if(backBtn){
+    const home = firstAllowedPage();
+    backBtn.hidden = !home || id === home;
+  }
   if(id === "vehicles") renderVehicles();
   if(id === "product-catalog") renderProducts();
   if(id === "service-catalog") renderServices();
@@ -311,6 +383,16 @@ function nextNo(prefix, list, field){
     if(m) max = Math.max(max, Number(m[1]));
   });
   return `${prefix}${year}-${String(max+1).padStart(4,"0")}`;
+}
+
+/** If `value` is already used on another row, return the next auto serial instead. */
+function uniqueSerial(list, field, value, prefix, excludeId){
+  const v = String(value || "").trim();
+  const taken = list.some(row=>
+    row.id !== excludeId && String(row[field] || "").trim().toLowerCase() === v.toLowerCase()
+  );
+  if(v && !taken) return { value: v, bumped: false };
+  return { value: nextNo(prefix, list, field), bumped: true };
 }
 
 function invBalance(inv){ return Math.max(0, num(inv.total) - num(inv.paid) - num(inv.credited)); }
@@ -379,7 +461,7 @@ function invStatus(inv){
   const bal = invBalance(inv);
   if(bal <= 0.009) return "Paid";
   if(inv.dueDate && inv.dueDate < today() && bal > 0) return "Overdue";
-  if(num(inv.paid) > 0) return "Partial";
+  if(num(inv.paid) > 0 || num(inv.credited) > 0) return "Partial";
   return inv.status || "Posted";
 }
 
@@ -850,14 +932,14 @@ export function startTracker(opts){
   db = opts.db;
   shop = opts.shop || {};
   member = opts.member || getCurrentMember();
+  setMemberDisplayName(member?.displayName || "");
   document.getElementById("app").classList.add("visible");
   document.getElementById("userName").textContent = member?.displayName || "User";
   document.getElementById("userRole").textContent = member?.role === "owner" ? "Owner" : "Staff";
   document.getElementById("userAvatar").textContent = (member?.displayName || "U").slice(0,2).toUpperCase();
   syncTopShopName();
-  // Always (re)wire modal buttons even if bindUi already ran once
-  wireModalOpeners();
   bindUi();
+  // bindUi() only runs once per page load, so re-wire modal openers on every login.
   wireModalOpeners();
   applyNavPermissions();
   enforceAccessGate(opts.access);
@@ -872,10 +954,10 @@ export function startTracker(opts){
   renderBackupPage();
   refreshNotifications();
   initReportPeriodControls();
-  listen("customers", rows => { customers = rows; renderCustomers(); refreshSelects(); renderDashboard(); });
-  listen("vehicles", rows => { vehicles = rows; renderVehicles(); refreshSelects(); filterVehiclesForInvoice(); });
-  listen("productCatalog", rows => { products = rows; renderProducts(); });
-  listen("serviceCatalog", rows => { services = rows; renderServices(); });
+  listenIfAllowed("customers", rows => { customers = rows; renderCustomers(); refreshSelects(); renderDashboard(); });
+  listenIfAllowed("vehicles", rows => { vehicles = rows; renderVehicles(); refreshSelects(); filterVehiclesForInvoice(); });
+  listenIfAllowed("productCatalog", rows => { products = rows; renderProducts(); });
+  listenIfAllowed("serviceCatalog", rows => { services = rows; renderServices(); });
   // Live shop settings (invoice entry mode sync Owner → Staff)
   unsubs.push(onSnapshot(doc(db, "shop", "info"), snap=>{
     if(!snap.exists()) return;
@@ -889,22 +971,27 @@ export function startTracker(opts){
     }
     syncInvoiceModeSettingsUi();
   }, err=> toast(friendlyFirestoreError(err))));
-  listen("invoices", rows => { invoices = rows; renderInvoices(); renderCustomers(); renderDashboard(); renderAging(); fillLedger(); fillStatement(); fillAllocSelect(); fillCnAllocSelect(); refreshNotifications(); });
-  listen("receipts", rows => { receipts = rows; renderReceipts(); renderCustomers(); renderDashboard(); fillAllocSelect(); fillLedger(); fillStatement(); refreshNotifications(); });
-  listen("creditNotes", rows => { creditNotes = rows; renderNotes("cnRows", creditNotes, "cnNo"); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); fillCnAllocSelect(); });
-  listen("debitNotes", rows => { debitNotes = rows; renderNotes("dnRows", debitNotes, "dnNo"); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); });
-  listen("cheques", rows => { cheques = rows; renderCheques(); renderCustomers(); renderDashboard(); refreshNotifications(); });
-  listen("discounts", rows => { discounts = rows; renderDiscounts(); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); });
-  unsubs.push(subscribeRecentActivity(rows=>{
-    window._auditRows = rows;
-    document.getElementById("auditRows").innerHTML = rows.length
-      ? rows.map(r=>{
-          const f = formatActivityRow(r, "en");
-          return `<tr><td>${esc(f.when)}</td><td>${esc(f.who)}</td><td>${esc(r.module||"")}</td><td>${esc(r.action||"")}</td>
-            <td>${esc(r.record||r.invoiceId||"")}</td><td>${esc(r.oldValue||"")}</td><td>${esc(r.newValue||"")}</td><td>${esc(r.reason||f.what)}</td></tr>`;
-        }).join("")
-      : `<tr><td colspan="8" class="empty">No activity yet</td></tr>`;
-  }));
+  listenIfAllowed("invoices", rows => { invoices = rows; renderInvoices(); renderCustomers(); renderDashboard(); renderAging(); fillLedger(); fillStatement(); fillAllocSelect(); fillCnAllocSelect(); refreshNotifications(); });
+  listenIfAllowed("receipts", rows => { receipts = rows; renderReceipts(); renderCustomers(); renderDashboard(); fillAllocSelect(); fillLedger(); fillStatement(); refreshNotifications(); });
+  listenIfAllowed("creditNotes", rows => { creditNotes = rows; renderNotes("cnRows", creditNotes, "cnNo"); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); fillCnAllocSelect(); });
+  listenIfAllowed("debitNotes", rows => { debitNotes = rows; renderNotes("dnRows", debitNotes, "dnNo"); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); });
+  listenIfAllowed("cheques", rows => { cheques = rows; renderCheques(); renderCustomers(); renderDashboard(); refreshNotifications(); });
+  listenIfAllowed("discounts", rows => { discounts = rows; renderDiscounts(); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); });
+  if(memberCan(member, "audit")){
+    unsubs.push(subscribeRecentActivity(rows=>{
+      window._auditRows = rows;
+      document.getElementById("auditRows").innerHTML = rows.length
+        ? rows.map(r=>{
+            const f = formatActivityRow(r, "en");
+            return `<tr><td>${esc(f.when)}</td><td>${esc(f.who)}</td><td>${esc(r.module||"")}</td><td>${esc(r.action||"")}</td>
+              <td>${esc(r.record||r.invoiceId||"")}</td><td>${esc(r.oldValue||"")}</td><td>${esc(r.newValue||"")}</td><td>${esc(r.reason||f.what)}</td></tr>`;
+          }).join("")
+        : `<tr><td colspan="8" class="empty">No activity yet</td></tr>`;
+    }));
+  }else{
+    const auditRows = document.getElementById("auditRows");
+    if(auditRows) auditRows.innerHTML = `<tr><td colspan="8" class="empty">No permission for audit</td></tr>`;
+  }
   wireIdleDashboardReset();
   wireCloseBackupHooks();
   wireExpiryReminders();
@@ -913,6 +1000,12 @@ export function startTracker(opts){
   wireCatalogSuggest();
   // Debug helper: in Console run s4OpenForm('receiptModal')
   try{ window.s4OpenForm = openFormModal; }catch(_){}
+  const home = firstAllowedPage();
+  if(home) showPage(home);
+  else {
+    document.querySelectorAll(".page").forEach(p=> p.classList.remove("active"));
+    toast("No modules enabled for your account");
+  }
 }
 
 async function enforceAccessGate(accessHint){
@@ -979,6 +1072,37 @@ function listen(name, cb){
   unsubs.push(onSnapshot(q, snap=>{
     cb(snap.docs.map(d=>({ id:d.id, ...d.data() })));
   }, err=> toast(friendlyFirestoreError(err) + " [" + name + "]")));
+}
+
+// Firestore read rules gate every collection by module (firestore.rules 176-223).
+// Subscribing without a granting module fires permission-denied, which listen()
+// surfaces as a toast — restricted staff got one toast per collection on login.
+// Module lists below must stay in sync with the `allow read` conditions.
+const COLLECTION_READ_ACCESS = {
+  customers:      { mods: ["customers","invoices","ledger","statements","dashboard","communication"], rows: "customerRows", cols: 9 },
+  vehicles:       { mods: ["vehicles","invoices"], rows: "vehicleRows", cols: 7 },
+  productCatalog: { mods: ["product-catalog","invoices"], rows: "productRows", cols: 7 },
+  serviceCatalog: { mods: ["service-catalog","invoices"], rows: "serviceRows", cols: 6 },
+  invoices:       { mods: ["invoices","ledger","statements","aging","reports","dashboard"], rows: "invoiceRows", cols: 10 },
+  receipts:       { mods: ["receipts","ledger","statements","allocation","reports","dashboard"], rows: "receiptRows", cols: 10 },
+  creditNotes:    { mods: ["credit-notes","ledger","statements","allocation"], rows: "cnRows", cols: 9 },
+  debitNotes:     { mods: ["debit-notes","ledger","statements","aging","dashboard"], rows: "dnRows", cols: 8 },
+  cheques:        { mods: ["cheques","ledger","receipts"], rows: "chequeRows", cols: 8 },
+  discounts:      { mods: ["discounts","ledger","statements","receipts"], rows: "discRows", cols: 9 }
+};
+
+function listenIfAllowed(name, cb){
+  const access = COLLECTION_READ_ACCESS[name];
+  if(access && !access.mods.some(m=> memberCan(member, m))){
+    // stopTracker() only drops subscriptions, so clear the cached rows too —
+    // otherwise a re-login as restricted staff would keep the previous user's data.
+    try{ cb([]); }catch(err){ console.warn("clear on denied listen failed:", name, err); }
+    const el = document.getElementById(access.rows);
+    if(el) el.innerHTML = `<tr><td colspan="${access.cols}" class="empty">No permission for this module</td></tr>`;
+    return false;
+  }
+  listen(name, cb);
+  return true;
 }
 
 function bindUi(){
@@ -1123,22 +1247,26 @@ function bindUi(){
   document.getElementById("waType")?.addEventListener("change", fillWhatsapp);
   document.getElementById("printStmtBtn").onclick = ()=> exportStatementPdf(false);
   document.getElementById("pdfStmtBtn")?.addEventListener("click", ()=> exportStatementPdf(true));
-  document.getElementById("waStmtBtn")?.addEventListener("click", ()=>{
+  document.getElementById("waStmtBtn")?.addEventListener("click", async ()=>{
     const stmtCust = document.getElementById("stmtCustomer").value;
-    try{ exportStatementPdf(true); }catch(_){}
+    try{ await exportStatementPdf(true); }catch(_){}
     showPage("communication");
     const wt = document.getElementById("waType");
     if(wt) wt.value = "Statement";
     if(stmtCust) document.getElementById("waCustomer").value = stmtCust;
     fillWhatsapp();
-    toast("PDF downloaded — attach it in WhatsApp");
+    toast("PDF ready — attach it in WhatsApp");
   });
   document.getElementById("genStmtBtn")?.addEventListener("click", fillStatement);
+  document.getElementById("stmtFrom")?.addEventListener("change", fillStatement);
   document.getElementById("waSendBtn").onclick = sendWhatsapp;
   document.getElementById("waAttachPdfBtn")?.addEventListener("click", ()=> downloadWaPdf());
   document.getElementById("qaInvoicePdf")?.addEventListener("click", ()=> exportLatestInvoicePdf());
   document.getElementById("qaStatementPdf")?.addEventListener("click", ()=>{ showPage("statements"); exportStatementPdf(true); });
-  document.getElementById("qaReceiptPdf")?.addEventListener("click", ()=> exportLatestReceiptPdf());
+  document.getElementById("qaReceiptPdf")?.addEventListener("click", ()=>{
+    showPage("receipts");
+    toast("Tap PDF on the receipt you need");
+  });
   document.getElementById("waQuickRemind")?.addEventListener("click", ()=>{ showPage("communication"); fillWhatsapp(); });
   document.getElementById("saveSettingsBtn").onclick = saveSettings;
   document.querySelectorAll("[data-settings-view]").forEach(btn=>{
@@ -1172,6 +1300,7 @@ function bindUi(){
   });
   document.getElementById("inviteBtn").onclick = doInvite;
   document.getElementById("savePermBtn")?.addEventListener("click", savePermissions);
+  document.getElementById("permBackBtn")?.addEventListener("click", closePermissions);
   document.getElementById("exportAuditBtn")?.addEventListener("click", exportAudit);
   document.getElementById("exportLedgerCsvBtn")?.addEventListener("click", ()=> exportLedger("csv"));
   document.getElementById("exportLedgerPdfBtn")?.addEventListener("click", ()=> exportLedger("pdf"));
@@ -1181,10 +1310,11 @@ function bindUi(){
   document.getElementById("exportPeriodCsvBtn")?.addEventListener("click", exportPeriodCsv);
   document.getElementById("exportReportCsvBtn")?.addEventListener("click", exportCurrentReportCsv);
   document.querySelectorAll("[data-report]").forEach(b=> b.onclick = ()=> showReport(b.dataset.report));
-  document.getElementById("printReportBtn")?.addEventListener("click", ()=>{
+  document.getElementById("printReportBtn")?.addEventListener("click", async ()=>{
     const html = document.getElementById("periodReportHtml");
     if(html && html.style.display !== "none" && html.innerHTML){
-      printHtmlDocument(document.getElementById("reportTitle").textContent, html.innerHTML);
+      const printed = await printHtmlDocument(document.getElementById("reportTitle").textContent, html.innerHTML);
+      if(!printed) toast("File ready — open it to print or share");
     }else window.print();
   });
   document.getElementById("allocReceipt").onchange = fillAllocRows;
@@ -1197,12 +1327,8 @@ function bindUi(){
   });
   document.getElementById("rvCustomer")?.addEventListener("change", fillRvAlloc);
   document.getElementById("rvAmount")?.addEventListener("input", fillRvAlloc);
-  document.getElementById("rvAllocFilter")?.addEventListener("input", applyRvAllocFilter);
   document.getElementById("rvMethod")?.addEventListener("change", ()=>{
-    const rvMethod = document.getElementById("rvMethod");
-    const rvStatus = document.getElementById("rvStatus");
-    const m = rvMethod?.value || "";
-    if(rvStatus) rvStatus.value = m.includes("Cheque") ? "Pending" : "Posted";
+    syncRvMethodUi({ setDefaultStatus: true });
   });
   document.getElementById("cnCustomer")?.addEventListener("change", ()=>{
     const cnCustomer = document.getElementById("cnCustomer");
@@ -1245,10 +1371,29 @@ function bindUi(){
   });
   document.getElementById("notifBtn")?.addEventListener("click", e=>{
     e.stopPropagation();
+    e.preventDefault();
     const p = document.getElementById("notifPanel");
-    p.hidden = !p.hidden;
+    if(!p) return;
+    const opening = !!p.hidden;
+    if(opening){
+      // Anchor under the bell (works with position:fixed; avoids clip under .main overflow)
+      try{
+        const r = e.currentTarget.getBoundingClientRect();
+        p.style.top = Math.round(r.bottom + 8) + "px";
+        p.style.right = Math.max(8, Math.round(window.innerWidth - r.right)) + "px";
+        p.style.left = "";
+        if(window.matchMedia("(max-width:760px)").matches){
+          p.style.left = "10px";
+          p.style.right = "10px";
+        }
+      }catch(_){}
+      // Mobile WebView often fires a follow-up document click that would instantly close
+      window._s4NotifIgnoreCloseUntil = Date.now() + 450;
+    }
+    p.hidden = !opening;
   });
   document.addEventListener("click", ()=>{
+    if(Date.now() < (window._s4NotifIgnoreCloseUntil || 0)) return;
     const p = document.getElementById("notifPanel");
     if(p) p.hidden = true;
   });
@@ -1288,7 +1433,7 @@ function bindUi(){
     const file = e.target.files?.[0];
     e.target.value = "";
     if(!file) return;
-    if(!confirm("Restore from this local JSON? Existing records with same IDs will be merged.")) return;
+    if(!confirm("Restore merges into Firestore (same IDs overwritten). Records missing from this backup file are NOT deleted. Continue?")) return;
     try{
       await restoreLocalBackup(db, file);
       await logActivity({ action:"restore", staffName: who(), module:"Backup", summary: "Local file restore " + file.name });
@@ -1509,15 +1654,16 @@ function linkedDebitTotalForInvoice(invNo, customer){
 }
 
 function totalReceivableAmount(){
-  // Same book as Customer Outstanding / Ledger — avoids Dashboard vs Ledger gormil
+  // Same book as Customer Outstanding / Ledger — net all customers (advances reduce total)
   const names = new Set();
   customers.forEach(c=>{ if(c.name) names.add(c.name); });
   invoices.forEach(i=>{ if(i.customer) names.add(i.customer); });
   debitNotes.forEach(n=>{ if(n.customer) names.add(n.customer); });
   receipts.forEach(r=>{ if(r.customer) names.add(r.customer); });
   creditNotes.forEach(n=>{ if(n.customer) names.add(n.customer); });
+  discounts.forEach(d=>{ if(d.customer) names.add(d.customer); });
   let s = 0;
-  names.forEach(n=>{ s += Math.max(0, customerOutstanding(n)); });
+  names.forEach(n=>{ s += customerOutstanding(n); });
   return s;
 }
 
@@ -1534,22 +1680,24 @@ function renderDashboard(){
     ["TODAY RECEIVED", money(recToday.reduce((s,i)=> s+num(i.amount),0)), recToday.length + " receipts"],
     ["OVERDUE", money(overdueAmt), overdue.length + " invoices"],
     ["CUSTOMERS", customers.length, customers.filter(c=>c.status==="Active").length + " active"],
-    ["OPEN INVOICES", open.length, money(open.reduce((s,i)=> s + invBalance(i), 0))]
+    ["OPEN INVOICE BAL.", money(open.reduce((s,i)=> s + invBalance(i), 0)), open.length + " invoices · unpaid invoice totals only (excludes advances)"]
   ].map(([a,b,c])=> `<div class="card"><div class="metric-label">${a}</div><div class="metric">${b}</div><div class="metric-note">${c}</div></div>`).join("");
 
   const buckets = agingSums();
   const max = Math.max(1, ...Object.values(buckets));
   const labels = [["current","Current"],["d30","1–30"],["d60","31–60"],["d90","61–90"],["d90p","90+"]];
   document.getElementById("dashAging").innerHTML = labels.map(([k,l])=>
-    `<div class="age-row"><span>${l}</span><div class="bar"><i style="width:${Math.round(buckets[k]/max*100)}%"></i></div><b>${money(buckets[k])}</b></div>`
+    `<div class="age-row"><span class="age-label">${l}</span><div class="bar"><i style="width:${Math.round(buckets[k]/max*100)}%"></i></div><b class="age-amt">${money(buckets[k])}</b></div>`
   ).join("");
 
   const byCust = {};
   overdue.forEach(i=>{ byCust[i.customer] = (byCust[i.customer]||0) + invBalance(i); });
   const top = Object.entries(byCust).sort((a,b)=> b[1]-a[1]).slice(0,6);
   document.getElementById("dashOverdue").innerHTML = top.length
-    ? top.map(([n,a])=> `<tr><td>${esc(n)}</td><td class="red">${money(a)}</td></tr>`).join("")
-    : `<tr><td colspan="2" class="empty">No overdue</td></tr>`;
+    ? `<div class="dash-overdue-list">${top.map(([n,a])=>
+        `<div class="dash-overdue-row"><span class="dash-overdue-name">${esc(n)}</span><b class="red dash-overdue-amt">${money(a)}</b></div>`
+      ).join("")}</div>`
+    : `<div class="muted">No overdue</div>`;
 
   const recent = [
     ...invoices.map(i=>({ date:i.invDate, type:"Invoice", ref:i.invNo, customer:i.customer, amount:i.total, status:invStatus(i) })),
@@ -1639,15 +1787,61 @@ function editCustomer(id){
   cDays.value = c.creditDays||30; cStatus.value = c.status||"Active"; cAddr.value = c.addr||""; cNotes.value = c.notes||"";
   if(cSalesman) cSalesman.value = c.salesman||"";
   if(cTerms) cTerms.value = c.paymentTerms || "30 Days Credit";
-  openModal("customerModal");
+  openFormModal("customerModal");
+}
+
+// Long-term: store customerId on invoices/receipts/notes and match by ID (not name
+// string). Until then a rename must carry every linked record with it, so these are
+// the collections that hold a customer NAME, with the modules their write rules need.
+const CUSTOMER_NAME_REFS = [
+  { coll: "invoices",    mods: ["invoices"],                  rows: ()=> invoices },
+  { coll: "receipts",    mods: ["receipts","allocation"],     rows: ()=> receipts },
+  { coll: "creditNotes", mods: ["credit-notes","allocation"], rows: ()=> creditNotes },
+  { coll: "debitNotes",  mods: ["debit-notes"],               rows: ()=> debitNotes },
+  { coll: "cheques",     mods: ["cheques"],                   rows: ()=> cheques },
+  { coll: "discounts",   mods: ["discounts","receipts"],      rows: ()=> discounts },
+  { coll: "vehicles",    mods: ["vehicles"],                  rows: ()=> vehicles }
+];
+
+function collectCustomerNameRefs(oldName){
+  const refs = [];
+  const blocked = [];
+  CUSTOMER_NAME_REFS.forEach(({ coll, mods, rows })=>{
+    const hits = (rows() || []).filter(row=> row && row.id && row.customer === oldName);
+    if(!hits.length) return;
+    if(!mods.some(m=> memberCan(member, m))){
+      blocked.push(coll);
+      return;
+    }
+    hits.forEach(row=> refs.push({ coll, row }));
+  });
+  return { refs, blocked };
 }
 
 async function saveCustomer(){
+  if(!requireModule("customers")) return;
   const name = cName.value.trim();
   if(!name) return toast("Company name required");
-  // Long-term: store customerId on invoices/receipts/notes and match by ID (not name string).
   const dup = customers.find(x=> x.id !== cId.value && String(x.name||"").trim().toLowerCase() === name.toLowerCase());
   if(dup && !confirm(`A customer named '${dup.name}' already exists (Code: ${dup.code||"—"}, Status: ${dup.status||"—"}). Adding a duplicate can cause the wrong customer record's credit limit/block-status to apply on invoices. Continue anyway?`)) return;
+  const prevCustomer = cId.value ? customers.find(x=> x.id === cId.value) : null;
+  const oldName = String(prevCustomer?.name || "").trim();
+  const renaming = !!(cId.value && oldName && oldName !== name);
+  let renameRefs = [];
+  if(renaming){
+    const { refs, blocked } = collectCustomerNameRefs(oldName);
+    if(blocked.length){
+      return toast(`Cannot rename — you lack write permission for ${blocked.join(", ")}. Ask the owner to rename.`);
+    }
+    renameRefs = refs;
+    const ok = confirm(
+      `Rename customer "${oldName}" → "${name}"?\n\n` +
+      `Invoices, receipts, notes, cheques, discounts and vehicles are linked by NAME, ` +
+      `so ${renameRefs.length} linked record(s) will be updated too.\n\n` +
+      `OK = rename and update linked records\nCancel = do not save`
+    );
+    if(!ok) return;
+  }
   const data = {
     code: cCode.value.trim(), name, contact: cContact.value.trim(), mobile: cMobile.value.trim(),
     whatsapp: cWhatsapp.value.trim() || cMobile.value.trim(), email: cEmail.value.trim(),
@@ -1657,13 +1851,52 @@ async function saveCustomer(){
     updatedAt: Date.now(), updatedBy: who()
   };
   try{
-    let write;
-    if(cId.value) write = updateDoc(doc(db,"customers", cId.value), data);
-    else { data.createdAt = Date.now(); data.createdBy = who(); write = addDoc(col("customers"), data); }
-    closeModal("customerModal");
+    const write = (async ()=>{
+      if(!cId.value){
+        data.createdAt = Date.now();
+        data.createdBy = who();
+        await addDoc(col("customers"), data);
+        return;
+      }
+      const custRef = doc(db, "customers", cId.value);
+      if(!renaming){
+        await updateDoc(custRef, data);
+        return;
+      }
+      const patch = { customer: name, updatedAt: Date.now() };
+      // Under the 500-op batch limit the whole rename is one atomic write.
+      if(renameRefs.length <= 498){
+        const batch = writeBatch(db);
+        renameRefs.forEach(({ coll, row })=> batch.update(doc(db, coll, row.id), patch));
+        batch.update(custRef, data);
+        await batch.commit();
+      }else{
+        // Too many links for one batch: move the links first, rename the customer last,
+        // so a mid-way failure leaves the remaining links still matching the old name.
+        const CHUNK = 450;
+        for(let i = 0; i < renameRefs.length; i += CHUNK){
+          const batch = writeBatch(db);
+          renameRefs.slice(i, i + CHUNK).forEach(({ coll, row })=> batch.update(doc(db, coll, row.id), patch));
+          await batch.commit();
+          renameRefs.slice(i, i + CHUNK).forEach(({ row })=> { row.customer = name; });
+        }
+        await updateDoc(custRef, data);
+      }
+      renameRefs.forEach(({ row })=> { row.customer = name; });
+    })();
     commitWrite(
-      Promise.resolve(write).then(()=> logActivity({ action:"edit", staffName: who(), customer: name, summary: "Customer saved " + name })),
-      { okMsg: "Customer saved" }
+      write.then(()=>{
+        closeModal("customerModal");
+        return logActivity({
+          action: "edit", staffName: who(), customer: name,
+          summary: renaming
+            ? `Customer renamed ${oldName} → ${name} (${renameRefs.length} linked record(s))`
+            : "Customer saved " + name,
+          oldValue: renaming ? oldName : "",
+          newValue: renaming ? name : ""
+        });
+      }),
+      { okMsg: renaming ? `Customer renamed — ${renameRefs.length} linked record(s) updated` : "Customer saved" }
     );
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
@@ -1689,6 +1922,7 @@ function renderInvoices(){
 }
 
 async function deleteInvoice(id){
+  if(!requireModule("invoices")) return;
   const i = invoices.find(x=> x.id === id);
   if(!i) return toast("Invoice not found");
   if(num(i.paid) > 0){
@@ -1861,9 +2095,67 @@ const EXPIRY_WARN_DAYS = 10;
 const EXPIRY_NOTIF_HOUR = 11;
 const EXPIRY_NOTIF_KEY = "s4_expiry_notif_day_v1";
 
+/** OS / system tray notification — Web Notification fails inside Android WebView. */
+async function showSystemNotification(title, body){
+  try{
+    if(isAndroidNative()){
+      const LN = window.Capacitor?.Plugins?.LocalNotifications;
+      if(LN?.schedule){
+        try{
+          if(LN.createChannel){
+            await LN.createChannel({
+              id: "s4-alerts",
+              name: "S4 Alerts",
+              description: "Expiry and important alerts",
+              importance: 5,
+              visibility: 1
+            });
+          }
+        }catch(_){}
+        try{
+          const perm = await LN.requestPermissions?.();
+          if(perm && perm.display === "denied") return false;
+        }catch(_){}
+        const id = Math.floor(Date.now() % 100000) + 1;
+        await LN.schedule({
+          notifications: [{
+            id,
+            title: String(title || "S4 Invoice Tracker"),
+            body: String(body || ""),
+            channelId: "s4-alerts",
+            schedule: { at: new Date(Date.now() + 800) }
+          }]
+        });
+        return true;
+      }
+    }
+    if(window.Notification && Notification.permission === "granted"){
+      new Notification(String(title || "S4 Invoice Tracker"), { body: String(body || "") });
+      return true;
+    }
+    if(window.Notification && Notification.permission !== "denied"){
+      const p = await Notification.requestPermission();
+      if(p === "granted"){
+        new Notification(String(title || "S4 Invoice Tracker"), { body: String(body || "") });
+        return true;
+      }
+    }
+  }catch(err){
+    console.warn("System notification failed", err);
+  }
+  return false;
+}
+
 function wireExpiryReminders(){
   if(window._s4ExpiryWired) return;
   window._s4ExpiryWired = true;
+  // Ask Android notification permission once after login (WebView has no Web Notification API)
+  if(isAndroidNative()){
+    setTimeout(()=>{
+      const LN = window.Capacitor?.Plugins?.LocalNotifications;
+      LN?.requestPermissions?.().catch(()=>{});
+    }, 2500);
+  }
   const tick = ()=> maybeShowExpiryReminder().catch(()=>{});
   tick();
   setInterval(tick, 60 * 1000);
@@ -1876,13 +2168,28 @@ async function maybeShowExpiryReminder(){
   const access = await getAccessStatus();
   if(!access?.allowed) return;
   const days = Number(access.daysRemaining);
-  if(!Number.isFinite(days) || days < 0 || days > EXPIRY_WARN_DAYS) return;
+  if(!Number.isFinite(days) || days < 0 || days > EXPIRY_WARN_DAYS){
+    window._s4ExpiryBanner = null;
+    return;
+  }
   const now = new Date();
-  if(now.getHours() < EXPIRY_NOTIF_HOUR) return;
+  if(now.getHours() < EXPIRY_NOTIF_HOUR){
+    // Still keep in-app bell item once past midnight of warn window
+    const end = access.expiresAt || access.trialEndsAt || "";
+    window._s4ExpiryBanner = {
+      title: days === 0 ? "Software expires today" : `Software expires in ${days} day(s)`,
+      detail: end
+        ? `Expire date: ${String(end).slice(0, 10)} · Help & Support → Contact S4 Business Thinking`
+        : "Help & Support → Contact S4 Business Thinking",
+      days,
+      at: Date.now()
+    };
+    refreshNotifications();
+    return;
+  }
   const dayKey = now.toISOString().slice(0, 10);
-  try{
-    if(localStorage.getItem(EXPIRY_NOTIF_KEY) === dayKey) return;
-  }catch(_){}
+  let already = false;
+  try{ already = localStorage.getItem(EXPIRY_NOTIF_KEY) === dayKey; }catch(_){}
   const end = access.expiresAt || access.trialEndsAt || "";
   const title = days === 0
     ? "Software expires today"
@@ -1890,18 +2197,11 @@ async function maybeShowExpiryReminder(){
   const detail = end
     ? `Expire date: ${String(end).slice(0, 10)} · Help & Support → Contact S4 Business Thinking`
     : "Help & Support → Contact S4 Business Thinking";
-  toast(`${title} — ${detail}`);
-  try{
-    if(window.Notification && Notification.permission === "granted"){
-      new Notification("S4 Invoice Tracker", { body: `${title}. ${detail}` });
-    }else if(window.Notification && Notification.permission !== "denied"){
-      Notification.requestPermission().then(p=>{
-        if(p === "granted") new Notification("S4 Invoice Tracker", { body: `${title}. ${detail}` });
-      }).catch(()=>{});
-    }
-  }catch(_){}
   window._s4ExpiryBanner = { title, detail, days, at: Date.now() };
   refreshNotifications();
+  if(already) return;
+  toast(`${title} — ${detail}`);
+  await showSystemNotification(title, detail);
   try{ localStorage.setItem(EXPIRY_NOTIF_KEY, dayKey); }catch(_){}
 }
 
@@ -1991,16 +2291,20 @@ function renderInvItemList(){
   const tbody = document.getElementById("invItemRows");
   if(!tbody) return;
   if(!_invoiceLineItems.length){
-    tbody.innerHTML = `<tr><td colspan="8" class="empty">No items added yet — use Add above</td></tr>`;
+    tbody.innerHTML = `<tr class="inv-empty-row"><td colspan="8" class="empty" data-label="">No items added yet — use Add above</td></tr>`;
     return;
   }
   tbody.innerHTML = _invoiceLineItems.map((it, idx)=>{
     const x = normalizeInvLineItem(it);
     return `<tr class="inv-line-row" data-edit-inv-item="${idx}" title="Double-click to edit">
-      <td>${esc(x.name)}</td><td>${esc(x.code)}</td><td>${esc(x.qty)}</td>
-      <td>${money(x.price)}</td><td>${money(x.disc)}</td><td>${esc(x.vat)}%</td>
-      <td>${money(x.line)}</td>
-      <td><button class="btn small danger" type="button" data-rm-inv-item="${idx}">×</button></td>
+      <td class="inv-name-cell" data-label="Item / Product">${esc(x.name)}</td>
+      <td data-label="Code">${esc(x.code)}</td>
+      <td data-label="Qty">${esc(x.qty)}</td>
+      <td data-label="Unit Price">${money(x.price)}</td>
+      <td data-label="Discount">${money(x.disc)}</td>
+      <td data-label="VAT %">${esc(x.vat)}%</td>
+      <td data-label="Line total">${money(x.line)}</td>
+      <td class="inv-entry-actions-cell" data-label=""><button class="btn small danger" type="button" data-rm-inv-item="${idx}">Remove</button></td>
     </tr>`;
   }).join("");
   tbody.querySelectorAll("[data-edit-inv-item]").forEach(row=>{
@@ -2036,6 +2340,23 @@ function commitInvEntryLine(){
   calcInvoice();
   queueInvoiceWipSave();
   setInvAddBtnLabel("Add");
+}
+
+/** Silent flush so Post/Draft does not drop a line sitting in the entry fields. */
+function flushInvDraftLine(){
+  if(getInvoiceEntryMode() === "simple") return;
+  const draft = readInvEntryDraft();
+  if(!String(draft.name).trim()) return;
+  _invoiceLineItems.push({
+    name: String(draft.name).trim(),
+    code: String(draft.code).trim(),
+    qty: draft.qty,
+    price: draft.price,
+    disc: draft.disc,
+    vat: draft.vat
+  });
+  clearInvEntryFields();
+  renderInvItemList();
 }
 
 function setInvoiceLineItems(items){
@@ -2298,10 +2619,11 @@ function editVehicle(id){
   vVin.value = v.vin || "";
   vEngine.value = v.engine || "";
   if(vNotes) vNotes.value = v.notes || "";
-  openModal("vehicleModal");
+  openFormModal("vehicleModal");
 }
 
 async function saveVehicle(){
+  if(!requireModule("vehicles")) return;
   const plate = (vPlate.value || "").trim();
   if(!plate) return toast("Plate number required");
   const customer = (vCustomer.value || "").trim();
@@ -2322,21 +2644,24 @@ async function saveVehicle(){
     let write;
     if(vId.value) write = updateDoc(doc(db, "vehicles", vId.value), data);
     else { data.createdAt = Date.now(); data.createdBy = who(); write = addDoc(col("vehicles"), data); }
-    closeModal("vehicleModal");
-    if(invoiceOpen){
-      const invVehicle = document.getElementById("invVehicle");
-      if(invVehicle) invVehicle.value = plate;
-      filterVehiclesForInvoice();
-      queueInvoiceWipSave();
-    }
     commitWrite(
-      Promise.resolve(write).then(()=> logActivity({ action:"edit", staffName: who(), customer, summary: "Vehicle saved " + plate })),
+      Promise.resolve(write).then(()=>{
+        closeModal("vehicleModal");
+        if(invoiceOpen){
+          const invVehicle = document.getElementById("invVehicle");
+          if(invVehicle) invVehicle.value = plate;
+          filterVehiclesForInvoice();
+          queueInvoiceWipSave();
+        }
+        return logActivity({ action:"edit", staffName: who(), customer, summary: "Vehicle saved " + plate });
+      }),
       { okMsg: "Vehicle saved" }
     );
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
 async function deleteVehicle(id){
+  if(!requireModule("vehicles")) return;
   const v = vehicles.find(x=> x.id === id);
   if(!v) return;
   if(!confirm(`Delete vehicle ${v.plate || id}?`)) return;
@@ -2388,10 +2713,11 @@ function editProduct(id){
   pVat.value = p.vat ?? shopDefaultVat();
   pCategory.value = p.category || "";
   if(pNotes) pNotes.value = p.notes || "";
-  openModal("productModal");
+  openFormModal("productModal");
 }
 
 async function saveProduct(){
+  if(!requireModule("product-catalog")) return;
   const name = (pName.value || "").trim();
   if(!name) return toast("Product name required");
   const code = (pCode.value || "").trim();
@@ -2408,15 +2734,18 @@ async function saveProduct(){
     let write;
     if(pId.value) write = updateDoc(doc(db, "productCatalog", pId.value), data);
     else { data.createdAt = Date.now(); data.createdBy = who(); write = addDoc(col("productCatalog"), data); }
-    closeModal("productModal");
     commitWrite(
-      Promise.resolve(write).then(()=> logActivity({ action:"edit", staffName: who(), summary: "Product saved " + name })),
+      Promise.resolve(write).then(()=>{
+        closeModal("productModal");
+        return logActivity({ action:"edit", staffName: who(), summary: "Product saved " + name });
+      }),
       { okMsg: "Product saved" }
     );
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
 async function deleteProduct(id){
+  if(!requireModule("product-catalog")) return;
   const p = products.find(x=> x.id === id);
   if(!p) return;
   if(!confirm(`Delete product ${p.name || id}?`)) return;
@@ -2464,10 +2793,11 @@ function editService(id){
   sVat.value = s.vat ?? shopDefaultVat();
   sCategory.value = s.category || "";
   if(sNotes) sNotes.value = s.notes || "";
-  openModal("serviceModal");
+  openFormModal("serviceModal");
 }
 
 async function saveService(){
+  if(!requireModule("service-catalog")) return;
   const name = (sName.value || "").trim();
   if(!name) return toast("Service description required");
   if(!sId.value){
@@ -2483,15 +2813,18 @@ async function saveService(){
     let write;
     if(sId.value) write = updateDoc(doc(db, "serviceCatalog", sId.value), data);
     else { data.createdAt = Date.now(); data.createdBy = who(); write = addDoc(col("serviceCatalog"), data); }
-    closeModal("serviceModal");
     commitWrite(
-      Promise.resolve(write).then(()=> logActivity({ action:"edit", staffName: who(), summary: "Service saved " + name })),
+      Promise.resolve(write).then(()=>{
+        closeModal("serviceModal");
+        return logActivity({ action:"edit", staffName: who(), summary: "Service saved " + name });
+      }),
       { okMsg: "Service saved" }
     );
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
 async function deleteService(id){
+  if(!requireModule("service-catalog")) return;
   const s = services.find(x=> x.id === id);
   if(!s) return;
   if(!confirm(`Delete service ${s.name || id}?`)) return;
@@ -2515,6 +2848,7 @@ async function deleteCatalogDocs(collectionName, ids){
 }
 
 async function deleteSelectedServices(){
+  if(!requireModule("service-catalog")) return;
   const ids = [...document.querySelectorAll('#serviceRows input.catalog-check:checked')].map(el=> el.value);
   if(!ids.length) return toast("Select at least one service");
   if(!confirm(`Delete ${ids.length} selected service(s)?\nThis cannot be undone.`)) return;
@@ -2527,6 +2861,7 @@ async function deleteSelectedServices(){
 }
 
 async function deleteAllServices(){
+  if(!requireModule("service-catalog")) return;
   const n = services.length;
   if(!n) return toast("Service catalog is empty");
   if(!confirm(`Delete ALL ${n} services from catalog?\nThis cannot be undone.`)) return;
@@ -2540,6 +2875,7 @@ async function deleteAllServices(){
 }
 
 async function deleteSelectedProducts(){
+  if(!requireModule("product-catalog")) return;
   const ids = [...document.querySelectorAll('#productRows input.catalog-check:checked')].map(el=> el.value);
   if(!ids.length) return toast("Select at least one product");
   if(!confirm(`Delete ${ids.length} selected product(s)?\nThis cannot be undone.`)) return;
@@ -2552,6 +2888,7 @@ async function deleteSelectedProducts(){
 }
 
 async function deleteAllProducts(){
+  if(!requireModule("product-catalog")) return;
   const n = products.length;
   if(!n) return toast("Product catalog is empty");
   if(!confirm(`Delete ALL ${n} products from catalog?\nThis cannot be undone.`)) return;
@@ -2662,6 +2999,7 @@ async function saveEntryToCatalog(){
   const asService = ans.startsWith("s");
   if(!asProduct && !asService) return toast("Type P or S");
   if(asProduct){
+    if(!requireModule("product-catalog")) return;
     if(code){
       const dup = products.find(x=> String(x.code||"").trim().toLowerCase() === code.toLowerCase());
       if(dup && !confirm(`Part number '${dup.code}' already exists. Continue anyway?`)) return;
@@ -2671,6 +3009,7 @@ async function saveEntryToCatalog(){
       commitWrite(addDoc(col("productCatalog"), data), { okMsg: "Saved to Product Catalog" });
     }catch(e){ toast(friendlyFirestoreError(e)); }
   }else{
+    if(!requireModule("service-catalog")) return;
     const dup = services.find(x=> String(x.name||"").trim().toLowerCase() === name.toLowerCase());
     if(dup && !confirm(`Service '${dup.name}' already exists. Continue anyway?`)) return;
     const data = { name, price, vat, category: "", notes: "", createdAt: Date.now(), createdBy: who(), updatedAt: Date.now(), updatedBy: who() };
@@ -2720,6 +3059,9 @@ function csvHeaderMap(headerRow){
 }
 
 async function importCatalogCsv(kind, file){
+  if(kind === "product"){
+    if(!requireModule("product-catalog")) return;
+  }else if(!requireModule("service-catalog")) return;
   try{
     const text = await file.text();
     const rows = parseCsvText(text);
@@ -2855,10 +3197,13 @@ function editInvoice(id){
   updateInvoiceWipHint(false);
   const delBtn = document.getElementById("deleteInvoiceBtn");
   if(delBtn) delBtn.hidden = false;
-  openModal("invoiceModal");
+  openFormModal("invoiceModal");
 }
 
 async function saveInvoice(status){
+  if(!requireModule("invoices")) return;
+  if(_invoiceSaving) return toast("Save already in progress…");
+  flushInvDraftLine();
   const calc = calcInvoice();
   const customer = invCustomer.value;
   if(!customer) return toast("Select customer");
@@ -2869,9 +3214,25 @@ async function saveInvoice(status){
   const existing = invId.value ? invoices.find(x=>x.id===invId.value) : null;
   const existingPaid = num(existing?.paid);
   const oldTotal = existing && existing.status !== "Draft" ? num(existing.total) : 0;
+  if(!invId.value){
+    const hadNo = !!String(invNo.value || "").trim();
+    const serial = uniqueSerial(invoices, "invNo", invNo.value, shop.invPrefix || "INV-");
+    if(serial.bumped){
+      if(invNo) invNo.value = serial.value;
+      if(hadNo) toast("Invoice No. already used — posting as " + serial.value);
+    }
+  }
   // Preserve linked debit-note charges when re-saving line items
   const dnLinked = linkedDebitTotalForInvoice(invNo.value, customer);
   const grandWithDn = roundMoney(calc.grand + dnLinked);
+  const existingCredited = num(existing?.credited);
+  const floorPaidCred = roundMoney(existingPaid + existingCredited);
+  if(existing && status !== "Draft" && grandWithDn + 0.009 < floorPaidCred){
+    return toast(
+      `Cannot save — total ${money(grandWithDn)} is below paid+credited ${money(floorPaidCred)}. ` +
+      `Reverse receipts / credit notes first, or raise the invoice total.`
+    );
+  }
   const after = customerOutstanding(customer) - oldTotal + grandWithDn;
   if(status === "Posted" && c && num(c.creditLimit) > 0 && after > num(c.creditLimit)){
     if(!confirm("After this invoice, outstanding exceeds credit limit. Post anyway?")) return;
@@ -2896,24 +3257,30 @@ async function saveInvoice(status){
     deliveryNote: (invDn?.value||"").trim(), reference: (invRef?.value||"").trim(), paymentTerms: (invTerms?.value||"").trim(),
     items: calc.items, subtotal: calc.sub, discount: calc.disc, vat: calc.vat, total: grandWithDn,
     paid: existingPaid,
-    credited: num(existing?.credited),
+    credited: existingCredited,
     status, updatedAt: Date.now(), updatedBy: who()
   };
   try{
     let write;
+    _invoiceSaving = true;
     if(invId.value) write = updateDoc(doc(db,"invoices", invId.value), data);
     else {
       data.createdAt = Date.now(); data.createdBy = who(); data.paid = 0;
       write = addDoc(col("invoices"), data).then(ref=>{ invId.value = ref.id; return ref; });
     }
-    clearInvoiceWip();
-    _editingExistingInvoice = false;
-    closeModal("invoiceModal");
     commitWrite(
-      Promise.resolve(write).then(()=> logActivity({ action: status==="Draft"?"draft":"add", staffName: who(), module:"Invoice", record: data.invNo, customer, summary: (status==="Draft"?"Draft ":"Posted ") + data.invNo, newValue: money(data.total) })),
+      Promise.resolve(write).then(()=>{
+        clearInvoiceWip();
+        _editingExistingInvoice = false;
+        closeModal("invoiceModal");
+        return logActivity({ action: status==="Draft"?"draft":"add", staffName: who(), module:"Invoice", record: data.invNo, customer, summary: (status==="Draft"?"Draft ":"Posted ") + data.invNo, newValue: money(data.total) });
+      }),
       { okMsg: status === "Draft" ? "Draft saved" : "Invoice posted" }
-    );
-  }catch(e){ toast(friendlyFirestoreError(e)); }
+    ).catch(()=>{}).finally(()=>{ _invoiceSaving = false; });
+  }catch(e){
+    _invoiceSaving = false;
+    toast(friendlyFirestoreError(e));
+  }
 }
 
 function renderReceipts(){
@@ -2928,12 +3295,41 @@ function renderReceipts(){
     const un = Math.max(0, num(r.amount) - alloc);
     const st = r.status || "Posted";
     const canVoid = st !== "Voided" && st !== "Cancelled" && st !== "Bounced";
+    const actions = [
+      `<button class="btn small" type="button" data-receipt-pdf="${r.id}">PDF</button>`,
+      canVoid ? `<button class="btn small danger" type="button" data-void-rv="${r.id}">Void</button>` : ""
+    ].filter(Boolean).join(" ");
     return `<tr><td>${esc(r.rvNo)}</td><td>${esc(r.date)}</td><td>${esc(r.customer)}</td><td>${esc(r.method)}</td>
       <td>${esc(r.ref || r.chequeNo)}</td><td>${money(r.amount)}</td><td>${money(alloc)}</td>
       <td class="${un?"orange":""}">${money(un)}</td><td>${badge(st)}</td>
-      <td>${canVoid ? `<button class="btn small danger" type="button" data-void-rv="${r.id}">Void</button>` : "—"}</td></tr>`;
+      <td>${actions || "—"}</td></tr>`;
   }).join("") : `<tr><td colspan="10" class="empty">No receipts</td></tr>`;
   document.querySelectorAll("[data-void-rv]").forEach(b=> b.onclick = ()=> voidReceipt(b.dataset.voidRv));
+  document.querySelectorAll("[data-receipt-pdf]").forEach(b=> b.onclick = ()=> exportReceiptPdfById(b.dataset.receiptPdf));
+}
+
+function syncRvMethodUi({ setDefaultStatus = false } = {}){
+  const rvMethod = document.getElementById("rvMethod");
+  const rvStatus = document.getElementById("rvStatus");
+  const m = rvMethod?.value || "Cash";
+  const isCheque = m.includes("Cheque");
+  const isPdc = m === "PDC Cheque";
+  document.querySelectorAll(".cheque-only").forEach(el=>{ el.style.display = isCheque ? "" : "none"; });
+  document.querySelectorAll(".pdc-only").forEach(el=>{ el.style.display = isPdc ? "" : "none"; });
+  if(rvStatus){
+    const cashOk = new Set(["Posted", "Cancelled"]);
+    const chequeOk = new Set(["Pending", "Deposited", "Cleared", "Bounced", "Cancelled"]);
+    [...rvStatus.options].forEach(opt=>{
+      const allow = isCheque ? chequeOk.has(opt.value) : cashOk.has(opt.value);
+      opt.hidden = !allow;
+      opt.disabled = !allow;
+    });
+    if(setDefaultStatus){
+      rvStatus.value = isCheque ? "Pending" : "Posted";
+    }else if(rvStatus.selectedOptions[0]?.hidden || rvStatus.selectedOptions[0]?.disabled){
+      rvStatus.value = isCheque ? "Pending" : "Posted";
+    }
+  }
 }
 
 function resetReceipt(){
@@ -2944,6 +3340,7 @@ function resetReceipt(){
   const rvChq = document.getElementById("rvChq");
   const rvBank = document.getElementById("rvBank");
   const rvCustomer = document.getElementById("rvCustomer");
+  const rvMethod = document.getElementById("rvMethod");
   if(rvNo) rvNo.value = nextNo(shop.rvPrefix || "RV-", receipts, "rvNo");
   if(rvDate) rvDate.value = today();
   if(rvAmount) rvAmount.value = "";
@@ -2957,10 +3354,10 @@ function resetReceipt(){
   if(rvPdcDate) rvPdcDate.value = "";
   if(rvChqDate) rvChqDate.value = "";
   if(rvDisc) rvDisc.value = 0;
+  if(rvMethod) rvMethod.value = "Cash";
   if(rvStatus) rvStatus.value = "Posted";
   if(rvCustomer) customerOptions(rvCustomer, "");
-  const filt = document.getElementById("rvAllocFilter");
-  if(filt) filt.value = "";
+  syncRvMethodUi({ setDefaultStatus: true });
   const allocRows = document.getElementById("rvAllocRows");
   const allocHead = document.getElementById("rvAllocHead");
   if(allocRows) allocRows.innerHTML = `<tr><td colspan="6" class="empty">Select a customer to load invoices</td></tr>`;
@@ -2986,7 +3383,6 @@ function fillRvAlloc(){
   rvAllocHead.textContent = open.length
     ? `${open.length} open invoice(s) · Receipt ${money(amt)}`
     : `No open invoices · Receipt ${money(amt)}`;
-  rvAllocHead.dataset.base = rvAllocHead.textContent;
   if(!open.length){
     rvAllocRows.innerHTML = `<tr><td colspan="6" class="empty">No open invoices for this customer — post invoice first, or leave unallocated</td></tr>`;
     return;
@@ -2999,47 +3395,20 @@ function fillRvAlloc(){
       suggest = Math.min(left, bal);
       left -= suggest;
     }
-    const blob = `${i.invNo||""} ${i.manualNo||""} ${i.computerNo||""}`.toLowerCase();
-    return `<tr data-inv-no="${esc(i.invNo)}" data-inv-search="${esc(blob)}">
-      <td><b>${esc(i.invNo)}</b></td>
+    return `<tr data-inv-no="${esc(i.invNo)}">
+      <td><b>${esc(i.invNo)}</b>${i.manualNo ? `<br><span class="inv-meta">Manual ${esc(i.manualNo)}</span>` : ""}${i.computerNo ? `<br><span class="inv-meta">Comp ${esc(i.computerNo)}</span>` : ""}</td>
       <td>${esc(i.invDate)}</td>
       <td>${esc(i.dueDate)}</td>
       <td>${money(bal)}</td>
-      <td><input type="number" min="0" step="0.01" data-inv="${i.id}" data-max="${bal}" value="${suggest || 0}"></td>
+      <td><input type="number" min="0" step="0.01" data-inv="${esc(i.id)}" data-max="${bal}" value="${suggest || 0}"></td>
       <td>${badge(invStatus(i))}</td>
     </tr>`;
   }).join("");
-  applyRvAllocFilter();
-}
-
-function applyRvAllocFilter(){
-  const filter = (document.getElementById("rvAllocFilter")?.value || "").toLowerCase().trim();
-  const rows = document.querySelectorAll("#rvAllocRows tr[data-inv-no]");
-  if(!rows.length) return;
-  let firstHit = null;
-  let shown = 0;
-  rows.forEach(tr=>{
-    const blob = (tr.dataset.invSearch || tr.dataset.invNo || "").toLowerCase();
-    const hit = !filter || blob.includes(filter);
-    tr.hidden = !hit;
-    tr.classList.toggle("rv-alloc-hit", !!(filter && hit));
-    if(hit){
-      shown++;
-      if(!firstHit) firstHit = tr;
-    }
-  });
-  const head = document.getElementById("rvAllocHead");
-  if(head){
-    const base = head.dataset.base || head.textContent.replace(/\s*·\s*showing.*$/i, "");
-    head.dataset.base = base;
-    head.textContent = filter ? `${base} · showing ${shown} match(es)` : base;
-  }
-  if(firstHit && filter){
-    try{ firstHit.scrollIntoView({ block: "nearest", behavior: "smooth" }); }catch(_){}
-  }
 }
 
 async function saveReceipt(){
+  if(!requireModule("receipts")) return;
+  if(_receiptSaving) return toast("Save already in progress…");
   const rvCustomer = document.getElementById("rvCustomer");
   const rvAmount = document.getElementById("rvAmount");
   const rvMethod = document.getElementById("rvMethod");
@@ -3056,9 +3425,14 @@ async function saveReceipt(){
   let amount = num(rvAmount.value);
   if(!customer) return toast("Select customer first");
   if(amount <= 0) return toast("Enter receipt amount");
-  const rvNoTrim = rvNo.value.trim();
-  const dupRv = receipts.find(r=> String(r.rvNo||"").trim().toLowerCase() === rvNoTrim.toLowerCase());
-  if(dupRv && !confirm(`This Receipt No. is already used (${dupRv.rvNo}, ${dupRv.customer}, ${money(dupRv.amount)}, ${dupRv.date||"—"}). Continue anyway?`)) return;
+  const rvHadNo = !!rvNo.value.trim();
+  let rvNoTrim = rvNo.value.trim();
+  const rvSerial = uniqueSerial(receipts, "rvNo", rvNoTrim, shop.rvPrefix || "RV-");
+  if(rvSerial.bumped){
+    rvNoTrim = rvSerial.value;
+    if(rvNo) rvNo.value = rvNoTrim;
+    if(rvHadNo) toast("Receipt No. already used — posting as " + rvNoTrim);
+  }
   let allocs = [...document.querySelectorAll("#rvAllocRows input[data-inv]")].map(inp=>({
     invoiceId: inp.dataset.inv, amount: Math.min(num(inp.value), num(inp.dataset.max))
   })).filter(a=> a.amount > 0);
@@ -3088,8 +3462,27 @@ async function saveReceipt(){
     }
   }
   if(allocated > amount + 0.01) return toast("Allocation exceeds receipt amount");
+  // Guard: taking more cash than customer currently owes → advance (must confirm)
+  const dueNow = roundMoney(customerOutstanding(customer));
+  const dueSafe = Math.max(0, dueNow);
+  if(amount > dueSafe + 0.01){
+    const extra = roundMoney(amount - dueSafe);
+    const okAdvance = confirm(
+      `Receipt amount is MORE than this customer's outstanding.\n\n` +
+      `Customer outstanding (due): ${money(dueSafe)}\n` +
+      `Receipt amount: ${money(amount)}\n` +
+      `Extra: ${money(extra)}\n\n` +
+      `Are you sure?\n` +
+      `• OK (Yes) = post anyway — extra will be CUSTOMER ADVANCE\n` +
+      `• Cancel (No) = do not save — fix the amount first`
+    );
+    if(!okAdvance) return;
+  }
   const method = rvMethod.value;
   const isCheque = method.includes("Cheque");
+  if(isCheque && (rvChq?.value || "").trim() && !memberCan(member, "cheques")){
+    return toast("Cheque module permission is required to post a cheque receipt.");
+  }
   const status = isCheque ? (rvStatus?.value || "Pending") : (rvStatus?.value || "Posted");
   // Cash/bank: apply only when Posted. Cheque/PDC: apply only when Cleared.
   // Never apply Cancelled / Bounced / Pending / Deposited to invoice.paid
@@ -3101,15 +3494,21 @@ async function saveReceipt(){
   const data = {
     rvNo: rvNoTrim, date: rvDate.value, customer, method,
     amount, allocated: applyNow ? allocated : 0, unallocated: applyNow ? amount - allocated : amount,
-    ref: rvRef.value.trim(), chequeNo: rvChq.value.trim(), bank: rvBank.value.trim(),
-    chequeDate: rvChqDate.value, pdcDate: rvPdcDate?.value || "", discount: discTotal,
+    ref: rvRef.value.trim(),
+    chequeNo: isCheque ? rvChq.value.trim() : "",
+    bank: isCheque ? rvBank.value.trim() : "",
+    chequeDate: isCheque ? rvChqDate.value : "",
+    pdcDate: method === "PDC Cheque" ? (rvPdcDate?.value || "") : "",
+    discount: discTotal,
     allocations: allocs, status, createdAt: Date.now(), createdBy: who(), applied: applyNow
   };
   try{
+    _receiptSaving = true;
     const write = (async ()=>{
-      const recRef = await addDoc(col("receipts"), data);
+      const recRef = doc(col("receipts"));
+      const batch = writeBatch(db);
+      batch.set(recRef, data);
       if(applyNow){
-        // Discount with no invoice allocation stays customer-ledger-only (discounts collection below).
         const discShares = (allocs.length && discTotal > 0)
           ? distributeProportionally(discTotal, allocs.map(a=> a.amount))
           : allocs.map(()=> 0);
@@ -3122,37 +3521,54 @@ async function saveReceipt(){
             creditedDelta: discShares[i] || 0,
             updatedBy: who()
           });
-          await updateDoc(doc(db,"invoices", a.invoiceId), patch);
+          batch.update(doc(db, "invoices", a.invoiceId), patch);
           Object.assign(inv, patch);
         }
       }
       if(isCheque && rvChq.value.trim()){
-        await addDoc(col("cheques"), {
+        let chqStatus = "Pending";
+        if(status === "Cleared") chqStatus = "Cleared";
+        else if(status === "Bounced") chqStatus = "Bounced";
+        else if(status === "Cancelled") chqStatus = "Cancelled";
+        else if(status === "Deposited") chqStatus = "Deposited";
+        batch.set(doc(col("cheques")), {
           chequeNo: rvChq.value.trim(), customer, bank: rvBank.value.trim(),
           chequeDate: rvChqDate.value || rvDate.value, pdcDate: rvPdcDate?.value || rvChqDate.value,
-          amount, status: status === "Cleared" ? "Cleared" : "Pending",
+          amount, status: chqStatus,
           receiptId: recRef.id, receiptNo: data.rvNo, createdAt: Date.now()
         });
       }
-      // Only post discount into books when money actually applied
       if(applyNow && discTotal > 0){
-        await addDoc(col("discounts"), {
+        batch.set(doc(col("discounts")), {
           date: rvDate.value, customer, type:"Payment", ref: data.rvNo, method:"Fixed",
           amount: discTotal, reason: "Receipt discount", approvedBy: who(), createdAt: Date.now()
         });
       }
+      await batch.commit();
       await logActivity({ action:"add", staffName: who(), module:"Receipt", record: data.rvNo, customer, summary: "Receipt " + data.rvNo, newValue: money(amount) });
+      return { id: recRef.id, ...data };
     })();
-    closeModal("receiptModal");
-    commitWrite(write, { okMsg: "Receipt posted" });
-  }catch(e){ toast(friendlyFirestoreError(e)); }
+    commitWrite(
+      write.then(saved => {
+        closeModal("receiptModal");
+        if(saved?.id && confirm(`Receipt ${saved.rvNo} posted.\n\nPrint / share this receipt now?`)){
+          exportReceiptPdf(saved).catch(err => toast(String(err?.message || err)));
+        }
+        return saved;
+      }),
+      { okMsg: "Receipt posted" }
+    ).catch(()=>{}).finally(()=>{ _receiptSaving = false; });
+  }catch(e){
+    _receiptSaving = false;
+    toast(friendlyFirestoreError(e));
+  }
 }
 
 function fillAllocSelect(){
   const allocReceipt = document.getElementById("allocReceipt");
   if(!allocReceipt) return;
   const list = receipts.filter(r=> num(r.unallocated) > 0.009 && receiptAffectsBalance(r));
-  allocReceipt.innerHTML = list.map(r=> `<option value="${r.id}">${esc(r.rvNo)} — ${money(r.unallocated)}</option>`).join("");
+  allocReceipt.innerHTML = list.map(r=> `<option value="${esc(r.id)}">${esc(r.rvNo)} — ${money(r.unallocated)}</option>`).join("");
   fillAllocRows();
 }
 
@@ -3171,12 +3587,14 @@ function fillAllocRows(){
     <td><input type="checkbox" checked></td>
     <td>${esc(i.invNo)}</td><td>${esc(i.invDate)}</td><td>${esc(i.dueDate)}</td>
     <td>${money(i.total)}</td><td>${money(invBalance(i))}</td>
-    <td><input type="number" data-inv="${i.id}" data-max="${invBalance(i)}" value="0"></td>
+    <td><input type="number" data-inv="${esc(i.id)}" data-max="${invBalance(i)}" value="0"></td>
     <td>${badge(invStatus(i))}</td>
   </tr>`).join("") || `<tr><td colspan="8" class="empty">No open invoices</td></tr>`;
 }
 
 async function saveAllocation(){
+  if(!requireModule("allocation")) return;
+  if(_allocSaving) return toast("Save already in progress…");
   const allocReceipt = document.getElementById("allocReceipt");
   const r = receipts.find(x=> x.id === allocReceipt?.value);
   if(!r) return toast("Select a receipt");
@@ -3187,21 +3605,29 @@ async function saveAllocation(){
   if(sum <= 0) return toast("Enter amounts");
   if(sum > num(r.unallocated) + 0.01) return toast("Exceeds unallocated");
   try{
+    _allocSaving = true;
+    const batch = writeBatch(db);
     for(const a of allocs){
       const inv = invoices.find(i=> i.id === a.invoiceId);
       if(!inv) continue;
       const patch = invoiceMoneyPatch(inv, { paidDelta: a.amount });
-      await updateDoc(doc(db,"invoices", a.invoiceId), patch);
+      batch.update(doc(db,"invoices", a.invoiceId), patch);
       Object.assign(inv, patch);
     }
-    await updateDoc(doc(db,"receipts", r.id), {
-      allocated: num(r.allocated)+sum,
-      unallocated: num(r.unallocated)-sum,
-      allocations: [...(r.allocations||[]), ...allocs]
+    const nextAllocated = num(r.allocated)+sum;
+    const nextUnallocated = num(r.unallocated)-sum;
+    const nextAllocs = [...(r.allocations||[]), ...allocs];
+    batch.update(doc(db,"receipts", r.id), {
+      allocated: nextAllocated,
+      unallocated: nextUnallocated,
+      allocations: nextAllocs
     });
+    await batch.commit();
+    Object.assign(r, { allocated: nextAllocated, unallocated: nextUnallocated, allocations: nextAllocs });
     await logActivity({ action:"edit", staffName: who(), module:"Allocation", record: r.rvNo, customer: r.customer, summary: "Allocated " + money(sum) });
     toast("Allocation saved");
   }catch(e){ toast(e.message); }
+  finally { _allocSaving = false; }
 }
 
 function fillCnAllocSelect(preferId){
@@ -3211,7 +3637,7 @@ function fillCnAllocSelect(preferId){
     .sort((a,b)=> String(b.date||"").localeCompare(String(a.date||"")));
   const keep = preferId || sel.value || "";
   sel.innerHTML = list.length
-    ? list.map(n=> `<option value="${n.id}">${esc(n.cnNo)} — ${money(cnOpenCredit(n))} open · ${esc(n.customer)}</option>`).join("")
+    ? list.map(n=> `<option value="${esc(n.id)}">${esc(n.cnNo)} — ${money(cnOpenCredit(n))} open · ${esc(n.customer)}</option>`).join("")
     : `<option value="">No open credit notes</option>`;
   if(keep && [...sel.options].some(o=> o.value === keep)) sel.value = keep;
   fillCnAllocRows();
@@ -3247,13 +3673,15 @@ function fillCnAllocRows(){
     return `<tr>
       <td><b>${esc(i.invNo)}</b></td><td>${esc(i.invDate)}</td><td>${esc(i.dueDate)}</td>
       <td>${money(bal)}</td>
-      <td><input type="number" min="0" step="0.01" data-cn-inv="${i.id}" data-max="${bal}" value="${suggest || 0}"></td>
+      <td><input type="number" min="0" step="0.01" data-cn-inv="${esc(i.id)}" data-max="${bal}" value="${suggest || 0}"></td>
       <td>${badge(invStatus(i))}</td>
     </tr>`;
   }).join("") : `<tr><td colspan="6" class="empty">No open invoices for this customer</td></tr>`;
 }
 
 async function saveCnAllocation(){
+  if(!requireModule("allocation")) return;
+  if(_cnAllocSaving) return toast("Save already in progress…");
   const sel = document.getElementById("allocCn");
   const n = creditNotes.find(x=> x.id === sel?.value);
   if(!n) return toast("Select a credit note");
@@ -3271,11 +3699,13 @@ async function saveCnAllocation(){
   if(sum <= 0) return toast("Enter credit amounts");
   if(sum > open + 0.01) return toast("Exceeds open credit on CN");
   try{
+    _cnAllocSaving = true;
+    const batch = writeBatch(db);
     for(const a of allocs){
       const inv = invoices.find(i=> i.id === a.invoiceId);
       if(!inv) continue;
       const patch = invoiceMoneyPatch(inv, { creditedDelta: a.amount, updatedBy: who() });
-      await updateDoc(doc(db, "invoices", a.invoiceId), patch);
+      batch.update(doc(db, "invoices", a.invoiceId), patch);
       Object.assign(inv, patch);
     }
     const prevAlloc = Array.isArray(n.allocations) ? n.allocations : [];
@@ -3294,8 +3724,9 @@ async function saveCnAllocation(){
       updatedAt: Date.now(),
       updatedBy: who()
     };
-    await updateDoc(doc(db, "creditNotes", n.id), patchCn);
+    batch.update(doc(db, "creditNotes", n.id), patchCn);
     Object.assign(n, patchCn);
+    await batch.commit();
     await logActivity({
       action: "edit", staffName: who(), module: "CN Allocation",
       record: n.cnNo, customer: n.customer, summary: "CN allocated " + money(sum)
@@ -3303,6 +3734,7 @@ async function saveCnAllocation(){
     toast("Credit note allocated to invoice(s)");
     fillCnAllocSelect(n.id);
   }catch(e){ toast(friendlyFirestoreError(e)); }
+  finally { _cnAllocSaving = false; }
 }
 
 function ledgerLines(name){
@@ -3336,24 +3768,48 @@ function fillLedger(){
     rows.push(`<tr><td>${esc(l.date)}</td><td>${esc(l.ref)}</td><td>${esc(l.desc)}</td><td>${l.debit?money(l.debit):"—"}</td><td>${l.credit?money(l.credit):"—"}</td><td>${money(bal)}</td></tr>`);
   });
   document.getElementById("ledgerTitle").textContent = name;
-  document.getElementById("ledgerClose").textContent = "Closing: " + money(customerOutstanding(name));
+  // Closing must match filtered running balance (last row). Lifetime outstanding only when no date filter.
+  document.getElementById("ledgerClose").textContent = (from || to)
+    ? ("Closing (period): " + money(bal))
+    : ("Closing: " + money(customerOutstanding(name)));
   body.innerHTML = rows.join("") || `<tr><td colspan="6" class="empty">No movements</td></tr>`;
 }
 
 function fillStatement(){
   const sel = document.getElementById("stmtCustomer");
   const asOf = document.getElementById("stmtAsOf")?.value || today();
+  const from = document.getElementById("stmtFrom")?.value || "";
   if(document.getElementById("stmtAsOf") && !document.getElementById("stmtAsOf").value) document.getElementById("stmtAsOf").value = today();
   const name = sel.value || customers[0]?.name || "";
   if(sel.value !== name && name) sel.value = name;
   document.getElementById("stmtTitle").textContent = name ? `${name} — as of ${asOf}` : "—";
+  const closeEl = document.getElementById("stmtClose");
   const body = document.getElementById("stmtRows");
-  if(!name){ body.innerHTML = ""; return; }
-  let bal = 0;
-  body.innerHTML = ledgerLines(name).filter(l=> l.date <= asOf).map(l=>{
+  if(!name){
+    if(closeEl) closeEl.textContent = "—";
+    body.innerHTML = "";
+    return;
+  }
+  const built = buildStatementRows(name, asOf, from);
+  if(closeEl) closeEl.textContent = "Closing Balance: " + money(built.closing);
+  body.innerHTML = built.htmlRows.join("") || `<tr><td colspan="6" class="empty">Empty</td></tr>`;
+}
+
+function buildStatementRows(name, asOf, from){
+  const all = ledgerLines(name).filter(l=> l.date <= asOf);
+  let bal = from ? all.filter(l=> l.date < from).reduce((s,l)=> s + l.debit - l.credit, 0) : 0;
+  const htmlRows = [];
+  const dataRows = [];
+  if(from && bal){
+    htmlRows.push(`<tr><td>${esc(from)}</td><td>OPENING</td><td>Opening Balance</td><td>${bal>0?money(bal):"—"}</td><td>${bal<0?money(-bal):"—"}</td><td>${money(bal)}</td></tr>`);
+    dataRows.push([from, "OPENING", "Opening Balance", bal > 0 ? bal : "", bal < 0 ? -bal : "", bal]);
+  }
+  all.filter(l=> !from || l.date >= from).forEach(l=>{
     bal += l.debit - l.credit;
-    return `<tr><td>${esc(l.date)}</td><td>${esc(l.ref)}</td><td>${esc(l.desc)}</td><td>${l.debit?money(l.debit):"—"}</td><td>${l.credit?money(l.credit):"—"}</td><td>${money(bal)}</td></tr>`;
-  }).join("") || `<tr><td colspan="6" class="empty">Empty</td></tr>`;
+    htmlRows.push(`<tr><td>${esc(l.date)}</td><td>${esc(l.ref)}</td><td>${esc(l.desc)}</td><td>${l.debit?money(l.debit):"—"}</td><td>${l.credit?money(l.credit):"—"}</td><td>${money(bal)}</td></tr>`);
+    dataRows.push([l.date, l.ref, l.desc, l.debit || "", l.credit || "", bal]);
+  });
+  return { closing: bal, htmlRows, dataRows };
 }
 
 function renderNotes(tbodyId, list, noField){
@@ -3452,6 +3908,7 @@ function resetDn(){
 }
 
 async function saveCn(){
+  if(!requireModule("credit-notes")) return;
   const cnCustomer = document.getElementById("cnCustomer");
   const cnAmount = document.getElementById("cnAmount");
   const cnNo = document.getElementById("cnNo");
@@ -3463,11 +3920,19 @@ async function saveCn(){
   const amount = num(cnAmount?.value);
   if(!customer) return toast("Select customer");
   if(amount <= 0) return toast("Enter amount");
-  const cnTrim = (cnNo?.value || "").trim();
+  const cnTrimOrig = (cnNo?.value || "").trim();
+  if(!cnTrimOrig) return toast("Credit Note No. required");
   const status = cnStatus?.value || "Posted";
   const invNo = (cnInvoice?.value || "").trim();
-  const dupCn = creditNotes.find(n=> String(n.cnNo||"").trim().toLowerCase() === cnTrim.toLowerCase());
-  if(dupCn && !confirm(`This Credit Note No. is already used (${dupCn.cnNo}, ${dupCn.customer}, ${money(dupCn.amount)}, ${dupCn.date||"—"}). Continue anyway?`)) return;
+  if(invNo && status !== "Draft" && !invoices.find(i=> i.invNo === invNo && i.customer === customer)){
+    if(!confirm(`Invoice ${invNo} was not found for ${customer}.\n\nPost as UNLINKED credit (sits on the customer ledger until allocated)?`)) return;
+  }
+  const cnSerial = uniqueSerial(creditNotes, "cnNo", cnTrimOrig, "CN-");
+  const cnTrim = cnSerial.value;
+  if(cnSerial.bumped){
+    if(cnNo) cnNo.value = cnTrim;
+    toast("Credit Note No. already used — posting as " + cnTrim);
+  }
   try{
     const write = (async ()=>{
       const inv = invNo ? invoices.find(i=> i.invNo === invNo && i.customer === customer) : null;
@@ -3475,7 +3940,9 @@ async function saveCn(){
       const allocations = linked
         ? [{ invoiceId: inv.id, invoiceNo: inv.invNo, amount }]
         : [];
-      await addDoc(col("creditNotes"), {
+      const batch = writeBatch(db);
+      const cnRef = doc(col("creditNotes"));
+      batch.set(cnRef, {
         cnNo: cnTrim, date: cnDate?.value || today(), customer, invoice: invNo,
         reason: (cnReason?.value || "").trim(), amount, status,
         allocations,
@@ -3485,17 +3952,18 @@ async function saveCn(){
       });
       if(linked){
         const patch = invoiceMoneyPatch(inv, { creditedDelta: amount });
-        await updateDoc(doc(db,"invoices", inv.id), patch);
+        batch.update(doc(db,"invoices", inv.id), patch);
         Object.assign(inv, patch);
       }
+      await batch.commit();
       await logActivity({ action:"add", staffName: who(), module:"Credit Note", record: cnTrim, customer, summary: "CN " + cnTrim, newValue: money(amount) });
     })();
-    closeModal("cnModal");
-    commitWrite(write, { okMsg: "Credit note posted" });
+    commitWrite(write.then(()=> closeModal("cnModal")), { okMsg: "Credit note posted" });
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
 async function saveDn(){
+  if(!requireModule("debit-notes")) return;
   const dnCustomer = document.getElementById("dnCustomer");
   const dnAmount = document.getElementById("dnAmount");
   const dnNo = document.getElementById("dnNo");
@@ -3508,14 +3976,24 @@ async function saveDn(){
   const amount = num(dnAmount?.value);
   if(!customer) return toast("Select customer");
   if(amount <= 0) return toast("Enter amount");
-  const dnTrim = (dnNo?.value || "").trim();
+  const dnTrimOrig = (dnNo?.value || "").trim();
+  if(!dnTrimOrig) return toast("Debit Note No. required");
   const invNo = (dnInvoice?.value || "").trim();
   const status = dnStatus?.value || "Posted";
-  const dupDn = debitNotes.find(n=> String(n.dnNo||"").trim().toLowerCase() === dnTrim.toLowerCase());
-  if(dupDn && !confirm(`This Debit Note No. is already used (${dupDn.dnNo}, ${dupDn.customer}, ${money(dupDn.amount)}, ${dupDn.date||"—"}). Continue anyway?`)) return;
+  if(invNo && noteIsLive({ status }) && !invoices.find(i=> i.invNo === invNo && i.customer === customer)){
+    if(!confirm(`Invoice ${invNo} was not found for ${customer}.\n\nPost the debit note WITHOUT raising any invoice total?`)) return;
+  }
+  const dnSerial = uniqueSerial(debitNotes, "dnNo", dnTrimOrig, "DN-");
+  const dnTrim = dnSerial.value;
+  if(dnSerial.bumped){
+    if(dnNo) dnNo.value = dnTrim;
+    toast("Debit Note No. already used — posting as " + dnTrim);
+  }
   try{
     const write = (async ()=>{
-      await addDoc(col("debitNotes"), {
+      const batch = writeBatch(db);
+      const dnDocRef = doc(col("debitNotes"));
+      batch.set(dnDocRef, {
         dnNo: dnTrim, date: dnDate?.value || today(), customer,
         invoice: invNo,
         ref: (dnRef?.value || "").trim(),
@@ -3528,18 +4006,19 @@ async function saveDn(){
         if(inv){
           const nextTotal = roundMoney(num(inv.total) + amount);
           const patch = { total: nextTotal, updatedAt: Date.now(), updatedBy: who() };
-          await updateDoc(doc(db, "invoices", inv.id), patch);
+          batch.update(doc(db, "invoices", inv.id), patch);
           Object.assign(inv, patch);
         }
       }
+      await batch.commit();
       await logActivity({ action:"add", staffName: who(), module:"Debit Note", record: dnTrim, customer, summary: "DN " + dnTrim, newValue: money(amount) });
     })();
-    closeModal("dnModal");
-    commitWrite(write, { okMsg: "Debit note posted" });
+    commitWrite(write.then(()=> closeModal("dnModal")), { okMsg: "Debit note posted" });
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
 async function voidCreditNote(id){
+  if(!requireModule("credit-notes")) return;
   const n = creditNotes.find(x=> x.id === id);
   if(!n) return toast("Credit note not found");
   if(!noteIsLive(n)) return toast("Already voided / not active");
@@ -3552,6 +4031,7 @@ async function voidCreditNote(id){
         const inv = invoices.find(i=> i.invNo === n.invoice && i.customer === n.customer);
         targets = [{ invoiceId: inv?.id, invoiceNo: n.invoice, amount: num(n.amount) }];
       }
+      const batch = writeBatch(db);
       for(const a of targets){
         const inv = invoices.find(i=>
           (a.invoiceId && i.id === a.invoiceId) ||
@@ -3559,7 +4039,7 @@ async function voidCreditNote(id){
         );
         if(!inv) continue;
         const patch = invoiceMoneyPatch(inv, { creditedDelta: -num(a.amount), updatedBy: who() });
-        await updateDoc(doc(db, "invoices", inv.id), patch);
+        batch.update(doc(db, "invoices", inv.id), patch);
         Object.assign(inv, patch);
       }
       const patchCn = {
@@ -3572,8 +4052,9 @@ async function voidCreditNote(id){
         invoice: "",
         updatedAt: Date.now()
       };
-      await updateDoc(doc(db, "creditNotes", n.id), patchCn);
+      batch.update(doc(db, "creditNotes", n.id), patchCn);
       Object.assign(n, patchCn);
+      await batch.commit();
       await logActivity({
         action: "void", staffName: who(), module: "Credit Note",
         record: n.cnNo, customer: n.customer, summary: "Voided CN " + n.cnNo, oldValue: money(n.amount)
@@ -3584,6 +4065,7 @@ async function voidCreditNote(id){
 }
 
 async function voidDebitNote(id){
+  if(!requireModule("debit-notes")) return;
   const n = debitNotes.find(x=> x.id === id);
   if(!n) return toast("Debit note not found");
   if(!noteIsLive(n)) return toast("Already voided / not active");
@@ -3599,15 +4081,17 @@ async function voidDebitNote(id){
   if(!confirm(`Void debit note ${n.dnNo} (${money(n.amount)})?\nCustomer: ${n.customer}`)) return;
   try{
     const write = (async ()=>{
+      const batch = writeBatch(db);
       if(inv){
         const nextTotal = roundMoney(Math.max(0, num(inv.total) - num(n.amount)));
         const patch = { total: nextTotal, updatedAt: Date.now(), updatedBy: who() };
-        await updateDoc(doc(db, "invoices", inv.id), patch);
+        batch.update(doc(db, "invoices", inv.id), patch);
         Object.assign(inv, patch);
       }
       const patchDn = { status: "Voided", voidedAt: Date.now(), voidedBy: who(), updatedAt: Date.now() };
-      await updateDoc(doc(db, "debitNotes", n.id), patchDn);
+      batch.update(doc(db, "debitNotes", n.id), patchDn);
       Object.assign(n, patchDn);
+      await batch.commit();
       await logActivity({
         action: "void", staffName: who(), module: "Debit Note",
         record: n.dnNo, customer: n.customer, summary: "Voided DN " + n.dnNo, oldValue: money(n.amount)
@@ -3618,6 +4102,7 @@ async function voidDebitNote(id){
 }
 
 async function voidReceipt(id){
+  if(!requireModule("receipts")) return;
   const r = receipts.find(x=> x.id === id);
   if(!r) return toast("Receipt not found");
   const st = r.status || "Posted";
@@ -3627,23 +4112,31 @@ async function voidReceipt(id){
     ? `Void receipt ${r.rvNo} (${money(r.amount)})?\nThis reverses invoice paid/discount and removes it from the ledger.`
     : `Cancel receipt ${r.rvNo} (${money(r.amount)})?\nNot yet applied to invoices (e.g. pending cheque).`;
   if(!confirm(msg)) return;
+  const linkedChq = cheques.find(c=>
+    (c.receiptId && c.receiptId === r.id) || (c.receiptNo && c.receiptNo === r.rvNo)
+  );
+  if(linkedChq && linkedChq.status !== "Cancelled" && linkedChq.status !== "Voided" && linkedChq.status !== "Bounced"){
+    if(!memberCan(member, "cheques")){
+      return toast("Cheque module permission is required to void this receipt (it has a linked cheque).");
+    }
+  }
   try{
     const write = (async ()=>{
+      const batch = writeBatch(db);
       if(mustReverse){
-        await reverseReceiptFromInvoices(r, "Cancelled");
+        await reverseReceiptFromInvoices(r, "Cancelled", batch);
       }else{
-        await updateDoc(doc(db, "receipts", r.id), {
+        batch.update(doc(db, "receipts", r.id), {
           status: "Cancelled", applied: false, updatedAt: Date.now()
         });
         Object.assign(r, { status: "Cancelled", applied: false });
       }
-      const chq = cheques.find(c=>
-        (c.receiptId && c.receiptId === r.id) || (c.receiptNo && c.receiptNo === r.rvNo)
-      );
+      const chq = linkedChq;
       if(chq && chq.status !== "Cancelled" && chq.status !== "Voided" && chq.status !== "Bounced"){
-        await updateDoc(doc(db, "cheques", chq.id), { status: "Cancelled", updatedAt: Date.now() });
+        batch.update(doc(db, "cheques", chq.id), { status: "Cancelled", updatedAt: Date.now() });
         Object.assign(chq, { status: "Cancelled" });
       }
+      await batch.commit();
       await logActivity({
         action: "void", staffName: who(), module: "Receipt",
         record: r.rvNo, customer: r.customer, summary: "Voided RV " + r.rvNo, oldValue: money(r.amount)
@@ -3704,7 +4197,7 @@ function editCheque(id){
   if(chqPdc) chqPdc.value = c.pdcDate||"";
   if(chqAmt) chqAmt.value = c.amount||0;
   if(chqStatus) chqStatus.value = c.status||"Pending";
-  openModal("chequeModal");
+  openFormModal("chequeModal");
 }
 
 async function recalculateInvoiceBalances(){
@@ -3776,7 +4269,10 @@ async function recalculateInvoiceBalances(){
   return { checked: targets.length, fixed, details };
 }
 
-async function applyReceiptToInvoices(r){
+// Money moves across invoices + receipt + discounts, so it must land atomically.
+// Pass an existing batch to join a larger transaction (cheque clear/bounce);
+// omit it and this commits its own batch.
+async function applyReceiptToInvoices(r, externalBatch = null){
   const st = r?.status || "";
   if(st === "Cancelled" || st === "Voided" || st === "Bounced"){
     throw new Error("Receipt " + (r.rvNo || "") + " was voided/cancelled — cannot apply again");
@@ -3784,6 +4280,7 @@ async function applyReceiptToInvoices(r){
   if(r.applied){
     throw new Error("Receipt " + (r.rvNo || "") + " already applied");
   }
+  const batch = externalBatch || writeBatch(db);
   const allocs = r.allocations || [];
   const discTotal = num(r.discount);
   const discShares = (allocs.length && discTotal > 0)
@@ -3797,7 +4294,7 @@ async function applyReceiptToInvoices(r){
       paidDelta: num(a.amount),
       creditedDelta: discShares[i] || 0
     });
-    await updateDoc(doc(db,"invoices", a.invoiceId), patch);
+    batch.update(doc(db,"invoices", a.invoiceId), patch);
     Object.assign(inv, patch);
   }
   // Ensure Payment discount exists on ledger when clearing a PDC that had discount at create
@@ -3808,7 +4305,8 @@ async function applyReceiptToInvoices(r){
       && String(d.ref || "") === String(r.rvNo || "")
     );
     if(!hasDisc){
-      const ref = await addDoc(col("discounts"), {
+      const ref = doc(col("discounts"));
+      batch.set(ref, {
         date: r.date || today(), customer: r.customer, type: "Payment", ref: r.rvNo || "",
         method: "Fixed", amount: discTotal, reason: "Receipt discount",
         approvedBy: who(), createdAt: Date.now()
@@ -3819,13 +4317,15 @@ async function applyReceiptToInvoices(r){
   const allocSum = allocs.reduce((s,a)=> s + num(a.amount), 0);
   // Keep original non-cheque status as Posted; cheque/PDC clear → Cleared
   const nextStatus = String(r.method || "").includes("Cheque") ? "Cleared" : (r.status === "Posted" ? "Posted" : "Cleared");
-  await updateDoc(doc(db,"receipts", r.id), {
+  batch.update(doc(db,"receipts", r.id), {
     applied: true, allocated: allocSum, unallocated: Math.max(0, num(r.amount) - allocSum), status: nextStatus
   });
   Object.assign(r, { applied: true, allocated: allocSum, unallocated: Math.max(0, num(r.amount) - allocSum), status: nextStatus });
+  if(!externalBatch) await batch.commit();
 }
 
-async function reverseReceiptFromInvoices(r, nextStatus = "Bounced"){
+async function reverseReceiptFromInvoices(r, nextStatus = "Bounced", externalBatch = null){
+  const batch = externalBatch || writeBatch(db);
   const allocs = r.allocations || [];
   const discTotal = num(r.discount);
   const discShares = (allocs.length && discTotal > 0)
@@ -3839,7 +4339,7 @@ async function reverseReceiptFromInvoices(r, nextStatus = "Bounced"){
       paidDelta: -num(a.amount),
       creditedDelta: -(discShares[i] || 0)
     });
-    await updateDoc(doc(db,"invoices", a.invoiceId), patch);
+    batch.update(doc(db,"invoices", a.invoiceId), patch);
     Object.assign(inv, patch);
   }
   // Remove Payment discounts tied to this RV so ledger does not keep orphan credit
@@ -3849,13 +4349,14 @@ async function reverseReceiptFromInvoices(r, nextStatus = "Bounced"){
     && String(d.ref || "") === String(r.rvNo || "")
   );
   for(const d of discRows){
-    await deleteDoc(doc(db, "discounts", d.id));
+    batch.delete(doc(db, "discounts", d.id));
     const idx = discounts.findIndex(x=> x.id === d.id);
     if(idx >= 0) discounts.splice(idx, 1);
   }
   const st = nextStatus || "Bounced";
-  await updateDoc(doc(db,"receipts", r.id), { applied: false, allocated: 0, unallocated: num(r.amount), status: st });
+  batch.update(doc(db,"receipts", r.id), { applied: false, allocated: 0, unallocated: num(r.amount), status: st });
   Object.assign(r, { applied: false, allocated: 0, unallocated: num(r.amount), status: st });
+  if(!externalBatch) await batch.commit();
 }
 
 function findChequeReceipt(chq){
@@ -3863,6 +4364,7 @@ function findChequeReceipt(chq){
 }
 
 async function saveCheque(){
+  if(!requireModule("cheques")) return;
   const chqId = document.getElementById("chqId");
   const chqNo = document.getElementById("chqNo");
   const chqCustomer = document.getElementById("chqCustomer");
@@ -3886,11 +4388,21 @@ async function saveCheque(){
     appliedToInvoice: !!(prev && prev.appliedToInvoice),
     updatedAt: Date.now()
   };
+  const wasCleared = (prev?.status || "") === "Cleared";
+  const nowCleared = data.status === "Cleared";
+  const linkedReceipt = findChequeReceipt(prev || data);
+  if(!wasCleared && nowCleared && linkedReceipt && !linkedReceipt.applied){
+    if(!requireAnyModule(["receipts","allocation"], "Receipt or allocation permission is required to clear this cheque onto invoices.")) return;
+  }
+  if(wasCleared && !nowCleared && linkedReceipt && linkedReceipt.applied){
+    if(!requireAnyModule(["receipts","allocation"], "Receipt or allocation permission is required to reverse this cheque from invoices.")) return;
+  }
   try{
     const write = (async ()=>{
-      const wasCleared = (prev?.status || "") === "Cleared";
-      const nowCleared = data.status === "Cleared";
-      const r = findChequeReceipt(prev || data);
+      const r = linkedReceipt;
+      // One batch for the whole transition — invoice paid and cheque status must
+      // never disagree if a write fails halfway.
+      const batch = writeBatch(db);
 
       // Entering Cleared
       if(!wasCleared && nowCleared){
@@ -3900,7 +4412,7 @@ async function saveCheque(){
             throw new Error("Linked receipt " + (r.rvNo || "") + " was voided — cannot clear this cheque. Create a new receipt.");
           }
           if(!r.applied){
-            await applyReceiptToInvoices(r);
+            await applyReceiptToInvoices(r, batch);
           }
         }else if(data.invoice){
           const inv = invoices.find(i=> i.invNo === data.invoice && i.customer === data.customer);
@@ -3908,7 +4420,7 @@ async function saveCheque(){
             const pay = Math.min(num(data.amount), invBalance(inv));
             if(pay > 0.009){
               const patch = invoiceMoneyPatch(inv, { paidDelta: pay, updatedBy: who() });
-              await updateDoc(doc(db, "invoices", inv.id), patch);
+              batch.update(doc(db, "invoices", inv.id), patch);
               Object.assign(inv, patch);
               data.appliedToInvoice = true;
               data.appliedAmount = pay;
@@ -3920,13 +4432,13 @@ async function saveCheque(){
       // Leaving Cleared (Bounced / Pending / Cancelled / Deposited)
       if(wasCleared && !nowCleared){
         if(r && r.applied){
-          await reverseReceiptFromInvoices(r, data.status || "Pending");
+          await reverseReceiptFromInvoices(r, data.status || "Pending", batch);
         }else if(prev?.appliedToInvoice && prev.invoice){
           const inv = invoices.find(i=> i.invNo === prev.invoice && i.customer === prev.customer);
           const pay = num(prev.appliedAmount || prev.amount);
           if(inv && pay > 0.009){
             const patch = invoiceMoneyPatch(inv, { paidDelta: -pay, updatedBy: who() });
-            await updateDoc(doc(db, "invoices", inv.id), patch);
+            batch.update(doc(db, "invoices", inv.id), patch);
             Object.assign(inv, patch);
           }
           data.appliedToInvoice = false;
@@ -3934,20 +4446,24 @@ async function saveCheque(){
         }
       }
 
-      if(chqId?.value) await updateDoc(doc(db,"cheques", chqId.value), data);
-      else await addDoc(col("cheques"), { ...data, createdAt: Date.now() });
+      if(chqId?.value) batch.update(doc(db,"cheques", chqId.value), data);
+      else batch.set(doc(col("cheques")), { ...data, createdAt: Date.now() });
+      await batch.commit();
       await logActivity({ action:"edit", staffName: who(), module:"Cheque", record: data.chequeNo, oldValue: prev?.status||"", newValue: data.status, summary: "Cheque " + data.chequeNo });
     })();
-    closeModal("chequeModal");
-    commitWrite(write, { okMsg: "Cheque saved" });
+    commitWrite(write.then(()=> closeModal("chequeModal")), { okMsg: "Cheque saved" });
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
 function renderDiscounts(){
-  document.getElementById("discRows").innerHTML = discounts.length ? discounts.map(d=> `<tr>
+  const el = document.getElementById("discRows");
+  if(!el) return;
+  el.innerHTML = discounts.length ? discounts.map(d=> `<tr>
     <td>${esc(d.date)}</td><td>${esc(d.customer)}</td><td>${esc(d.type)}</td><td>${esc(d.ref)}</td>
     <td>${esc(d.method)}</td><td>${money(d.amount)}</td><td>${esc(d.reason)}</td><td>${esc(d.approvedBy)}</td>
-  </tr>`).join("") : `<tr><td colspan="8" class="empty">No discounts</td></tr>`;
+    <td><button class="btn small danger" type="button" data-void-disc="${d.id}">Void</button></td>
+  </tr>`).join("") : `<tr><td colspan="9" class="empty">No discounts</td></tr>`;
+  el.querySelectorAll("[data-void-disc]").forEach(b=> b.onclick = ()=> voidDiscount(b.dataset.voidDisc));
 }
 
 function resetDisc(){
@@ -3962,12 +4478,77 @@ function resetDisc(){
   if(discAmt) discAmt.value = "";
   if(discRef) discRef.value = "";
   if(discReason) discReason.value = "";
-  if(discType) discType.value = "Payment";
+  if(discType) discType.value = "Invoice";
   if(discMethod) discMethod.value = "Fixed";
   if(discCustomer) customerOptions(discCustomer, "");
 }
 
+async function voidDiscount(id){
+  if(!requireModule("discounts")) return;
+  const d = discounts.find(x=> x.id === id);
+  if(!d) return toast("Discount not found");
+  const isInvoice = d.type === "Invoice" && String(d.ref || "").trim();
+  const isPayment = d.type === "Payment";
+  const linkedRv = isPayment
+    ? receipts.find(r=>
+        String(r.rvNo || "").trim() === String(d.ref || "").trim()
+        && r.customer === d.customer
+        && r.applied
+        && receiptAffectsBalance(r)
+      )
+    : null;
+  const msg = isInvoice
+    ? `Void discount ${money(d.amount)} on invoice ${d.ref}?\nThis reverses invoice credited and removes it from the ledger.`
+    : linkedRv
+      ? `Void payment discount ${money(d.amount)} on receipt ${d.ref}?\nThis reverses invoice credited from that receipt discount and removes the ledger credit.`
+      : `Void payment discount ${money(d.amount)} for ${d.customer}?\nThis removes the ledger credit only.`;
+  if(!confirm(msg)) return;
+  if(linkedRv && !requireAnyModule(["receipts","allocation"], "Receipt or allocation permission is required to reverse this payment discount on the receipt.")) return;
+  try{
+    const write = (async ()=>{
+      const batch = writeBatch(db);
+      if(isInvoice){
+        const inv = invoices.find(i=> i.invNo === String(d.ref).trim() && i.customer === d.customer);
+        if(inv){
+          const patch = invoiceMoneyPatch(inv, { creditedDelta: -num(d.amount), updatedBy: who() });
+          batch.update(doc(db, "invoices", inv.id), patch);
+          Object.assign(inv, patch);
+        }
+      }else if(linkedRv){
+        const allocs = linkedRv.allocations || [];
+        const discShares = (allocs.length && num(d.amount) > 0)
+          ? distributeProportionally(num(d.amount), allocs.map(a=> num(a.amount)))
+          : [];
+        for(let i = 0; i < allocs.length; i++){
+          const a = allocs[i];
+          const inv = invoices.find(x=> x.id === a.invoiceId);
+          if(!inv) continue;
+          const patch = invoiceMoneyPatch(inv, {
+            creditedDelta: -(discShares[i] || 0),
+            updatedBy: who()
+          });
+          batch.update(doc(db, "invoices", inv.id), patch);
+          Object.assign(inv, patch);
+        }
+        const nextDisc = Math.max(0, roundMoney(num(linkedRv.discount) - num(d.amount)));
+        batch.update(doc(db, "receipts", linkedRv.id), { discount: nextDisc, updatedAt: Date.now() });
+        Object.assign(linkedRv, { discount: nextDisc });
+      }
+      batch.delete(doc(db, "discounts", d.id));
+      await batch.commit();
+      const idx = discounts.findIndex(x=> x.id === d.id);
+      if(idx >= 0) discounts.splice(idx, 1);
+      await logActivity({
+        action: "void", staffName: who(), module: "Discount",
+        record: d.ref || d.id, customer: d.customer, summary: "Voided discount", oldValue: money(d.amount)
+      });
+    })();
+    commitWrite(write, { okMsg: "Discount voided" });
+  }catch(e){ toast(friendlyFirestoreError(e)); }
+}
+
 async function saveDisc(){
+  if(!requireModule("discounts")) return;
   const discCustomer = document.getElementById("discCustomer");
   const discAmt = document.getElementById("discAmt");
   const discDate = document.getElementById("discDate");
@@ -3978,24 +4559,45 @@ async function saveDisc(){
   if(!discCustomer?.value) return toast("Select customer");
   const amount = num(discAmt?.value);
   if(amount <= 0) return toast("Enter amount");
+  const type = discType?.value || "Invoice";
+  const ref = (discRef?.value || "").trim();
+  if(type === "Invoice"){
+    if(!ref) return toast("Invoice type requires Reference = invoice number");
+    const inv = invoices.find(i=> i.invNo === ref && i.customer === discCustomer.value);
+    if(!inv) return toast("Invoice not found for this customer — check Reference");
+    if(inv.status === "Draft") return toast("Cannot discount a draft invoice");
+  }else if(type === "Payment"){
+    const ok = confirm(
+      "Payment discount credits the CUSTOMER LEDGER only (like an advance/write-off).\n" +
+      "It will NOT reduce any invoice balance.\n\n" +
+      "For invoice write-off, choose Type = Invoice and set Reference to the invoice no.\n\nContinue?"
+    );
+    if(!ok) return;
+  }
   try{
     const write = (async ()=>{
-      await addDoc(col("discounts"), {
-        date: discDate?.value || today(), customer: discCustomer.value, type: discType?.value || "Payment", ref: (discRef?.value || "").trim(),
+      const batch = writeBatch(db);
+      batch.set(doc(col("discounts")), {
+        date: discDate?.value || today(), customer: discCustomer.value, type, ref,
         method: discMethod?.value || "Fixed", amount, reason: (discReason?.value || "").trim(),
         approvedBy: who(), createdAt: Date.now()
       });
-      if(discType?.value === "Invoice" && (discRef?.value || "").trim()){
-        const inv = invoices.find(i=> i.invNo === discRef.value.trim() && i.customer === discCustomer.value);
+      if(type === "Invoice" && ref){
+        const inv = invoices.find(i=> i.invNo === ref && i.customer === discCustomer.value);
         if(inv){
           const patch = invoiceMoneyPatch(inv, { creditedDelta: amount });
-          await updateDoc(doc(db,"invoices", inv.id), patch);
+          batch.update(doc(db,"invoices", inv.id), patch);
           Object.assign(inv, patch);
         }
       }
+      await batch.commit();
+      await logActivity({
+        action: "add", staffName: who(), module: "Discount",
+        record: ref || type, customer: discCustomer.value,
+        summary: `${type} discount`, newValue: money(amount)
+      });
     })();
-    closeModal("discModal");
-    commitWrite(write, { okMsg: "Discount saved" });
+    commitWrite(write.then(()=> closeModal("discModal")), { okMsg: "Discount saved" });
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
@@ -4014,11 +4616,15 @@ function fillWhatsapp(){
   document.getElementById("waSendBtn").dataset.mobile = (c?.whatsapp || c?.mobile || "").replace(/\D/g,"");
 }
 
-function sendWhatsapp(){
+async function sendWhatsapp(){
   const mobile = document.getElementById("waSendBtn").dataset.mobile;
   const text = encodeURIComponent(document.getElementById("waMsg").value);
   if(!mobile) return toast("Add WhatsApp/mobile on customer");
-  window.open(`https://wa.me/${mobile}?text=${text}`, "_blank");
+  try{
+    await openExternalUrl(`https://wa.me/${mobile}?text=${text}`);
+  }catch(err){
+    toast(String(err?.message || err));
+  }
 }
 
 function showSettingsView(view){
@@ -4092,7 +4698,7 @@ async function saveSettings(){
   const data = {
     name: setName.value.trim(), phone: setPhone.value.trim(), addr: setAddr.value.trim(),
     trn: (setTrn?.value||"").trim(),
-    currency: setCurrency.value.trim() || "AED", creditDays: num(setCreditDays.value),
+    currency: sanitizeCurrency(setCurrency.value), creditDays: num(setCreditDays.value),
     invPrefix: setInvPrefix.value.trim() || "INV-", rvPrefix: setRvPrefix.value.trim() || "RV-",
     vatRate: num(setVat.value)
   };
@@ -4110,21 +4716,32 @@ async function renderTeam(){
   const panel = document.getElementById("invitePanel");
   const permPanel = document.getElementById("permPanel");
   if(!isOwnerRole()){
-    panel.querySelector(".form-grid").style.display = "none";
-    if(permPanel) permPanel.style.display = "none";
+    const fg = panel?.querySelector(".form-grid");
+    if(fg) fg.style.display = "none";
+    closePermissions();
   }
   try{
     const { members, invites } = await listTeam();
-    let html = `<table class="table"><thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>`;
-    html += members.map(m=> `<tr><td>${esc(m.displayName)}</td><td>${esc(m.email)}</td><td>${esc(m.role)}</td><td>${badge(m.status)}</td><td>${
-      m.role==="staff"&&isOwnerRole()
-        ? `<button class="btn small" data-perm="${m.uid}" data-name="${esc(m.displayName||m.email)}">Permissions</button>
-           <button class="btn small danger" data-rm="${m.uid}">Remove</button>`
-        : ""
-    }</td></tr>`).join("");
-    html += `</tbody></table>`;
+    let html = `<div class="users-team-list">`;
+    html += members.map(m=>{
+      const actions = m.role==="staff"&&isOwnerRole()
+        ? `<div class="users-team-actions">
+            <button class="btn small" type="button" data-perm="${m.uid}" data-name="${esc(m.displayName||m.email)}">Permissions</button>
+            <button class="btn small danger" type="button" data-rm="${m.uid}">Remove</button>
+          </div>`
+        : "";
+      return `<article class="users-team-card">
+        <div class="users-team-main">
+          <b class="users-team-name">${esc(m.displayName || "—")}</b>
+          <span class="muted users-team-email">${esc(m.email || "")}</span>
+          <div class="users-team-meta">${badge(m.role)} ${badge(m.status)}</div>
+        </div>
+        ${actions}
+      </article>`;
+    }).join("");
+    html += `</div>`;
     if(invites.length){
-      html += `<p style="margin-top:12px"><b>Pending invites</b></p>` + invites.map(i=> `<div class="toolbar"><span>${esc(i.displayName)} · ${esc(i.email)}</span>${isOwnerRole()?`<button class="btn small" data-cancel="${i.id}">Cancel</button>`:""}</div>`).join("");
+      html += `<p style="margin-top:12px"><b>Pending invites</b></p>` + invites.map(i=> `<div class="toolbar users-invite-row"><span>${esc(i.displayName)} · ${esc(i.email)}</span>${isOwnerRole()?`<button class="btn small" type="button" data-cancel="${i.id}">Cancel</button>`:""}</div>`).join("");
     }
     el.innerHTML = html;
     el.querySelectorAll("[data-cancel]").forEach(b=> b.onclick = async ()=>{ await cancelInvite(b.dataset.cancel); renderTeam(); });
@@ -4140,16 +4757,32 @@ async function renderTeam(){
   }catch(e){ el.innerHTML = `<p class="red">${esc(e.message)}</p>`; }
 }
 
+function closePermissions(){
+  const users = document.getElementById("users");
+  const panel = document.getElementById("permPanel");
+  users?.classList.remove("users-perm-open");
+  if(panel){
+    panel.hidden = true;
+    panel.style.display = "none";
+  }
+}
+
 function openPermissions(m){
   if(!isOwnerRole()) return;
+  const users = document.getElementById("users");
   const panel = document.getElementById("permPanel");
+  if(!panel) return;
+  panel.hidden = false;
   panel.style.display = "";
+  users?.classList.add("users-perm-open");
   document.getElementById("permStaffUid").value = m.uid || m.id;
   document.getElementById("permStaffName").textContent = m.displayName || m.email || "Staff";
   const perms = { ...DEFAULT_STAFF_PERMISSIONS, ...(m.permissions || {}) };
   document.getElementById("permGrid").innerHTML = PERMISSION_LABELS.map(([key, label])=>
     `<label><input type="checkbox" data-perm-key="${key}" ${perms[key]?"checked":""}> ${esc(label)}</label>`
   ).join("");
+  try{ panel.scrollTop = 0; }catch(_){}
+  try{ window.scrollTo(0, 0); }catch(_){}
 }
 
 async function savePermissions(){
@@ -4246,30 +4879,38 @@ function archiveCandidates(before){
   const ids = new Set(invs.map(i=> i.id));
   const nos = new Set(invs.map(i=> i.invNo));
   const recs = receipts.filter(r=> String(r.date || "") < before || (r.allocations||[]).some(a=> ids.has(a.invoiceId)));
+  const recNos = new Set(recs.map(r=> r.rvNo));
   const cns = creditNotes.filter(n=> String(n.date || "") < before || nos.has(n.invoice));
   const dns = debitNotes.filter(n=> String(n.date || "") < before);
   const chqs = cheques.filter(c=> String(c.chequeDate || c.pdcDate || "") < before || ids.has(c.receiptId));
-  return { invs, recs, cns, dns, chqs };
+  const discs = discounts.filter(d=>{
+    const ref = String(d.ref || "").trim();
+    return String(d.date || "") < before || nos.has(ref) || recNos.has(ref);
+  });
+  return { invs, recs, cns, dns, chqs, discs };
 }
 
-function archiveExportCsv(){
+async function archiveExportCsv(){
   if(!isOwnerRole()) return toast("Only owner can archive");
   const before = document.getElementById("archiveBefore")?.value;
   if(!before) return toast("Select cutoff date");
-  const { invs, recs, cns, dns, chqs } = archiveCandidates(before);
-  if(!invs.length && !recs.length) return toast("No records before this date");
-  downloadCsv(`s4-archive-before-${before}.csv`,
+  const { invs, recs, cns, dns, chqs, discs } = archiveCandidates(before);
+  if(!invs.length && !recs.length && !cns.length && !dns.length && !chqs.length && !discs.length){
+    return toast("No records before this date");
+  }
+  const result = await downloadCsv(`s4-archive-before-${before}.csv`,
     ["Type","Date","Ref","Customer","Amount","Extra"],
     [
       ...invs.map(i=> ["Invoice", i.invDate, i.invNo, i.customer, i.total, i.status]),
       ...recs.map(r=> ["Receipt", r.date, r.rvNo, r.customer, r.amount, r.method]),
       ...cns.map(n=> ["CreditNote", n.date, n.cnNo, n.customer, n.amount, n.invoice||""]),
       ...dns.map(n=> ["DebitNote", n.date, n.dnNo, n.customer, n.amount, ""]),
-      ...chqs.map(c=> ["Cheque", c.chequeDate||c.pdcDate, c.chequeNo, c.customer, c.amount, c.status])
+      ...chqs.map(c=> ["Cheque", c.chequeDate||c.pdcDate, c.chequeNo, c.customer, c.amount, c.status]),
+      ...discs.map(d=> ["Discount", d.date, d.ref, d.customer, d.amount, d.type||""])
     ]
   );
   window._archiveReady = { before, ...archiveCandidates(before) };
-  toast("CSV downloaded — now you can delete");
+  toast(deliveryToast(result, "CSV downloaded — now you can delete"));
 }
 
 async function archiveDeleteOld(){
@@ -4282,14 +4923,15 @@ async function archiveDeleteOld(){
   if(!confirm("This data will be permanently deleted. Did you already download the CSV?")) return;
   const word = prompt('Type DELETE to confirm permanent delete:');
   if(String(word || "").trim() !== "DELETE") return toast("Cancelled");
-  const { invs, recs, cns, dns, chqs } = window._archiveReady;
+  const { invs, recs, cns, dns, chqs, discs } = window._archiveReady;
   try{
     const ops = [
       ...invs.map(i=> ({ col:"invoices", id:i.id })),
       ...recs.map(r=> ({ col:"receipts", id:r.id })),
       ...cns.map(n=> ({ col:"creditNotes", id:n.id })),
       ...dns.map(n=> ({ col:"debitNotes", id:n.id })),
-      ...chqs.map(c=> ({ col:"cheques", id:c.id }))
+      ...chqs.map(c=> ({ col:"cheques", id:c.id })),
+      ...(discs || []).map(d=> ({ col:"discounts", id:d.id }))
     ].filter(o=> o.id);
     for(let i = 0; i < ops.length; i += 400){
       const batch = writeBatch(db);
@@ -4309,92 +4951,120 @@ async function archiveDeleteOld(){
 
 function csvCell(v){ return `"${String(v??"").replace(/"/g,'""')}"`; }
 
-function downloadCsv(filename, header, rows){
+async function downloadCsv(filename, header, rows){
   const csv = [header.map(csvCell).join(","), ...rows.map(r=> r.map(csvCell).join(","))].join("\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], { type:"text/csv" }));
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  const result = await deliverText(filename, "\uFEFF" + csv, "text/csv;charset=utf-8", filename);
+  return result;
 }
 
-function exportAudit(){
+async function exportAudit(){
   const rows = window._auditRows || [];
   if(!rows.length) return toast("No audit rows");
-  downloadCsv("s4-audit.csv",
+  const result = await downloadCsv("s4-audit.csv",
     ["Date/Time","User","Module","Action","Record","Old Value","New Value","Reason"],
     rows.map(r=>{
       const f = formatActivityRow(r, "en");
       return [f.when, f.who, r.module||"", r.action||"", r.record||r.invoiceId||"", r.oldValue||"", r.newValue||"", r.reason||f.what];
     })
   );
-  toast("Audit CSV downloaded");
+  toast(deliveryToast(result, "Audit CSV downloaded"));
 }
 
-function statementTableHtml(name, asOf){
-  let bal = 0;
-  const rows = ledgerLines(name).filter(l=> l.date <= asOf).map(l=>{
-    bal += l.debit - l.credit;
-    return [l.date, l.ref, l.desc, l.debit||"", l.credit||"", bal];
-  });
-  return `<p class="muted">${esc(shop.name||"")} · As of ${esc(asOf)} · Closing ${money(bal)}</p>` +
-    tableFromRows(["Date","Reference","Description","Debit","Credit","Balance"], rows);
+function statementTableHtml(name, asOf, from){
+  const built = buildStatementRows(name, asOf, from || "");
+  const range = from ? `From ${esc(from)} · ` : "";
+  return `<p class="muted">${esc(shop.name||"")} · ${range}As of ${esc(asOf)} · Closing ${money(built.closing)}</p>` +
+    tableFromRows(["Date","Reference","Description","Debit","Credit","Balance"], built.dataRows);
 }
 
-function exportStatementPdf(download){
+async function exportStatementPdf(download){
   const name = document.getElementById("stmtCustomer").value;
   const asOf = document.getElementById("stmtAsOf")?.value || today();
+  const from = document.getElementById("stmtFrom")?.value || "";
   if(!name) return toast("Select customer");
   fillStatement();
   const title = `Statement — ${name}`;
-  const body = statementTableHtml(name, asOf);
-  if(download) downloadHtmlDocument(`statement-${name.replace(/\s+/g,"_")}.html`, title, body);
+  const body = statementTableHtml(name, asOf, from);
+  const built = buildStatementRows(name, asOf, from);
+  if(download){
+    try{
+      const result = await downloadStatementPdf({ shop, name, asOf, from, lines: built.dataRows, closing: built.closing });
+      toast(deliveryToast(result, "PDF downloaded"));
+    }catch(err){
+      console.warn("Statement PDF failed", err);
+      toast(String(err?.message || err));
+    }
+    return;
+  }
+  // Android WebView has no print dialog — share a real PDF instead
+  if(isAndroidNative()){
+    try{
+      const result = await downloadStatementPdf({ shop, name, asOf, from, lines: built.dataRows, closing: built.closing });
+      toast(deliveryToast(result, "PDF ready — open it to print"));
+      return;
+    }catch(err){
+      console.warn("Statement Android print-PDF failed", err);
+    }
+  }
   try{
-    printHtmlDocument(title, body);
+    const printed = await printHtmlDocument(title, body);
+    if(!printed) toast("File ready — open it to print or share");
   }catch(err){
     console.warn("Statement print failed", err);
-    if(!download) downloadHtmlDocument(`statement-${name.replace(/\s+/g,"_")}.html`, title, body);
-    toast("Print blocked — HTML downloaded instead");
+    await downloadHtmlDocument(`statement-${name.replace(/\s+/g,"_")}.html`, title, body);
+    toast("Print blocked — file ready instead");
   }
 }
 
-function exportLatestInvoicePdf(){
+async function exportLatestInvoicePdf(){
   const inv = [...invoices].filter(i=> i.status !== "Draft").sort((a,b)=> String(b.invDate).localeCompare(String(a.invDate)))[0];
   if(!inv) return toast("No invoice");
-  const items = (inv.items||[]).map(it=> [it.name, it.qty, it.price, it.disc, it.vat, it.line]);
-  const body = `<p class="muted">${esc(inv.customer)} · ${esc(inv.invDate)} · Due ${esc(inv.dueDate)} · Vehicle ${esc(inv.vehicle)}</p>` +
-    `<p class="muted">Serial ${esc(inv.invNo)}${inv.computerNo?` · Computer ${esc(inv.computerNo)}`:""}${inv.manualNo?` · Manual ${esc(inv.manualNo)}`:""}</p>` +
-    tableFromRows(["Item","Qty","Price","Disc","VAT%","Line"], items) +
-    `<p><b>Total ${money(inv.total)}</b> · Paid ${money(inv.paid)} · Balance ${money(invBalance(inv))}</p>`;
-  downloadHtmlDocument(`${inv.invNo}.html`, inv.invNo, body);
-  printHtmlDocument(inv.invNo, body);
+  try{
+    const result = await downloadInvoicePdf(inv, shop);
+    toast(deliveryToast(result, "PDF downloaded"));
+  }catch(err){
+    console.warn("Invoice PDF failed", err);
+    toast(String(err?.message || err));
+  }
 }
 
-function exportLatestReceiptPdf(){
-  const r = [...receipts].sort((a,b)=> String(b.date).localeCompare(String(a.date)))[0];
+async function exportReceiptPdf(r){
   if(!r) return toast("No receipt");
-  const body = `<p class="muted">${esc(r.customer)} · ${esc(r.date)} · ${esc(r.method)}</p>
-    <p>Amount: <b>${money(r.amount)}</b> · Allocated ${money(r.allocated)} · Unallocated ${money(r.unallocated)}</p>
-    <p>Ref: ${esc(r.ref||r.chequeNo||"—")}</p>`;
-  downloadHtmlDocument(`${r.rvNo}.html`, r.rvNo, body);
-  printHtmlDocument(r.rvNo, body);
+  try{
+    const result = await downloadReceiptPdf(r, shop);
+    toast(deliveryToast(result, "PDF downloaded"));
+  }catch(err){
+    console.warn("Receipt PDF failed", err);
+    toast(String(err?.message || err));
+  }
 }
 
-function downloadWaPdf(){
+async function exportReceiptPdfById(id){
+  const r = receipts.find(x=> x.id === id);
+  if(!r) return toast("Receipt not found");
+  return exportReceiptPdf(r);
+}
+
+async function downloadWaPdf(){
   const type = document.getElementById("waType")?.value || "Payment Reminder";
   const name = document.getElementById("waCustomer").value;
-  if(type === "Statement" && name){
-    document.getElementById("stmtCustomer").value = name;
-    exportStatementPdf(true);
-  }else if(type === "Invoice") exportLatestInvoicePdf();
-  else{
-    const body = `<pre style="white-space:pre-wrap;font-family:inherit">${esc(document.getElementById("waMsg").value)}</pre>`;
-    downloadHtmlDocument(`reminder-${(name||"customer").replace(/\s+/g,"_")}.html`, "Payment Reminder", body);
+  try{
+    if(type === "Statement" && name){
+      document.getElementById("stmtCustomer").value = name;
+      await exportStatementPdf(true);
+    }else if(type === "Invoice"){
+      await exportLatestInvoicePdf();
+    }else{
+      const msg = document.getElementById("waMsg")?.value || "";
+      const result = await downloadReminderPdf(shop, name, msg);
+      toast(deliveryToast(result, "PDF downloaded"));
+    }
+  }catch(err){
+    toast(String(err?.message || err));
   }
-  toast("File downloaded — attach in WhatsApp chat");
 }
 
-function exportLedger(kind){
+async function exportLedger(kind){
   const name = document.getElementById("ledgerCustomer").value;
   if(!name) return toast("Select customer");
   const from = document.getElementById("ledgerFrom")?.value || "";
@@ -4406,21 +5076,30 @@ function exportLedger(kind){
     return [l.date, l.ref, l.desc, l.debit||"", l.credit||"", bal];
   });
   if(kind === "csv"){
-    downloadCsv(`ledger-${name.replace(/\s+/g,"_")}.csv`, ["Date","Reference","Description","Debit","Credit","Balance"], rows);
-    toast("Ledger CSV downloaded");
+    const result = await downloadCsv(`ledger-${name.replace(/\s+/g,"_")}.csv`, ["Date","Reference","Description","Debit","Credit","Balance"], rows);
+    toast(deliveryToast(result, "Ledger CSV downloaded"));
   }else{
-    const body = tableFromRows(["Date","Reference","Description","Debit","Credit","Balance"], rows);
     try{
-      printHtmlDocument(`Ledger — ${name}`, body);
+      const range = [from ? "From " + from : "", to ? "To " + to : ""].filter(Boolean).join(" · ");
+      const result = await downloadTablePdf({
+        shop,
+        title: `Ledger — ${name}`,
+        subtitle: range,
+        headers: ["Date","Reference","Description","Debit","Credit","Balance"],
+        rows: rows.map(r => r.map(c => c === "" || c == null ? "" : String(c))),
+        filename: `ledger-${name}`
+      });
+      toast(deliveryToast(result, "Ledger PDF downloaded"));
     }catch(err){
-      console.warn("Ledger PDF print failed", err);
+      console.warn("Ledger PDF failed", err);
+      const body = tableFromRows(["Date","Reference","Description","Debit","Credit","Balance"], rows);
+      await downloadHtmlDocument(`ledger-${name.replace(/\s+/g,"_")}.html`, `Ledger — ${name}`, body);
+      toast("PDF failed — HTML file ready instead");
     }
-    downloadHtmlDocument(`ledger-${name.replace(/\s+/g,"_")}.html`, `Ledger — ${name}`, body);
-    toast("Print dialog / HTML ready — use Save as PDF");
   }
 }
 
-function exportAging(kind){
+async function exportAging(kind){
   const map = {};
   invoices.forEach(i=>{
     const name = i.customer || "—";
@@ -4434,12 +5113,25 @@ function exportAging(kind){
     return [name, x.current, x.d30, x.d60, x.d90, x.d90p, tot];
   }).filter(Boolean);
   if(kind === "csv"){
-    downloadCsv("aging.csv", ["Customer","Current","1-30","31-60","61-90","90+","Total"], rows);
-    toast("Aging CSV downloaded");
+    const result = await downloadCsv("aging.csv", ["Customer","Current","1-30","31-60","61-90","90+","Total"], rows);
+    toast(deliveryToast(result, "Aging CSV downloaded"));
   }else{
-    const body = tableFromRows(["Customer","Current","1-30","31-60","61-90","90+","Total"], rows);
-    printHtmlDocument("Receivable Aging", body);
-    downloadHtmlDocument("aging.html", "Receivable Aging", body);
+    try{
+      const result = await downloadTablePdf({
+        shop,
+        title: "Receivable Aging",
+        subtitle: shop.name || "",
+        headers: ["Customer","Current","1-30","31-60","61-90","90+","Total"],
+        rows: rows.map(r => r.map(c => String(c))),
+        filename: "aging"
+      });
+      toast(deliveryToast(result, "Aging PDF downloaded"));
+    }catch(err){
+      console.warn("Aging PDF failed", err);
+      const body = tableFromRows(["Customer","Current","1-30","31-60","61-90","90+","Total"], rows);
+      await downloadHtmlDocument("aging.html", "Receivable Aging", body);
+      toast("PDF failed — HTML file ready instead");
+    }
   }
 }
 
@@ -4596,34 +5288,37 @@ function runPeriodReport(){
   panel.style.display = "";
   document.getElementById("reportTitle").textContent = bundle.titleEn;
   htmlBox.style.display = "";
-  htmlBox.innerHTML = renderReportHtml(bundle, "en").replace(/Tk/g, cur());
+  htmlBox.innerHTML = renderReportHtml(bundle, "en", cur());
   head.innerHTML = "";
   body.innerHTML = "";
 }
 
-function exportPeriodCsv(){
+async function exportPeriodCsv(){
   const mode = document.getElementById("rptMode").value;
   const year = num(document.getElementById("rptYear").value) || new Date().getFullYear();
   const monthIndex0 = num(document.getElementById("rptMonth").value);
   const posted = invoices.filter(i=> i.status !== "Draft");
   const bundle = window._periodBundle || buildReportBundle(posted, mode, year, monthIndex0);
-  downloadTextFile(`s4-report-${year}.csv`, invoicesToCsv(bundle.periodInvoices, "en"));
-  toast("Period CSV downloaded");
+  const result = await downloadTextFile(`s4-report-${year}.csv`, invoicesToCsv(bundle.periodInvoices, "en"));
+  toast(deliveryToast(result, "Period CSV downloaded"));
 }
 
-function exportCurrentReportCsv(){
+async function exportCurrentReportCsv(){
   if(window._periodBundle) return exportPeriodCsv();
   const title = (document.getElementById("reportTitle").textContent || "report").toLowerCase();
   if(title.includes("outstanding")){
     const names = [...new Set(customers.map(c=> c.name).concat(invoices.map(i=> i.customer)))].filter(Boolean);
-    downloadCsv("outstanding.csv", ["Customer","Open","Outstanding","Overdue"],
+    const result = await downloadCsv("outstanding.csv", ["Customer","Open","Outstanding","Overdue"],
       names.map(n=> [n, invoices.filter(i=> i.customer===n && invBalance(i)>0).length, customerOutstanding(n), customerOverdue(n)]).filter(r=> r[2]>0.009 || r[3]>0.009));
+    toast(deliveryToast(result, "CSV downloaded"));
   }else if(title.includes("sales")){
-    downloadCsv("sales.csv", ["Invoice","Date","Customer","Total","Paid","Balance"],
+    const result = await downloadCsv("sales.csv", ["Invoice","Date","Customer","Total","Paid","Balance"],
       invoices.filter(i=> i.status!=="Draft").map(i=> [i.invNo, i.invDate, i.customer, i.total, i.paid, invBalance(i)]));
+    toast(deliveryToast(result, "CSV downloaded"));
   }else if(title.includes("collection")){
-    downloadCsv("collection.csv", ["Receipt","Date","Customer","Method","Amount","Status"],
+    const result = await downloadCsv("collection.csv", ["Receipt","Date","Customer","Method","Amount","Status"],
       receipts.map(r=> [r.rvNo, r.date, r.customer, r.method, r.amount, r.status]));
+    toast(deliveryToast(result, "CSV downloaded"));
   }else toast("Run a report first");
 }
 

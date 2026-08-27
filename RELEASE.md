@@ -10,7 +10,7 @@ Ensures every `frontend/*.js` module (except `sw.js`) is listed in `frontend/sw.
 
 See GitHub Releases for the current version assets (exe / apk / PWA / complete zip).
 
-**Current:** v1.0.9 — catalog bulk delete + accounting integrity release.
+**Current:** v1.0.10 — money-path guards, desktop offline cache, archive discounts, unique serials.
 
 
 ## Same account on PC + mobile (100% sync)

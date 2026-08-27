@@ -1,0 +1,12 @@
+﻿S4-BUSINESS-INVOICE TRACKER v1.0.9
+
+iPhone PWA (Safari):
+https://s4-business-thinking-31213.web.app
+
+1) Open link in Safari
+2) Share → Add to Home Screen
+3) Same Firebase config + login as PC/Android
+
+Windows: S4-Invoice-Tracker-Setup-1.0.9.exe
+Android: S4-Invoice-Tracker-1.0.9.apk
+PWA zip: S4-Invoice-Tracker-PWA-1.0.9.zip

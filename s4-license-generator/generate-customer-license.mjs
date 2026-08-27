@@ -24,6 +24,7 @@ const PLAN_DAYS = {
   MONTHLY: 30,
   YEARLY: 365,
   LIFETIME: null,
+  CUSTOM: "CUSTOM",
 };
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -35,7 +36,8 @@ node .\\generate-customer-license.mjs --customerName "ABC Motors" --shopName "AB
 Plans:
   MONTHLY   expires 30 days from now
   YEARLY    expires 365 days from now
-  LIFETIME  never expires`);
+  LIFETIME  never expires
+  CUSTOM    requires --days N (positive integer)`);
 }
 
 function readArgs(argv) {
@@ -114,11 +116,17 @@ function buildPayload(args) {
   const plan = requireText(args, "plan").toUpperCase();
 
   if (!Object.prototype.hasOwnProperty.call(PLAN_DAYS, plan)) {
-    throw new Error("--plan must be MONTHLY, YEARLY, or LIFETIME.");
+    throw new Error("--plan must be MONTHLY, YEARLY, LIFETIME, or CUSTOM.");
   }
 
   const now = new Date();
-  const planDays = PLAN_DAYS[plan];
+  let planDays = PLAN_DAYS[plan];
+  if (plan === "CUSTOM") {
+    planDays = readPositiveInteger(args.days, 0);
+    if (!planDays) {
+      throw new Error("CUSTOM plan requires --days N (positive integer).");
+    }
+  }
   const deviceFingerprint = String(args.deviceFingerprint || "").trim();
 
   const payload = {

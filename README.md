@@ -3,17 +3,17 @@
 কোনো backend/VPS নেই — প্রতি দোকানের ডেটা **সেই দোকানের Firebase**-এ।  
 সফটওয়্যার **একই**; ইনস্টলের পর Firebase config paste (B1)।
 
-Current release: **v1.0.7**  
+Current release: **v1.0.10**  
 https://github.com/s4businessthinking-cmyk/s4-business-invoice-tracker-firebase-v2/releases
 
 ## Install
 
 | Platform | How |
 |----------|-----|
-| **Windows** | Release থেকে `S4-Invoice-Tracker-Setup-1.0.7.exe` → ইনস্টল |
-| **Android** | `S4-Invoice-Tracker-1.0.7.apk` সাইডলোড (Unknown sources ON) |
+| **Windows** | Release থেকে `S4-Invoice-Tracker-Setup-1.0.10.exe` → ইনস্টল |
+| **Android** | `S4-Invoice-Tracker-1.0.10.apk` সাইডলোড (Unknown sources ON) |
 | **iPhone PWA** | Safari-এ খুলুন: https://s4-business-thinking-31213.web.app → Share → **Add to Home Screen** |
-| **PWA zip** | `S4-Invoice-Tracker-PWA-1.0.7.zip` — বিকল্প host (Firebase Hosting / Netlify / IIS) |
+| **PWA zip** | `S4-Invoice-Tracker-PWA-1.0.10.zip` — বিকল্প host (Firebase Hosting / Netlify / IIS) |
 
 ## লকড Login / Firebase (ARCHITECTURE.md §০)
 

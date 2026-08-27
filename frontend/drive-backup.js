@@ -1,13 +1,13 @@
 // ============================================================
 // GOOGLE DRIVE BACKUP MODULE
 // ------------------------------------------------------------
-// Firebase-ই মূল ডেটাবেস — এই মডিউলটা শুধু একটা extra safety layer:
-// দোকান মালিকের নিজের Google Drive এ JSON স্ন্যাপশট ব্যাকআপ রাখা,
-// যাতে Firebase project ভুলবশত ডিলিট/মিসকনফিগার হলেও ডেটা উদ্ধার
-// করা যায়। Firestore-এর সাথে সরাসরি কোনো সম্পর্ক নেই — শুধু plain
-// Drive REST API + Google Identity Services (GIS) token flow।
+// Firebase is the primary DB. This module uploads JSON snapshots
+// to the shop owner's Google Drive (drive.file scope).
 //
-// scope: drive.file (শুধু এই app-এর বানানো ফাইল, বাকি Drive অদৃশ্য)
+// Token acquisition by platform:
+//   • Browser / PWA  → Google Identity Services popup (unchanged)
+//   • Desktop Electron → OAuth 2.0 loopback (system browser + local HTTP)
+//   • Android Capacitor → Authorization Code + PKCE via Custom Tabs
 // ============================================================
 import { driveBackupConfig } from "./drive-backup-config.js";
 
@@ -72,6 +72,222 @@ function isConfigured(){
   return !!id && !id.startsWith("PASTE_");
 }
 
+function isDesktopShell(){
+  return typeof window !== "undefined" && !!window.s4Desktop?.driveOAuthLoopback;
+}
+
+function isAndroidNative(){
+  try{
+    return !!(window.Capacitor?.isNativePlatform?.() &&
+      String(window.Capacitor.getPlatform?.() || "").toLowerCase() === "android");
+  }catch(_){ return false; }
+}
+
+function oauthRedirectUriAndroid(){
+  // Must match Google Cloud Console → OAuth client → Authorized redirect URIs
+  return (driveBackupConfig.androidRedirectUri || "com.s4business.invoicetracker:/oauth2redirect").trim();
+}
+
+function randomString(len = 64){
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  let out = "";
+  for(let i = 0; i < len; i++) out += chars[arr[i] % chars.length];
+  return out;
+}
+
+async function sha256Base64Url(plain){
+  const data = new TextEncoder().encode(plain);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  const bytes = new Uint8Array(digest);
+  let bin = "";
+  bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function buildAuthUrl({ clientId, redirectUri, codeChallenge, state, scopes }){
+  const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  u.searchParams.set("client_id", clientId);
+  u.searchParams.set("redirect_uri", redirectUri);
+  u.searchParams.set("response_type", "code");
+  u.searchParams.set("scope", scopes || SCOPE);
+  u.searchParams.set("access_type", "online");
+  u.searchParams.set("include_granted_scopes", "true");
+  u.searchParams.set("prompt", "consent");
+  u.searchParams.set("code_challenge", codeChallenge);
+  u.searchParams.set("code_challenge_method", "S256");
+  u.searchParams.set("state", state);
+  return u.toString();
+}
+
+async function exchangeCodeForToken({ code, redirectUri, codeVerifier, clientId }){
+  const body = new URLSearchParams({
+    client_id: clientId,
+    code,
+    code_verifier: codeVerifier,
+    grant_type: "authorization_code",
+    redirect_uri: redirectUri
+  });
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok || !data.access_token){
+    const err = data.error_description || data.error || `HTTP ${res.status}`;
+    throw new Error("Google token exchange failed: " + err);
+  }
+  return data;
+}
+
+function cacheAccessToken(accessToken, expiresIn){
+  cachedToken = accessToken;
+  cachedTokenExpiry = Date.now() + (Number(expiresIn) || 3600) * 1000;
+  return cachedToken;
+}
+
+function friendlyOAuthError(err){
+  const raw = String(err?.message || err?.type || err || "");
+  if(/disallowed_useragent|403|not.?secure|embedded/i.test(raw)){
+    return "Google Drive sign-in isn't supported in this app version yet — use Local Backup for now, or back up via the browser/PWA version";
+  }
+  if(/cancelled|access_denied|popup_closed/i.test(raw)){
+    return "Google Drive sign-in was cancelled.";
+  }
+  return raw || "Google Drive sign-in failed.";
+}
+
+/** Desktop: system browser + loopback HTTP server in Electron main process */
+async function getAccessTokenDesktop(){
+  const clientId = getDriveClientId();
+  const codeVerifier = randomString(64);
+  const codeChallenge = await sha256Base64Url(codeVerifier);
+  const state = randomString(24);
+  const result = await window.s4Desktop.driveOAuthLoopback({
+    clientId,
+    scope: SCOPE,
+    codeChallenge,
+    state
+  });
+  if(!result?.code){
+    throw new Error(result?.error || "Google Drive sign-in was cancelled or failed.");
+  }
+  if(result.state && result.state !== state){
+    throw new Error("OAuth state mismatch — try Drive backup again.");
+  }
+  const redirectUri = result.redirectUri;
+  const token = await exchangeCodeForToken({
+    code: result.code,
+    redirectUri,
+    codeVerifier,
+    clientId
+  });
+  return cacheAccessToken(token.access_token, token.expires_in);
+}
+
+/** Android: Custom Tabs + app URL scheme + PKCE */
+async function getAccessTokenAndroid(){
+  const clientId = getDriveClientId();
+  const redirectUri = oauthRedirectUriAndroid();
+  const codeVerifier = randomString(64);
+  const codeChallenge = await sha256Base64Url(codeVerifier);
+  const state = randomString(24);
+  const authUrl = buildAuthUrl({ clientId, redirectUri, codeChallenge, state, scopes: SCOPE });
+
+  const Browser = window.Capacitor?.Plugins?.Browser;
+  const App = window.Capacitor?.Plugins?.App;
+  if(!Browser?.open || !App?.addListener){
+    throw new Error("Android Browser/App plugins missing — run npm install @capacitor/browser and npx cap sync android.");
+  }
+
+  const code = await new Promise((resolve, reject) => {
+    let settled = false;
+    let listenerHandle = null;
+    const cleanup = async () => {
+      try{ if(listenerHandle?.remove) await listenerHandle.remove(); }catch(_){}
+      try{ await Browser.close?.(); }catch(_){}
+    };
+    const fail = async (msg) => {
+      if(settled) return;
+      settled = true;
+      await cleanup();
+      reject(new Error(msg));
+    };
+    const ok = async (c) => {
+      if(settled) return;
+      settled = true;
+      await cleanup();
+      resolve(c);
+    };
+
+    const timer = setTimeout(() => fail("Google Drive sign-in timed out."), 5 * 60 * 1000);
+
+    App.addListener("appUrlOpen", (event) => {
+      try{
+        const rawUrl = String(event?.url || "");
+        if(!rawUrl.includes("oauth2redirect")) return;
+        const qIndex = rawUrl.indexOf("?");
+        const q = new URLSearchParams(qIndex >= 0 ? rawUrl.slice(qIndex + 1) : "");
+        const err = q.get("error");
+        if(err){
+          clearTimeout(timer);
+          fail("Google Drive permission was not granted: " + err);
+          return;
+        }
+        const returnedState = q.get("state");
+        if(returnedState && returnedState !== state){
+          clearTimeout(timer);
+          fail("OAuth state mismatch — try again.");
+          return;
+        }
+        const c = q.get("code");
+        if(!c) return;
+        clearTimeout(timer);
+        ok(c);
+      }catch(e){
+        clearTimeout(timer);
+        fail(String(e?.message || e));
+      }
+    }).then(h => { listenerHandle = h; }).catch(e => fail(String(e?.message || e)));
+
+    Browser.open({ url: authUrl }).catch(e => {
+      clearTimeout(timer);
+      fail(String(e?.message || e));
+    });
+  });
+
+  const token = await exchangeCodeForToken({ code, redirectUri, codeVerifier, clientId });
+  return cacheAccessToken(token.access_token, token.expires_in);
+}
+
+/** Browser / PWA: GIS token client popup */
+async function getAccessTokenGis(){
+  await loadGisScript();
+  if(!tokenClient){
+    tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: getDriveClientId(),
+      scope: SCOPE,
+      callback: () => {}
+    });
+  }
+  return new Promise((resolve, reject) => {
+    tokenClient.callback = (resp) => {
+      if(resp.error){
+        reject(new Error(friendlyOAuthError({ message: resp.error })));
+        return;
+      }
+      resolve(cacheAccessToken(resp.access_token, resp.expires_in));
+    };
+    tokenClient.error_callback = (err) => {
+      console.error("Google Drive OAuth error:", err);
+      reject(new Error(friendlyOAuthError(err)));
+    };
+    tokenClient.requestAccessToken({ prompt: "" });
+  });
+}
+
 async function getAccessToken(){
   if(!isConfigured()){
     throw new Error("Drive backup is not configured (paste Client ID in Settings or drive-backup-config.js).");
@@ -79,31 +295,13 @@ async function getAccessToken(){
   if(cachedToken && Date.now() < cachedTokenExpiry - 30000){
     return cachedToken;
   }
-  await loadGisScript();
-  if(!tokenClient){
-    tokenClient = window.google.accounts.oauth2.initTokenClient({
-      client_id: getDriveClientId(),
-      scope: SCOPE,
-      callback: () => {} // requestAccessToken() নিচে override করবে প্রতিবার
-    });
+  try{
+    if(isDesktopShell()) return await getAccessTokenDesktop();
+    if(isAndroidNative()) return await getAccessTokenAndroid();
+    return await getAccessTokenGis();
+  }catch(err){
+    throw new Error(friendlyOAuthError(err));
   }
-  return new Promise((resolve, reject) => {
-    tokenClient.callback = (resp) => {
-      if(resp.error){
-        reject(new Error("Google Drive permission was not granted: " + resp.error));
-        return;
-      }
-      cachedToken = resp.access_token;
-      cachedTokenExpiry = Date.now() + (Number(resp.expires_in) || 3600) * 1000;
-      resolve(cachedToken);
-    };
-    tokenClient.error_callback = (err) => {
-      console.error("Google Drive OAuth error:", err);
-      const detail = err?.type || err?.message || "";
-      reject(new Error(`Google Drive sign-in was cancelled or failed.${detail ? " (" + detail + ")" : ""}`));
-    };
-    tokenClient.requestAccessToken({ prompt: "" });
-  });
 }
 
 async function driveFetch(url, token, options = {}){
@@ -148,8 +346,8 @@ async function findOrCreateBackupFolder(token){
 }
 
 /**
- * dataObj কে JSON বানিয়ে Drive-এর "S4 Invoice Backups" ফোল্ডারে আপলোড করে।
- * রিটার্ন করে { id, name, webViewLink }
+ * Upload dataObj as JSON into Drive folder "S4 Invoice Backups".
+ * Returns { id, name, webViewLink }
  */
 export async function backupToDrive(filename, dataObj){
   const token = await getAccessToken();
@@ -179,10 +377,6 @@ export async function backupToDrive(filename, dataObj){
   return res.json();
 }
 
-/**
- * ব্যাকআপ ফোল্ডারের সব JSON ফাইলের তালিকা (নতুন থেকে পুরনো), প্রতিটাতে
- * { id, name, createdTime }
- */
 export async function listBackups(){
   const token = await getAccessToken();
   const folderId = await findOrCreateBackupFolder(token);
@@ -222,9 +416,6 @@ export function formatBytes(n){
   return (b/(1024*1024)).toFixed(2) + " MB";
 }
 
-/**
- * নির্দিষ্ট fileId এর JSON কন্টেন্ট ডাউনলোড করে parse করে রিটার্ন করে
- */
 export async function downloadBackup(fileId){
   const token = await getAccessToken();
   const res = await driveFetch(
