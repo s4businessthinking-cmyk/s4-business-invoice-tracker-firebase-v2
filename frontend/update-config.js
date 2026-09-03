@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // PER-SHOP / PER-BUILD UPDATE CONFIG
 // ============================================================
 // Set currentVersion to match desktop/package.json before each release.
@@ -8,7 +8,7 @@
 export const updateConfig = {
   githubOwner: "s4businessthinking-cmyk",
   githubRepo: "s4-business-invoice-tracker-firebase-v2",
-  currentVersion: "1.0.10",
+  currentVersion: "1.0.11",
   exeAssetKeyword: "",
   apkAssetKeyword: ""
 };

@@ -137,7 +137,7 @@ service cloud.firestore {
           && request.resource.data.role == resource.data.role
           && request.resource.data.uid == resource.data.uid
           && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['displayName', 'permissions', 'permissionsUpdatedAt', 'status', 'removedAt'])
+              .hasOnly(['displayName', 'permissions', 'permissionsUpdatedAt', 'status', 'removedAt', 'branchIds', 'role'])
         )
         || (
           uid == request.auth.uid
@@ -190,7 +190,7 @@ service cloud.firestore {
       allow create, update, delete: if hasModule('vehicles');
     }
     match /productCatalog/{id} {
-      allow read: if hasModule('product-catalog') || hasModule('invoices');
+      allow read: if hasModule('product-catalog') || hasModule('invoices') || hasModule('purchase-invoices');
       allow create, update, delete: if hasModule('product-catalog');
     }
     match /serviceCatalog/{id} {
@@ -220,6 +220,93 @@ service cloud.firestore {
       allow read: if hasModule('discounts') || hasModule('ledger') || hasModule('statements')
         || hasModule('receipts');
       allow create, update, delete: if hasModule('discounts') || hasModule('receipts');
+    }
+    match /suppliers/{id} {
+      allow read: if hasModule('suppliers') || hasModule('purchase-invoices') || hasModule('dashboard');
+      allow create, update, delete: if hasModule('suppliers');
+    }
+    match /warehouses/{id} {
+      allow read: if hasModule('warehouses') || hasModule('purchase-invoices') || hasModule('product-catalog');
+      allow create, update, delete: if hasModule('warehouses');
+    }
+    match /stockBalances/{id} {
+      allow read: if hasModule('inventory') || hasModule('purchase-invoices') || hasModule('product-catalog') || hasModule('invoices') || hasModule('credit-notes');
+      allow create, update: if hasModule('inventory') || hasModule('purchase-invoices') || hasModule('invoices') || hasModule('credit-notes');
+      allow delete: if false;
+    }
+    match /stockLedger/{id} {
+      allow read: if hasModule('inventory') || hasModule('purchase-invoices') || hasModule('invoices') || hasModule('credit-notes');
+      allow create: if hasModule('inventory') || hasModule('purchase-invoices') || hasModule('invoices') || hasModule('credit-notes');
+      allow update, delete: if false;
+    }
+    match /stockTransfers/{id} {
+      allow read: if hasModule('inventory') || hasModule('purchase-invoices');
+      allow create: if hasModule('inventory');
+      allow update, delete: if false;
+    }
+    match /stockCounts/{id} {
+      allow read: if hasModule('inventory') || hasModule('purchase-invoices');
+      allow create: if hasModule('inventory');
+      allow update, delete: if false;
+    }
+    match /branchStockRequests/{id} {
+      allow read: if hasModule('inventory') || hasModule('purchase-invoices');
+      allow create: if hasModule('inventory');
+      allow update: if hasModule('inventory');
+      allow delete: if false;
+    }
+    match /purchaseInvoices/{id} {
+      allow read: if hasModule('purchase-invoices') || hasModule('product-catalog') || hasModule('dashboard');
+      allow create, update, delete: if hasModule('purchase-invoices');
+    }
+    match /goodsReceipts/{id} {
+      allow read: if hasModule('purchase-invoices') || hasModule('inventory') || hasModule('dashboard');
+      allow create, update: if hasModule('purchase-invoices');
+      allow delete: if false;
+    }
+    match /purchaseOrders/{id} {
+      allow read: if hasModule('purchase-invoices') || hasModule('inventory') || hasModule('dashboard');
+      allow create, update: if hasModule('purchase-invoices');
+      allow delete: if false;
+    }
+    match /purchaseRequisitions/{id} {
+      allow read: if hasModule('purchase-invoices') || hasModule('inventory') || hasModule('dashboard');
+      allow create, update: if hasModule('purchase-invoices');
+      allow delete: if false;
+    }
+    match /vendorPayments/{id} {
+      allow read: if hasModule('purchase-invoices') || hasModule('dashboard');
+      allow create, update: if hasModule('purchase-invoices');
+      allow delete: if false;
+    }
+    match /purchaseReturns/{id} {
+      allow read: if hasModule('purchase-invoices') || hasModule('inventory') || hasModule('dashboard');
+      allow create, update: if hasModule('purchase-invoices');
+      allow delete: if false;
+    }
+
+    match /jobCards/{id} {
+      allow read: if hasModule('workshop') || hasModule('dashboard');
+      allow create, update: if hasModule('workshop');
+      allow delete: if false;
+    }
+
+    match /partsIssues/{id} {
+      allow read: if hasModule('workshop') || hasModule('inventory') || hasModule('dashboard');
+      allow create, update: if hasModule('workshop');
+      allow delete: if false;
+    }
+
+    match /branches/{branchId} {
+      allow read: if isActiveMember();
+      allow create, update: if isOwner() && hasModule('settings');
+      allow delete: if false;
+    }
+
+    match /counters/{counterId} {
+      allow read: if isActiveMember();
+      allow create, update: if isActiveMember();
+      allow delete: if false;
     }
 
     match /activity/{activityId} {

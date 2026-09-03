@@ -7,6 +7,7 @@
 // ============================================================
 
 import { collection, addDoc, query, orderBy, limit, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { branchAuditContext } from "./foundation.js";
 
 let activityColRef = null;
 
@@ -19,6 +20,7 @@ export async function logActivity({
   module = "", record = "", oldValue = "", newValue = "", reason = ""
 }){
   if(!activityColRef || !staffName) return;
+  const branch = branchAuditContext();
   try{
     await addDoc(activityColRef, {
       action,
@@ -31,6 +33,9 @@ export async function logActivity({
       oldValue,
       newValue,
       reason: reason || summary,
+      branchId: branch.branchId || "",
+      branchCode: branch.branchCode || "",
+      branchName: branch.branchName || "",
       at: Date.now()
     });
   }catch(e){

@@ -1,8 +1,8 @@
-version: 1.0.10
+version: 1.0.11
 files:
-  - url: S4-Invoice-Tracker-Setup-1.0.10.exe
-    sha512: UtHI8EsoKQrkm5OI4ZduBe9r+ULk7OloVfsq/uAWuJm+zyGMqeaQdZU9+75QRLicdZAm+nu86+jxpDCXiOSUUQ==
-    size: 82226973
-path: S4-Invoice-Tracker-Setup-1.0.10.exe
-sha512: UtHI8EsoKQrkm5OI4ZduBe9r+ULk7OloVfsq/uAWuJm+zyGMqeaQdZU9+75QRLicdZAm+nu86+jxpDCXiOSUUQ==
-releaseDate: '2026-08-27T19:15:23.211Z'
+  - url: S4-Invoice-Tracker-Setup-1.0.11.exe
+    sha512: rbRnyntggDU1PWFklpWOEO5Bly2MoJku4z5hcQgp8qzHS4VDVrZWWTaqQoNOpT8YHysKGi2Sk5G7uvRlycMs5A==
+    size: 82517040
+path: S4-Invoice-Tracker-Setup-1.0.11.exe
+sha512: rbRnyntggDU1PWFklpWOEO5Bly2MoJku4z5hcQgp8qzHS4VDVrZWWTaqQoNOpT8YHysKGi2Sk5G7uvRlycMs5A==
+releaseDate: '2026-09-03T18:50:57.306Z'

@@ -1,0 +1,20 @@
+{
+  "name": "s4-product-master",
+  "version": "1.0.41",
+  "private": true,
+  "description": "Standalone Product Master UI module from S4 Business Thinking",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.3"
+  }
+}

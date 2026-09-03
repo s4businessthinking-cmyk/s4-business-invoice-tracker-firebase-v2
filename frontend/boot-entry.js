@@ -1,16 +1,16 @@
-﻿// Tiny entry — start splash BEFORE heavy Firebase/app modules load.
+﻿// Tiny entry - start splash BEFORE heavy Firebase/app modules load.
 // If CDN/app.js hangs, user still sees progress + failsafe hide.
 import { startSplash, hideSplash, setSplashStatus } from "./splash.js";
 import { initTheme } from "./theme.js";
 
 initTheme();
 startSplash("en");
-setSplashStatus("Loading modules…");
+setSplashStatus("Loading modules-");
 
 const failsafe = setTimeout(() => {
   const el = document.getElementById("s4Splash");
   if(el && !el.classList.contains("hidden")){
-    setSplashStatus("Still loading… check internet / Firebase CDN");
+    setSplashStatus("Still loading- check internet / Firebase CDN");
   }
 }, 8000);
 
@@ -20,7 +20,7 @@ const forceHide = setTimeout(() => {
   if(auth) auth.style.display = "flex";
 }, 20000);
 
-import("./boot.js?v=66")
+import("./boot.js?v=172")
   .then(() => {
     clearTimeout(failsafe);
     clearTimeout(forceHide);
@@ -36,6 +36,6 @@ import("./boot.js?v=66")
     if(auth) auth.style.display = "flex";
     const msg = document.getElementById("authMsg");
     if(msg){
-      msg.textContent = "App failed to load: " + detail.slice(0, 220) + " — Refresh after fixing, or clear site data if it persists.";
+      msg.textContent = "App failed to load: " + detail.slice(0, 220) + " - Refresh after fixing, or clear site data if it persists.";
     }
   });

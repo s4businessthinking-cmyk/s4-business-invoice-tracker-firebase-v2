@@ -109,41 +109,247 @@ export async function buildInvoicePdfBlob(inv, shop = {}){
   return doc.output("blob");
 }
 
-export async function buildStatementPdfBlob({ shop = {}, name, asOf, from, lines, closing }){
+export async function buildStatementPdfBlob({
+  shop = {}, name, asOf, from, lines, closing, customer, subFilter, lineMeta, odFrom,
+  periodNet, periodDebit, periodCredit, bySub, periodLines, periodLabel, showPeriodTxns
+}){
   const jsPDF = await ensureJsPdf();
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const cur = shop.currency || "AED";
-  const parts = [];
-  if(from) parts.push("From " + from);
-  parts.push("As of " + (asOf || ""));
-  parts.push("Closing " + moneyFmt(cur, closing));
-  addHeader(doc, shop.name, `Statement — ${name || ""}`, parts.join(" · "));
+  const c = customer || {};
+
+  // Shop brand strip
+  doc.setFillColor(34, 52, 74);
+  doc.rect(0, 0, 210, 22, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text(String(shop.name || "S4 Invoice Tracker"), 14, 10);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  const shopBits = [shop.phone, shop.email, shop.trn ? "TRN " + shop.trn : ""].filter(Boolean).join("  ·  ");
+  if(shopBits) doc.text(shopBits, 14, 17);
+  doc.setTextColor(0, 0, 0);
+
+  // Title
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text("CUSTOMER ACCOUNT STATEMENT", 14, 32);
+
+  // Customer details card (dynamic height)
+  let y = 36;
+  const leftMeta = [
+    c.code ? `Code: ${c.code}` : "",
+    c.contact ? `Contact: ${c.contact}` : "",
+    c.mobile ? `Mobile: ${c.mobile}` : "",
+    c.whatsapp && c.whatsapp !== c.mobile ? `WhatsApp: ${c.whatsapp}` : ""
+  ].filter(Boolean);
+  const rightMeta = [
+    c.trn ? `TRN: ${c.trn}` : "",
+    c.email ? `Email: ${c.email}` : "",
+    c.type ? `Type: ${c.type}` : "",
+    c.salesman ? `Salesman: ${c.salesman}` : ""
+  ].filter(Boolean);
+  const addrLines = c.addr ? doc.splitTextToSize("Address: " + c.addr, 174) : [];
+  const metaRows = Math.max(leftMeta.length, rightMeta.length, 1);
+  const cardH = 12 + metaRows * 4.2 + (addrLines.length ? addrLines.length * 4 + 2 : 0) + 4;
+  doc.setDrawColor(180, 190, 210);
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(14, y, 182, cardH, 2, 2, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  const partyTitle = subFilter ? `${name || ""}  ·  ${subFilter}` : (name || "");
+  doc.text(partyTitle, 18, y + 8);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(55, 65, 81);
+  let ly = y + 14;
+  leftMeta.forEach(line => { doc.text(line, 18, ly); ly += 4.2; });
+  let ry = y + 14;
+  rightMeta.forEach(line => { doc.text(line, 110, ry); ry += 4.2; });
+  if(addrLines.length){
+    doc.text(addrLines, 18, Math.max(ly, ry) + 1);
+  }
+  doc.setTextColor(0, 0, 0);
+
+  y = 36 + cardH + 4;
+  // Period strip (dates only — totals below table)
+  doc.setFillColor(238, 242, 255);
+  doc.roundedRect(14, y, 182, 12, 1.5, 1.5, "F");
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  const period = [
+    from ? `From ${from}` : null,
+    `As of ${asOf || ""}`
+  ].filter(Boolean).join("   ·   ");
+  doc.text(period, 18, y + 8);
+
+  const odColors = {
+    d30: [254, 249, 195],
+    d60: [255, 237, 213],
+    d90: [254, 215, 170],
+    d90p: [254, 202, 202]
+  };
+  const meta = lineMeta || [];
   const rows = (lines || []).map(r => [
-    r[0], r[1], r[2],
-    r[3] === "" || r[3] == null ? "" : moneyFmt(cur, r[3]),
+    r[0],
+    String(r[1] || "").replace(/\n/g, " | "),
+    r[2],
+    r[3] || "",
     r[4] === "" || r[4] == null ? "" : moneyFmt(cur, r[4]),
-    moneyFmt(cur, r[5])
+    r[5] === "" || r[5] == null ? "" : moneyFmt(cur, r[5]),
+    moneyFmt(cur, r[6]),
+    r[7] || ""
   ]);
+
   doc.autoTable({
-    startY: 36,
-    head: [["Date", "Reference", "Description", "Debit", "Credit", "Balance"]],
+    startY: y + 16,
+    head: [["Date", "Reference", "Description", "Sub-account", "Debit", "Credit", "Balance", "Overdue"]],
     body: rows,
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [34, 52, 74] }
+    styles: { fontSize: 7.5, cellPadding: 1.6, valign: "middle" },
+    headStyles: { fillColor: [34, 52, 74], textColor: 255, fontStyle: "bold" },
+    columnStyles: {
+      1: { cellWidth: 32 },
+      2: { cellWidth: 28 },
+      3: { cellWidth: 22 },
+      7: { halign: "center", fontStyle: "bold" }
+    },
+    didParseCell(data){
+      if(data.section !== "body") return;
+      const m = meta[data.row.index];
+      const bucket = m?.bucket;
+      if(bucket && odColors[bucket]){
+        data.cell.styles.fillColor = odColors[bucket];
+      }
+    }
   });
+
+  // Period totals + invoice breakdown (below table)
+  let sumY = (doc.lastAutoTable?.finalY || y + 16) + 10;
+  const pDebit = num(periodDebit);
+  const pCredit = num(periodCredit);
+  const pNet = periodNet != null && periodNet !== "" ? num(periodNet) : (pDebit - pCredit);
+  const pLines = periodLines || [];
+  const subMap = bySub || {};
+  const subKeys = Object.keys(subMap);
+  const netLabel = from ? "Net this period" : "Net up to AS OF";
+  const includeTxns = !!showPeriodTxns;
+  const drawBox = (topY, height)=>{
+    doc.setDrawColor(180, 190, 210);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, topY, 182, height, 2, 2, "FD");
+  };
+  const drawSummaryLine = (text, bold = false, rightAmt = null, indent = 18)=>{
+    if(sumY > 272){
+      doc.addPage();
+      sumY = 20;
+    }
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(bold ? 9.5 : 8.5);
+    doc.setTextColor(bold ? 0 : 55, bold ? 0 : 65, bold ? 0 : 81);
+    const wrapped = doc.splitTextToSize(String(text || ""), rightAmt == null ? 174 : 130);
+    doc.text(wrapped, indent, sumY);
+    if(rightAmt != null) doc.text(moneyFmt(cur, rightAmt), 188, sumY, { align: "right" });
+    sumY += wrapped.length * 4.2 + (bold ? 1.2 : 0.6);
+  };
+  doc.setDrawColor(180, 190, 210);
+  doc.line(14, sumY - 2, 196, sumY - 2);
+  sumY += 4;
+
+  // Period summary box
+  let boxTop = sumY;
+  sumY += 6;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(100, 100, 100);
+  doc.text("PERIOD SUMMARY", 18, sumY);
+  sumY += 5;
+  if(periodLabel) drawSummaryLine(`Period: ${periodLabel}`);
+  if(!from) drawSummaryLine(`Note: FROM date not set — all transactions up to ${asOf || ""} are included.`);
+  drawSummaryLine(`Invoices / charges: ${moneyFmt(cur, pDebit)}`);
+  drawSummaryLine(`Received / credits: ${moneyFmt(cur, pCredit)}`);
+  drawSummaryLine(`${netLabel}: ${moneyFmt(cur, pNet)}`, true);
+  drawBox(boxTop, sumY - boxTop + 3);
+  sumY += 8;
+
+  // Transactions box (optional) — one box per line
+  if(includeTxns && pLines.length){
+    boxTop = sumY;
+    sumY += 6;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.text("TRANSACTIONS IN THIS PERIOD", 18, sumY);
+    sumY += 5;
+    pLines.forEach(l=>{
+      const amt = num(l.debit) > 0 ? num(l.debit) : num(l.credit);
+      const refBits = [l.ref || "", l.manualNo ? `Manual: ${l.manualNo}` : "", l.computerNo ? `PC: ${l.computerNo}` : ""].filter(Boolean);
+      const subBit = l.subAccount ? ` · ${l.subAccount}` : "";
+      const txnTop = sumY - 1;
+      drawSummaryLine(`${l.date || ""} · ${refBits.join(" · ")} · ${l.desc || ""}${subBit}`, false, amt, 20);
+      doc.setDrawColor(200, 208, 220);
+      doc.roundedRect(16, txnTop, 178, sumY - txnTop + 1, 1.5, 1.5, "S");
+      sumY += 3;
+    });
+    drawBox(boxTop, sumY - boxTop + 2);
+    sumY += 8;
+  }
+
+  // Sub-account boxes
+  if(!subFilter && subKeys.length){
+    boxTop = sumY;
+    sumY += 6;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.text("SUB-ACCOUNT SUMMARY", 18, sumY);
+    sumY += 5;
+    subKeys.sort((a,b)=> a.localeCompare(b)).forEach(sk=>{
+      const x = subMap[sk];
+      const subTop = sumY - 1;
+      drawSummaryLine(sk, true, null, 20);
+      drawSummaryLine(`In ${moneyFmt(cur, x.debit)} · Out ${moneyFmt(cur, x.credit)} · Net ${moneyFmt(cur, x.net)}`, false, null, 20);
+      doc.setDrawColor(200, 208, 220);
+      doc.roundedRect(16, subTop, 178, sumY - subTop + 1, 1.5, 1.5, "S");
+      sumY += 3;
+    });
+    drawBox(boxTop, sumY - boxTop + 2);
+    sumY += 8;
+  }
+
+  // Closing balance box
+  boxTop = sumY;
+  sumY += 7;
+  drawSummaryLine(`Closing balance (as of ${asOf || ""}): ${moneyFmt(cur, closing)}`, true);
+  drawBox(boxTop, sumY - boxTop + 4);
+  sumY += 10;
+  doc.setTextColor(0, 0, 0);
+
+  // Legend
+  let legY = sumY + 4;
+  if(num(odFrom) > 0){
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(80);
+    doc.text(`Overdue highlight from ${odFrom}+ days  ·  Yellow 1–30  ·  Orange 31–60  ·  Deep 61–90  ·  Red 90+`, 14, legY);
+    doc.setTextColor(0);
+  }
   return doc.output("blob");
 }
 
-export async function buildReceiptPdfBlob(r, shop = {}){
+function num(n){ return Number(n) || 0; }
+
+export async function buildReceiptPdfBlob(r, shop = {}, { billRows = [] } = {}){
   const jsPDF = await ensureJsPdf();
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const cur = shop.currency || "AED";
   const status = String(r.status || "Posted");
   const isDead = /^(Cancelled|Voided|Bounced)$/i.test(status);
+  const collectedBy = r.collectedBy || r.createdBy || r.updatedBy || "";
   addHeader(
     doc,
     shop.name,
-    r.rvNo || "Receipt",
+    "Receipt Voucher " + (r.rvNo || ""),
     [r.customer, r.date, r.method].filter(Boolean).join(" · ")
   );
   let y = 36;
@@ -156,29 +362,58 @@ export async function buildReceiptPdfBlob(r, shop = {}){
     doc.text(status.toUpperCase(), 105, y + 8, { align: "center" });
     doc.setTextColor(0);
     y += 18;
-  }else{
-    y = 40;
   }
-  doc.setFontSize(11);
+  doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
   const lines = [
-    `Amount: ${moneyFmt(cur, r.amount)}`,
+    `Receipt No: ${r.rvNo || "—"}`,
+    `Date: ${r.date || "—"}`,
+    `Customer: ${r.customer || "—"}`,
+    collectedBy ? `Collected by: ${collectedBy}` : "",
+    `Mode: ${r.method || "Cash"}`,
+    `Amount received: ${moneyFmt(cur, r.amount)}`,
+    `Discount: ${moneyFmt(cur, r.discount || 0)}`,
     `Allocated: ${moneyFmt(cur, r.allocated)}`,
-    `Unallocated: ${moneyFmt(cur, r.unallocated)}`,
-    `Status: ${status}`,
-    `Ref: ${r.ref || r.chequeNo || "—"}`
-  ];
-  if(r.chequeNo) lines.push(`Cheque: ${r.chequeNo}${r.bank ? " · " + r.bank : ""}`);
-  if(r.discount) lines.push(`Discount: ${moneyFmt(cur, r.discount)}`);
-  if(isDead){
-    lines.push("");
-    lines.push("This receipt is not valid for payment / allocation.");
+    `Unallocated / advance: ${moneyFmt(cur, r.unallocated)}`,
+    `Status: ${status}`
+  ].filter(Boolean);
+  if(r.ref) lines.push(`Narration: ${r.ref}`);
+  if(r.chequeNo){
+    let chq = `Cheque: ${r.chequeNo}`;
+    if(r.bank) chq += ` · Bank: ${r.bank}`;
+    if(r.chequeDate) chq += ` · Dated: ${r.chequeDate}`;
+    if(r.pdcDate) chq += ` · PDC: ${r.pdcDate}`;
+    lines.push(chq);
   }
+  if(isDead) lines.push("This receipt is not valid for payment / allocation.");
   lines.forEach(line => {
-    if(line === ""){ y += 3; return; }
     doc.text(line, 14, y);
-    y += 7;
+    y += 6;
   });
+  const rows = (billRows || []).map(b=> [
+    b.invNo || "",
+    b.invDate || "",
+    moneyFmt(cur, b.billAmount),
+    moneyFmt(cur, b.received)
+  ]);
+  const totalBill = (billRows || []).reduce((s, b)=> s + (Number(b.billAmount) || 0), 0);
+  const totalRecv = (billRows || []).reduce((s, b)=> s + (Number(b.received) || 0), 0);
+  if(rows.length){
+    y += 4;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Bills Received Against", 14, y);
+    y += 2;
+    doc.autoTable({
+      startY: y + 2,
+      head: [["Bill No", "Bill Date", "Bill Amount", "Received Amt"]],
+      body: rows,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [45, 90, 142] },
+      foot: [["Total", "", moneyFmt(cur, totalBill), moneyFmt(cur, totalRecv)]],
+      footStyles: { fillColor: [220, 232, 245], textColor: [23, 32, 51], fontStyle: "bold" }
+    });
+  }
   return doc.output("blob");
 }
 
@@ -219,8 +454,8 @@ export async function downloadStatementPdf(opts){
   return shareOrDownloadPdf(`statement-${safe}.pdf`, blob, `Statement — ${opts.name}`);
 }
 
-export async function downloadReceiptPdf(r, shop){
-  const blob = await buildReceiptPdfBlob(r, shop);
+export async function downloadReceiptPdf(r, shop, opts = {}){
+  const blob = await buildReceiptPdfBlob(r, shop, opts);
   return shareOrDownloadPdf(`${r.rvNo || "receipt"}.pdf`, blob, r.rvNo);
 }
 

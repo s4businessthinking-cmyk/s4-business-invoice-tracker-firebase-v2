@@ -64,7 +64,8 @@ export async function loadMember(uid){
   if(!snap.exists()) return null;
   const data = snap.data();
   if(data.status !== "active") return null;
-  currentMember = { uid, ...data };
+  const role = String(data.role || "staff").trim().toLowerCase();
+  currentMember = { uid, ...data, role };
   return currentMember;
 }
 
@@ -95,6 +96,7 @@ async function completePendingSetup(user){
         name: String(pending.shopName || "").trim(),
         addr: String(pending.addr || "").trim(),
         phone: String(pending.phone || "").trim(),
+        operatingMode: "full",
         ownerUid: user.uid,
         ownerEmail: em,
         createdAt: pending.createdAt || Date.now()
@@ -482,6 +484,11 @@ export const DEFAULT_STAFF_PERMISSIONS = {
   allocation: true,
   cheques: true,
   discounts: true,
+  suppliers: true,
+  warehouses: true,
+  inventory: true,
+  "purchase-invoices": true,
+  workshop: true,
   reports: true,
   communication: true,
   users: false,
@@ -505,6 +512,11 @@ export const PERMISSION_LABELS = [
   ["allocation", "Allocation"],
   ["cheques", "Cheque / PDC"],
   ["discounts", "Discounts"],
+  ["suppliers", "Supplier Master"],
+  ["warehouses", "Warehouses"],
+  ["inventory", "Stock & Ledger"],
+  ["purchase-invoices", "Purchase Invoice"],
+  ["workshop", "Workshop / Job Cards"],
   ["reports", "Reports"],
   ["communication", "WhatsApp"],
   ["users", "Users & Roles"],
@@ -513,17 +525,20 @@ export const PERMISSION_LABELS = [
 ];
 
 export function resolvePermissions(member){
-  if(!member) return { ...DEFAULT_STAFF_PERMISSIONS };
-  if(member.role === "owner"){
+  const m = member || currentMember;
+  if(!m) return { ...DEFAULT_STAFF_PERMISSIONS };
+  if(m.role === "owner" && m.status === "active"){
     const all = {};
     PERMISSION_LABELS.forEach(([k])=> { all[k] = true; });
     return all;
   }
-  return { ...DEFAULT_STAFF_PERMISSIONS, ...(member.permissions || {}) };
+  return { ...DEFAULT_STAFF_PERMISSIONS, ...(m.permissions || {}) };
 }
 
 export function memberCan(member, pageId){
-  return !!resolvePermissions(member)[pageId];
+  const m = member || currentMember;
+  if(m?.role === "owner" && m?.status === "active") return true;
+  return !!resolvePermissions(m)[pageId];
 }
 
 export async function updateStaffPermissions(staffUid, permissions){

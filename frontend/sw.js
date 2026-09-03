@@ -1,8 +1,8 @@
-﻿// CORE_ASSETS — keep every frontend/*.js module listed (except sw.js itself).
-// In v1.0.4, license.js and doc-export.js were missing here → blank screen on
+﻿// CORE_ASSETS - keep every frontend/*.js module listed (except sw.js itself).
+// In v1.0.4, license.js and doc-export.js were missing here ? blank screen on
 // second offline launch (fixed in v1.0.6). Run: node scripts/check-sw-cache.js
 // before cutting a release (see RELEASE.md).
-const CACHE='s4-invoice-v66-high-fixes';
+const CACHE='s4-invoice-v172-stmt-txn-boxes';
 const CORE_ASSETS=[
   './',
   './index.html',
@@ -28,7 +28,19 @@ const CORE_ASSETS=[
   './auth.js',
   './staff.js',
   './activity-log.js',
+  './foundation.js',
+  './masters.js',
+  './inventory.js',
   './reports.js',
+  './purchase.js',
+  './grn.js',
+  './po.js',
+  './purchase-requisition.js',
+  './purchase-return.js',
+  './vendor-payment.js',
+  './workshop.js',
+  './product-master-bridge.js',
+  './vendor/product-master/product-master.js',
   './splash.js',
   './branding/logo.png',
   './branding/logo-full.png',
@@ -54,12 +66,12 @@ self.addEventListener('activate', e=>{
 });
 self.addEventListener('fetch', e=>{
   if(e.request.method!=='GET') return;
-  // Never cache Firebase/Google network calls — those must always hit
+  // Never cache Firebase/Google network calls - those must always hit
   // the network (or fail fast so Firestore's own offline cache kicks in).
   if(e.request.url.includes('googleapis.com') || e.request.url.includes('gstatic.com')) return;
   e.respondWith(
     fetch(e.request).catch(()=>
-      // ignoreSearch: ./app.js?v=66 must hit precached ./app.js (URL-exact match fails offline)
+      // ignoreSearch: ./app.js?v=67 must hit precached ./app.js (URL-exact match fails offline)
       caches.match(e.request, { ignoreSearch: true })
     )
   );

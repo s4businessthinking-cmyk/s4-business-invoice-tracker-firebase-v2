@@ -15,10 +15,10 @@ import {
   initAuthModule, tryRestoreSession, ownerSetupShop, loginWithEmail,
   staffAcceptInvite, resendVerificationEmail, logoutUser, sendPasswordReset,
   getCurrentMember, authErrorText
-} from "./auth.js";
+} from "./auth.js?v=145";
 import { initActivityLog } from "./activity-log.js";
 import { startSplash, hideSplash, setSplashStatus } from "./splash.js";
-import { startTracker, stopTracker } from "./app.js?v=66";
+import { startTracker, stopTracker } from "./app.js?v=172";
 import { getAccessStatus } from "./license.js";
 
 const isDesktopApp = typeof window !== "undefined" && !!window.s4Desktop;
@@ -64,7 +64,7 @@ function showFirebaseConfigScreen(){
   const cfg = document.getElementById("configFields");
   cfg.classList.add("open");
   cfg.style.display = "block";
-  authSubtitle.textContent = "Step 1 — Connect this shop’s Firebase";
+  authSubtitle.textContent = "Step 1 - Connect this shop-s Firebase";
   showAuthMessage("");
 }
 
@@ -145,7 +145,7 @@ async function enterAppFromShopDoc(data){
   try{
     access = await withTimeout(getAccessStatus(), 5000, "LICENSE_TIMEOUT");
   }catch(_){
-    access = { allowed: false, reason: "LICENSE_VERIFY_FAILED", deviceFingerprint: "", maskedFingerprint: "—" };
+    access = { allowed: false, reason: "LICENSE_VERIFY_FAILED", deviceFingerprint: "", maskedFingerprint: "-" };
   }
   hideAuth();
   startTracker({ db, shop: data, member: getCurrentMember(), access });
@@ -173,8 +173,8 @@ async function startAuth(){
       showFirebaseConfigScreen();
       return;
     }
-    setSplashStatus("Connecting…");
-    // Keep the same promise — a timeout must neither abandon restore nor flash a false error.
+    setSplashStatus("Connecting-");
+    // Keep the same promise - a timeout must neither abandon restore nor flash a false error.
     const restorePromise = restoreSession();
     restorePromise.catch(()=>{});
     let restored = false;
@@ -183,19 +183,19 @@ async function startAuth(){
     }catch(e){
       if(String(e?.message || e) !== "AUTH_TIMEOUT") throw e;
       // restoreSession() has no internal timeout and can hang forever, so never keep
-      // waiting here — that leaves an auth card with every field hidden. Show the login
+      // waiting here - that leaves an auth card with every field hidden. Show the login
       // form; if the in-flight restore later wins it calls hideAuth() on its own.
       await hideSplash(lang);
       showLogin();
-      authSubtitle.textContent = "Still signing you in… you can also log in manually";
+      authSubtitle.textContent = "Still signing you in- you can also log in manually";
       return;
     }
     if(restored){
       await hideSplash(lang);
       return;
     }
-    setSplashStatus("Almost ready…");
-    // shop/info requires signed-in read — cannot probe existence before login.
+    setSplashStatus("Almost ready-");
+    // shop/info requires signed-in read - cannot probe existence before login.
     await hideSplash(lang);
     showLogin();
   }catch{
@@ -214,7 +214,7 @@ async function bootApp(){
     hideSplash(lang).catch(()=>{});
   }, 15000);
   try{
-    setSplashStatus("Starting…");
+    setSplashStatus("Starting-");
     // Start 15-day trial clock on first open (does not block login)
     try{
       await withTimeout(getAccessStatus(), 5000, "LICENSE_TIMEOUT");
@@ -241,7 +241,7 @@ async function doSaveInviteCode(){
   try{
     const { config, inviteEmail, inviteId } = parseInviteCode(document.getElementById("inviteCodePaste")?.value);
     await saveFirebaseConfig(config);
-    showAuthMessage("Invite code accepted. Reloading…");
+    showAuthMessage("Invite code accepted. Reloading-");
     try{
       if(inviteEmail) sessionStorage.setItem("s4_pending_invite_email", inviteEmail);
       if(inviteId) sessionStorage.setItem("s4_pending_invite_id", inviteId);
@@ -261,7 +261,7 @@ async function doSaveFirebaseConfig(){
   try{
     const cfg = parseFirebaseConfigPaste(document.getElementById("configPaste").value);
     await saveFirebaseConfig(cfg);
-    showAuthMessage("Firebase connected. Reloading…");
+    showAuthMessage("Firebase connected. Reloading-");
     setTimeout(()=> location.reload(), 500);
   }catch(e){
     const map = {
@@ -292,7 +292,7 @@ async function doSetup(){
   if(p.length < 6) return showAuthMessage(authErrorText("PASSWORD_SHORT", lang));
   if(p !== setupPassword2.value) return showAuthMessage("Passwords do not match.");
   try{
-    showAuthMessage("Creating account…");
+    showAuthMessage("Creating account-");
     _pendingVerifyPassword = p;
     await ownerSetupShop({ email, password: p, shopName: name, addr, phone, ownerDisplayName: ownerName || name });
     showVerifyScreen(email, `Account created. A verification email was sent to ${email}. Click the link, then Login.`);
@@ -337,7 +337,7 @@ async function doStaffSignup(){
   if(p.length < 6) return showAuthMessage(authErrorText("PASSWORD_SHORT", lang));
   if(p !== staffPassword2.value) return showAuthMessage("Passwords do not match.");
   try{
-    showAuthMessage("Creating account…");
+    showAuthMessage("Creating account-");
     _pendingVerifyPassword = p;
     await staffAcceptInvite({
       email,
@@ -360,7 +360,7 @@ async function doResendVerify(){
     await resendVerificationEmail({ email: _pendingVerifyEmail, password: _pendingVerifyPassword });
     showAuthMessage(`Verification email re-sent to ${_pendingVerifyEmail}.`);
   }catch(e){
-    if((e.code || e.message) === "ALREADY_VERIFIED") showAuthMessage("Already verified — you can Login now.");
+    if((e.code || e.message) === "ALREADY_VERIFIED") showAuthMessage("Already verified - you can Login now.");
     else showAuthMessage(authErrorText(e.code || e.message, lang));
   }
 }
@@ -385,7 +385,7 @@ async function doLogout(){
 
 async function doTryOwnerSetup(){
   if(!requireFirebaseReady()) return;
-  // Cannot read shop/info while signed out — existence is enforced in ownerSetupShop after Auth.
+  // Cannot read shop/info while signed out - existence is enforced in ownerSetupShop after Auth.
   showSetup();
 }
 
@@ -425,5 +425,5 @@ if(document.readyState === "loading"){
 }
 
 if(!isDesktopApp && "serviceWorker" in navigator){
-  window.addEventListener("load", ()=> navigator.serviceWorker.register("./sw.js?v=66").catch(()=>{}));
+  window.addEventListener("load", ()=> navigator.serviceWorker.register("./sw.js?v=172").catch(()=>{}));
 }

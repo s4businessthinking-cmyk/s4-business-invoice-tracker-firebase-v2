@@ -10,7 +10,7 @@ Ensures every `frontend/*.js` module (except `sw.js`) is listed in `frontend/sw.
 
 See GitHub Releases for the current version assets (exe / apk / PWA / complete zip).
 
-**Current:** v1.0.10 — money-path guards, desktop offline cache, archive discounts, unique serials.
+**Current:** v1.0.11 — Workshop ERP foundation, statements (period summary, PDF boxes, txn toggle), atomic branch numbering, purchase/inventory/workshop modules.
 
 
 ## Same account on PC + mobile (100% sync)

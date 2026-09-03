@@ -8,29 +8,115 @@ import {
   isOwnerRole, getCurrentMember, authErrorText,
   resolvePermissions, memberCan, updateStaffPermissions,
   PERMISSION_LABELS, DEFAULT_STAFF_PERMISSIONS
-} from "./auth.js";
+} from "./auth.js?v=139";
 import {
   backupToDrive, listBackups, isDriveBackupConfigured,
   getDriveClientId, saveDriveClientId, loadBackupHistory, recordBackupHistory, formatBytes
 } from "./drive-backup.js";
 import { buildBackupSnapshot, saveLocalBackup, restoreLocalBackup } from "./local-backup.js";
 import { loadSavedFirebaseConfig, buildInviteCode } from "./firebase-config.js";
-import { printHtmlDocument, downloadHtmlDocument, tableFromRows } from "./doc-export.js?v=66";
+import { printHtmlDocument, downloadHtmlDocument, tableFromRows } from "./doc-export.js?v=68";
 import {
   downloadInvoicePdf, downloadStatementPdf, downloadReceiptPdf, downloadReminderPdf, downloadTablePdf
-} from "./pdf-export.js?v=66";
-import { deliverText, openExternalUrl, deliveryToast, isAndroidNative } from "./file-delivery.js?v=66";
+} from "./pdf-export.js?v=69";
+import { deliverText, openExternalUrl, deliveryToast, isAndroidNative } from "./file-delivery.js?v=67";
 import { buildReportBundle, renderReportHtml, invoicesToCsv, downloadTextFile } from "./reports.js";
 import {
   getAccessStatus, activateLicense, licenseErrorText, maskFingerprint
 } from "./license.js";
 import { setMemberDisplayName, getStaffName } from "./staff.js";
+import {
+  setProductMasterContext, mountProductMasterPage, refreshProductMasterPage, unmountProductMasterPage,
+  openProductMasterDrawer, closeProductMasterDrawer,
+  openProductSearchDrawer, closeProductSearchDrawer
+} from "./product-master-bridge.js?v=139";
+import {
+  initPurchase, wirePurchaseUi, preparePurchaseModal,
+  onSuppliersLoaded, onPurchaseInvoicesLoaded,
+  renderSuppliers, renderPurchaseInvoices, refreshSupplierSelects,
+  filterSuppliersForCombo, pickSupplierCombo, getSuppliers, resetSupplier as resetSupplierForm,
+  syncPurchaseStockLocations, findProductForLine, formatStockLocation
+} from "./purchase.js?v=161";
+import {
+  initGrn, wireGrnUi, prepareGrnModal, onGoodsReceiptsLoaded, renderGoodsReceipts,
+  refreshGrnSupplierSelect, syncGrnStockLocations, getGoodsReceipts, linkGrnToPurchase
+} from "./grn.js?v=139";
+import {
+  initPo, wirePoUi, preparePoModal, preparePoFromPrq, onPurchaseOrdersLoaded, renderPurchaseOrders,
+  refreshPoSupplierSelect
+} from "./po.js?v=139";
+import {
+  initPurchaseRequisition, wirePrqUi, preparePrqModal, onPurchaseRequisitionsLoaded,
+  renderPurchaseRequisitions
+} from "./purchase-requisition.js?v=139";
+import {
+  initVendorPayment, wireVendorPaymentUi, prepareVendorPaymentModal,
+  onVendorPaymentsLoaded, renderVendorPayments, refreshVpSupplierSelect
+} from "./vendor-payment.js?v=144";
+import {
+  initPurchaseReturn, wirePurchaseReturnUi, preparePurchaseReturnModal,
+  onPurchaseReturnsLoaded, renderPurchaseReturns, refreshPrtSupplierSelect, syncPrtStockLocations
+} from "./purchase-return.js?v=139";
+import {
+  initFoundation, setFoundationShop, renderSidebarNav, allNavPageIds,
+  isModuleAllowedInMode, isFullMode, isTotalMode, getOperatingMode,
+  roleLabel, ensureDefaultBranch, subscribeBranches, stopBranchSubscription,
+  setCurrentBranchId, getCurrentBranch, getCurrentBranchId, getBranches,
+  saveBranch, branchAuditContext, OPERATING_MODE, reserveDocNumber
+} from "./foundation.js?v=139";
+import {
+  initMasters, masterMeta, masterCreateMeta, subscribeWarehouses, stopWarehouseSubscription,
+  getWarehouses, saveWarehouseRecord, fillWarehouseSelect, activeWarehouseCount,
+  fillWarehouseSelectForBranch
+} from "./masters.js?v=139";
+import {
+  initInventory, subscribeStockBalances, subscribeStockLedger, stopInventorySubscriptions,
+  getStockBalances, getStockLedger, postStockAdjustment, applySalesStockDelta,
+  applyCreditReturnStockDelta, validateStockForLines, catalogMatchedLines, inventoryErrorText,
+  postStockTransfer, getBalance, postStockCount, normalizeWarehouseId,
+  createBranchStockRequest, approveBranchStockRequest, rejectBranchStockRequest
+} from "./inventory.js?v=150";
+import {
+  initWorkshop, wireWorkshopUi, prepareJobCardModal, onJobCardsLoaded, renderJobCards,
+  preparePartsIssueModal, onPartsIssuesLoaded, renderPartsIssues,
+  getJobCards, getPartsIssues, linkJobCardToInvoice, unlinkJobCardInvoice
+} from "./workshop.js?v=154";
+
+const FOUNDATION_PLACEHOLDER_PAGES = new Set([
+  "accounts", "vat", "hr", "expenses", "assets"
+]);
+
+function canAccessPage(id){
+  if(!id) return false;
+  if(!isModuleAllowedInMode(id, shop)) return false;
+  if(FOUNDATION_PLACEHOLDER_PAGES.has(id)) return isFullMode(shop);
+  return memberCan(activeMember(), id);
+}
 
 const MODAL_PERM = {
   customerModal: "customers",
   vehicleModal: "vehicles",
   productModal: "product-catalog",
+  productMasterModal: "product-catalog",
   serviceModal: "service-catalog",
+  supplierModal: "suppliers",
+  warehouseModal: "warehouses",
+  stockAdjModal: "inventory",
+  stockTransferModal: "inventory",
+  stockCountModal: "inventory",
+  branchRequestModal: "inventory",
+  grnModal: "purchase-invoices",
+  prqModal: "purchase-invoices",
+  poModal: "purchase-invoices",
+  vendorPaymentModal: "purchase-invoices",
+  purchaseReturnModal: "purchase-invoices",
+  purchaseModal: "purchase-invoices",
+  jobCardModal: "workshop",
+  partsIssueModal: "workshop",
+  piHistoryModal: "purchase-invoices",
+  piProductSearchModal: "product-catalog",
+  piSelectProductModal: "product-catalog",
+  piInvoiceSearchModal: "purchase-invoices",
   invoiceModal: "invoices",
   receiptModal: "receipts",
   cnModal: "credit-notes",
@@ -54,28 +140,129 @@ let creditNotes = [];
 let debitNotes = [];
 let cheques = [];
 let discounts = [];
+let _invMoneyCache = null;
+let stockTransfers = [];
+let stockCounts = [];
+let branchStockRequests = [];
+let _stockCountLines = [];
 let customerFilter = "";
 let invoiceFilter = "";
 let receiptFilter = "";
 let uiBound = false;
 const INVOICE_WIP_KEY = "s4_invoice_wip_v1";
 const INVOICE_MODE_KEY = "s4_invoice_entry_mode_v1";
+const INVOICE_BILLING_STYLE_KEY = "s4_invoice_billing_style_v1";
 let _invoiceWipTimer = null;
 let _editingExistingInvoice = false;
 // Guards a double-click on Post/Draft creating the same invoice twice, since a new
 // invoice has no invId until its addDoc resolves.
 let _invoiceSaving = false;
 let _receiptSaving = false;
+let _editingExistingReceipt = false;
+let _rvBillLines = [];
 let _allocSaving = false;
 let _cnAllocSaving = false;
 let _invoiceLineItems = [];
+let _customerSubAccounts = [];
+let _invEntryDefaultDiscPct = 0;
+let _invRestoreJobIssuedQty = 0;
+let _invRestoreLineType = "";
 let _invoiceEntryModeMem = null;
-/** Temporary mode while editing one invoice (WIP) — must NOT overwrite shop preference */
+let _invoiceBillingStyleMem = null;
+/** Temporary mode while editing one invoice (WIP) - must NOT overwrite shop preference */
 let _formInvoiceMode = null;
 let _currentSettingsView = "hub";
 
 function col(name){ return collection(db, name); }
 function today(){ return new Date().toISOString().slice(0,10); }
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+function monthRangeIso(year, monthIndex0){
+  const y = num(year) || new Date().getFullYear();
+  const mi = Math.max(0, Math.min(11, num(monthIndex0)));
+  const mm = String(mi + 1).padStart(2, "0");
+  const lastDay = new Date(y, mi + 1, 0).getDate();
+  return {
+    from: `${y}-${mm}-01`,
+    to: `${y}-${mm}-${String(lastDay).padStart(2, "0")}`
+  };
+}
+function initLedgerPeriodControls(){
+  const y = document.getElementById("ledgerPeriodYear");
+  const m = document.getElementById("ledgerPeriodMonth");
+  if(y && !y.value) y.value = new Date().getFullYear();
+  if(m && (m.value === "" || m.selectedIndex < 0)) m.value = String(new Date().getMonth());
+}
+function initStmtPeriodControls(){
+  const y = document.getElementById("stmtPeriodYear");
+  const m = document.getElementById("stmtPeriodMonth");
+  if(y && !y.value) y.value = new Date().getFullYear();
+  if(m && (m.value === "" || m.selectedIndex < 0)) m.value = String(new Date().getMonth());
+}
+function syncStmtPeriodUi(){
+  const mode = document.getElementById("stmtPeriodMode")?.value || "custom";
+  document.querySelectorAll(".stmt-period-monthly").forEach(el=>{
+    el.style.display = mode === "monthly" ? "" : "none";
+  });
+  document.querySelectorAll(".stmt-period-custom").forEach(el=>{
+    el.style.display = mode === "custom" ? "" : "none";
+  });
+}
+function syncLedgerPeriodUi(){
+  const mode = document.getElementById("ledgerPeriodMode")?.value || "monthly";
+  document.querySelectorAll(".ledger-period-monthly").forEach(el=>{
+    el.style.display = mode === "monthly" ? "" : "none";
+  });
+  document.querySelectorAll(".ledger-period-custom").forEach(el=>{
+    el.style.display = mode === "custom" ? "" : "none";
+  });
+}
+function readStmtPeriodBounds(){
+  initStmtPeriodControls();
+  const mode = document.getElementById("stmtPeriodMode")?.value || "custom";
+  if(mode === "monthly"){
+    const year = num(document.getElementById("stmtPeriodYear")?.value) || new Date().getFullYear();
+    const monthIndex0 = num(document.getElementById("stmtPeriodMonth")?.value);
+    const range = monthRangeIso(year, monthIndex0);
+    return { mode, year, monthIndex0, from: range.from, asOf: range.to };
+  }
+  const asOfEl = document.getElementById("stmtAsOf");
+  if(asOfEl && !asOfEl.value) asOfEl.value = today();
+  return {
+    mode: "custom",
+    from: document.getElementById("stmtFrom")?.value || "",
+    asOf: asOfEl?.value || today()
+  };
+}
+function readLedgerPeriodBounds(){
+  initLedgerPeriodControls();
+  const mode = document.getElementById("ledgerPeriodMode")?.value || "monthly";
+  if(mode === "monthly"){
+    const year = num(document.getElementById("ledgerPeriodYear")?.value) || new Date().getFullYear();
+    const monthIndex0 = num(document.getElementById("ledgerPeriodMonth")?.value);
+    const range = monthRangeIso(year, monthIndex0);
+    return { mode, year, monthIndex0, from: range.from, to: range.to };
+  }
+  return {
+    mode: "custom",
+    from: document.getElementById("ledgerFrom")?.value || "",
+    to: document.getElementById("ledgerTo")?.value || ""
+  };
+}
+function customerPeriodLabel(bounds, kind = "ledger"){
+  if(bounds.mode === "monthly"){
+    return `${MONTH_NAMES[bounds.monthIndex0]} ${bounds.year}`;
+  }
+  if(kind === "stmt"){
+    const bits = [];
+    if(bounds.from) bits.push("From " + bounds.from);
+    if(bounds.asOf) bits.push("As of " + bounds.asOf);
+    return bits.join(" — ") || "All dates";
+  }
+  const bits = [];
+  if(bounds.from) bits.push("From " + bounds.from);
+  if(bounds.to) bits.push("To " + bounds.to);
+  return bits.join(" — ") || "All dates";
+}
 function num(v){ return Number(v) || 0; }
 function esc(s){ return String(s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
 function cur(){ return sanitizeCurrency(shop.currency); }
@@ -84,14 +271,22 @@ function sanitizeCurrency(v){
   return s || "AED";
 }
 function money(n){ return cur() + " " + num(n).toLocaleString("en-AE", { maximumFractionDigits: 2 }); }
+function ledgerCell(v){ return v && num(v) > 0.009 ? money(v) : ""; }
 function who(){ return member?.displayName || getStaffName() || "User"; }
+function activeMember(){
+  return member || getCurrentMember();
+}
 function requireModule(pageId){
-  if(memberCan(member, pageId)) return true;
+  if(!isModuleAllowedInMode(pageId, shop)){
+    toast("Not available in TOTAL MODE");
+    return false;
+  }
+  if(memberCan(activeMember(), pageId)) return true;
   toast("You do not have permission for this action.");
   return false;
 }
 function requireAnyModule(pageIds, msg){
-  if(pageIds.some(id=> memberCan(member, id))) return true;
+  if(pageIds.some(id=> memberCan(activeMember(), id))) return true;
   toast(msg || "You do not have permission for this action.");
   return false;
 }
@@ -102,6 +297,232 @@ function toast(msg){
   clearTimeout(window._tt);
   window._tt = setTimeout(()=> t.style.display = "none", 2500);
 }
+function showDupAlert(msg){
+  const overlay = document.getElementById("dupAlertOverlay");
+  const p = document.getElementById("dupAlertMsg");
+  if(!overlay || !p){ toast(msg); return; }
+  p.textContent = msg;
+  overlay.hidden = false;
+}
+function hideDupAlert(){
+  const overlay = document.getElementById("dupAlertOverlay");
+  if(overlay) overlay.hidden = true;
+}
+let _lastInvoiceDupKey = "";
+let _invoiceDupTimer = null;
+
+function invoiceDupContext(){
+  if(getShopInvoiceBillingStyle() === "monthly") syncInvDateFromBillingPeriod({ recalcDue: false });
+  return {
+    customer: invCustomer?.value || "",
+    invDateStr: String(invDate?.value || "").slice(0, 10),
+    manualNo: (invManual?.value || "").trim(),
+    computerNo: (document.getElementById("invComputer")?.value || "").trim(),
+    invSub: (document.getElementById("invSubAccount")?.value || "").trim(),
+    excludeId: invId?.value || ""
+  };
+}
+
+function invoiceDupPeriodLabel(ctx){
+  if(getShopInvoiceBillingStyle() === "monthly"){
+    const mk = String(ctx.invDateStr || "").slice(0, 7);
+    const y = mk.slice(0, 4);
+    const mi = num(mk.slice(5, 7)) - 1;
+    if(y && mi >= 0 && mi <= 11) return `${MONTH_NAMES[mi]} ${y}`;
+  }
+  return ctx.invDateStr;
+}
+
+function findInvoiceDuplicate(ctx = invoiceDupContext()){
+  const { customer, invDateStr, manualNo, computerNo, excludeId } = ctx;
+  if(!customer || !invDateStr) return null;
+  if(!manualNo && !computerNo) return null;
+  return findDuplicatePartyDocInvoice({
+    rows: invoices,
+    excludeId,
+    date: invDateStr,
+    party: customer,
+    partyField: "customer",
+    dateField: "invDate",
+    dateGranularity: getShopInvoiceBillingStyle() === "monthly" ? "month" : "day",
+    numbers: [
+      { label: "Manual Invoice No.", value: manualNo, field: "manualNo" },
+      { label: "Computer Invoice No.", value: computerNo, field: "computerNo" }
+    ]
+  });
+}
+
+function formatInvoiceDupMessage(dupDoc, ctx){
+  const existingSub = String(dupDoc.row.subAccount || "").trim();
+  const subBit = existingSub ? `\nExisting sub-account on file: ${existingSub}` : "";
+  const period = invoiceDupPeriodLabel(ctx);
+  const periodWord = getShopInvoiceBillingStyle() === "monthly" ? "month" : "date";
+  return (
+    `${dupDoc.label} "${dupDoc.value}" is already saved for ${ctx.customer} for ${period}.${subBit}\n\n` +
+    `Existing invoice: ${dupDoc.row.invNo}\n\n` +
+    `Duplicate is not allowed (same customer, ${periodWord}, and invoice number). Sub-account is optional and does not allow a second copy. Change the number or open the existing invoice.`
+  );
+}
+
+function refreshInvoiceDuplicateUi({ showPopup = false } = {}){
+  const ctx = invoiceDupContext();
+  const dup = findInvoiceDuplicate(ctx);
+  const manualEl = invManual;
+  const computerEl = document.getElementById("invComputer");
+  const banner = document.getElementById("invDupBanner");
+  const bannerField = document.getElementById("invDupBannerField");
+  manualEl?.classList.toggle("field-dup-warn", !!(dup && dup.field === "manualNo"));
+  computerEl?.classList.toggle("field-dup-warn", !!(dup && dup.field === "computerNo"));
+  if(banner && bannerField){
+    if(dup){
+      bannerField.hidden = false;
+      banner.textContent =
+        `${dup.label} "${dup.value}" already exists on ${dup.row.invNo} (${invoiceDupPeriodLabel(ctx)}). Duplicate not allowed.`;
+    }else{
+      bannerField.hidden = true;
+      banner.textContent = "";
+    }
+  }
+  if(dup && showPopup){
+    const key = `${dup.row.id}|${dup.field}|${dup.value}|${ctx.customer}|${ctx.invDateStr}`;
+    if(key !== _lastInvoiceDupKey){
+      _lastInvoiceDupKey = key;
+      showDupAlert(formatInvoiceDupMessage(dup, ctx));
+    }
+  }
+  if(!dup) _lastInvoiceDupKey = "";
+  return dup;
+}
+
+function queueInvoiceDuplicateCheck(showPopup = false){
+  clearTimeout(_invoiceDupTimer);
+  _invoiceDupTimer = setTimeout(()=> refreshInvoiceDuplicateUi({ showPopup }), showPopup ? 0 : 350);
+}
+function ucText(v){
+  return String(v ?? "").trim().toUpperCase();
+}
+const UPPER_SKIP_TYPES = new Set(["email", "password", "number", "date", "datetime-local", "file", "hidden", "search"]);
+const UPPER_SKIP_IDS = new Set([
+  "globalSearch", "customerSearch", "vehicleSearch", "productSearch", "serviceSearch",
+  "invoiceSearch", "receiptSearch", "driveClientIdInput", "loginEmail", "setupEmail",
+  "staffEmail", "inviteEmail", "cEmail", "configPaste", "inviteCodePaste", "settingsLicensePaste"
+]);
+function shouldAutoUppercase(el){
+  if(!el || el.readOnly || el.disabled) return false;
+  const tag = el.tagName;
+  if(tag !== "INPUT" && tag !== "TEXTAREA") return false;
+  if(el.closest("#authOverlay, #licenseGateOverlay")) return false;
+  if(!el.closest("#app")) return false;
+  const type = String(el.type || "text").toLowerCase();
+  if(UPPER_SKIP_TYPES.has(type)) return false;
+  if(el.id && UPPER_SKIP_IDS.has(el.id)) return false;
+  if(el.classList.contains("search") || el.dataset.noUpper !== undefined) return false;
+  if(el.closest(".pw-wrap")) return false;
+  return true;
+}
+function applyAutoUppercase(el){
+  if(!shouldAutoUppercase(el)) return;
+  const val = el.value;
+  const upper = val.toUpperCase();
+  if(val === upper) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  el.value = upper;
+  if(start != null && end != null){
+    try{ el.setSelectionRange(start, end); }catch(_){}
+  }
+}
+function wireAutoUppercase(){
+  if(window._s4UpperWired) return;
+  window._s4UpperWired = true;
+  const root = document.getElementById("app");
+  if(!root) return;
+  root.addEventListener("input", e=> applyAutoUppercase(e.target));
+  root.addEventListener("paste", e=>{
+    requestAnimationFrame(()=> applyAutoUppercase(e.target));
+  });
+}
+
+function isEnterTabField(el){
+  if(!el || el.disabled) return false;
+  const type = String(el.type || "").toLowerCase();
+  if(["hidden","file","button","submit","reset","checkbox","radio","image"].includes(type)) return false;
+  if(el.readOnly) return false;
+  if(el.hidden || el.getAttribute("aria-hidden") === "true") return false;
+  if(el.classList.contains("cust-combo-native") || el.classList.contains("inv-combo-native")) return false;
+  if(el.classList.contains("search") || el.dataset.enterSkip !== undefined) return false;
+  if(el.closest("[hidden], .toolbar")) return false;
+  const st = window.getComputedStyle(el);
+  if(st.display === "none" || st.visibility === "hidden") return false;
+  const box = el.getBoundingClientRect();
+  if(box.width < 2 && box.height < 2) return false;
+  return true;
+}
+
+function enterTabRoot(el){
+  if(!el?.closest) return null;
+  if(el.closest("#authOverlay, #licenseGateOverlay, #searchOverlay, #s4Splash")) return null;
+  const drawer = el.closest(".drawer.open");
+  if(drawer) return drawer;
+  if(el.classList.contains("search") || el.closest(".toolbar")) return null;
+  const page = el.closest(".page.active");
+  if(!page) return null;
+  if(!el.closest(".form-grid, .settings-sub, .erp-legacy-body, .inv-legacy-body")) return null;
+  return page;
+}
+
+function enterTabStops(root){
+  const fields = [...root.querySelectorAll("input, select, textarea")].filter(isEnterTabField);
+  const saves = [...root.querySelectorAll(".modal-foot .btn.primary, .pi-actions .btn.primary")]
+    .filter(b=> !b.hidden && !b.disabled && b.getAttribute("aria-hidden") !== "true");
+  if(saves.length) fields.push(saves[saves.length - 1]);
+  return fields;
+}
+
+function focusEnterTabStop(el){
+  if(!el) return;
+  el.focus();
+  if(el.tagName === "INPUT" && typeof el.select === "function"){
+    const type = String(el.type || "text").toLowerCase();
+    if(!["date","datetime-local","color","range","file","checkbox","radio"].includes(type)){
+      try{ el.select(); }catch(_){}
+    }
+  }
+}
+
+function currentEnterTabIndex(stops, el){
+  const direct = stops.indexOf(el);
+  if(direct >= 0) return direct;
+  const wrap = el.closest?.(".cust-combo, .inv-combo, .field, .field-with-btn");
+  if(!wrap) return -1;
+  return stops.findIndex(s=> wrap.contains(s));
+}
+
+/** Enter = next field (like Tab) on every ERP form, including future drawers. Line-add / combo-pick keep their own Enter. Shift+Enter in textarea = new line. */
+function wireEnterAsTab(){
+  if(window._s4EnterTabWired) return;
+  window._s4EnterTabWired = true;
+  document.addEventListener("keydown", e=>{
+    if(e.key !== "Enter" || e.isComposing) return;
+    if(e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    const t = e.target;
+    if(!(t instanceof HTMLElement)) return;
+    if(t.matches("button, a") || t.closest("button, a")) return;
+    if(t.tagName === "TEXTAREA" && e.shiftKey) return;
+    const root = enterTabRoot(t);
+    if(!root) return;
+    const comboInput = t.classList.contains("cust-combo-input") || t.classList.contains("inv-combo-input");
+    if(e.defaultPrevented && !comboInput) return;
+    const stops = enterTabStops(root);
+    if(stops.length < 2) return;
+    const idx = currentEnterTabIndex(stops, t);
+    if(idx < 0) return;
+    const next = stops[idx + 1];
+    if(!next) return;
+    e.preventDefault();
+    focusEnterTabStop(next);
+  });
+}
 function friendlyFirestoreError(e){
   const code = String(e?.code || "").replace(/^firestore\//, "");
   const msg = String(e?.message || e || "");
@@ -109,7 +530,7 @@ function friendlyFirestoreError(e){
     return "Firebase storage (1GB free limit) is full. New data is not saving. Upgrade to Blaze in Firebase Console, or delete old data to free space.";
   }
   if(code === "permission-denied" || /insufficient permissions|permission.?denied/i.test(msg)){
-    return "No permission — is email verified? Did you Publish firestore.rules in Firebase Console? Logout and login again.";
+    return "No permission - is email verified? Did you Publish firestore.rules in Firebase Console? Logout and login again.";
   }
   return msg || "Save failed";
 }
@@ -117,7 +538,7 @@ function isAppOnline(){
   try{ return navigator.onLine !== false; }catch(_){ return true; }
 }
 /** Fire Firestore write without blocking UI; toast only after success (or offline queue note). */
-function commitWrite(writePromise, { okMsg = "Saved", offlineMsg = "Saved — will sync when online" } = {}){
+function commitWrite(writePromise, { okMsg = "Saved", offlineMsg = "Saved - will sync when online" } = {}){
   const p = Promise.resolve(writePromise);
   p.then(()=>{
     toast(isAppOnline() ? okMsg : offlineMsg);
@@ -128,6 +549,31 @@ function commitWrite(writePromise, { okMsg = "Saved", offlineMsg = "Saved — wi
   return p;
 }
 let _ignoreDrawerCloseUntil = 0;
+
+function getOpenDrawers(){
+  return [...document.querySelectorAll(".drawer.open")];
+}
+
+function topOpenDrawer(){
+  const open = getOpenDrawers();
+  if(!open.length) return null;
+  return open.slice().sort((a, b)=>{
+    const za = parseInt(a.style.zIndex, 10) || 0;
+    const zb = parseInt(b.style.zIndex, 10) || 0;
+    return zb - za;
+  })[0];
+}
+
+function closeAllDrawers(exceptIds = []){
+  const keep = new Set(exceptIds);
+  getOpenDrawers().forEach(d=>{
+    if(keep.has(d.id)) return;
+    if(d.id === "invoiceModal"){
+      try{ saveInvoiceWip(); }catch(_){}
+    }
+    closeModal(d.id);
+  });
+}
 
 function openModal(id, opts = {}){
   const el = document.getElementById(id);
@@ -141,28 +587,91 @@ function openModal(id, opts = {}){
     window.scrollTo({ left: 0, behavior: "auto" });
   }catch(_){}
   const keep = new Set(opts.keepOpen || []);
-  // Close other drawers unless caller asked to stack (e.g. Vehicle on top of Invoice)
-  document.querySelectorAll(".drawer.open").forEach(d=>{
-    if(d === el) return;
+  // Close every other drawer so the new form is always visible on top.
+  getOpenDrawers().forEach(d=>{
+    if(d.id === id) return;
     if(keep.has(d.id)) return;
-    d.classList.remove("open");
-    d.style.display = "";
-    d.style.zIndex = "";
+    if(d.id === "invoiceModal"){
+      try{ saveInvoiceWip(); }catch(_){}
+    }
+    closeModal(d.id);
   });
   el.classList.add("open");
-  // Inline styles beat any stale CSS/cache fighting .drawer.open
-  el.style.display = "block";
-  el.style.zIndex = keep.size ? "6100" : "6000";
-  // Same click that opened the button must not instantly close the backdrop
+  el.style.display = el.classList.contains("drawer--pane") ? "flex" : "block";
+  const topZ = getOpenDrawers().reduce((max, d)=>{
+    if(d === el) return max;
+    return Math.max(max, parseInt(d.style.zIndex, 10) || 6000);
+  }, 6000);
+  el.style.zIndex = String(Math.max(topZ + 1, keep.size ? 6100 : 6001));
   _ignoreDrawerCloseUntil = Date.now() + 600;
   return true;
 }
 function closeModal(id){
+  if(id === "productMasterModal"){
+    closeProductMasterDrawer();
+    return;
+  }
+  if(id === "piProductSearchModal"){
+    closeProductSearchDrawer();
+    return;
+  }
   const el = document.getElementById(id);
   if(!el) return;
   el.classList.remove("open");
-  el.style.display = "";
+  el.style.display = "none";
   el.style.zIndex = "";
+}
+
+const FORM_LIST_PAGE = {
+  invoiceModal: "invoices",
+  receiptModal: "receipts",
+  cnModal: "credit-notes",
+  dnModal: "debit-notes",
+  chequeModal: "cheques",
+  discModal: "discounts",
+  customerModal: "customers",
+  vehicleModal: "vehicles",
+  productModal: "product-catalog",
+  serviceModal: "service-catalog",
+  supplierModal: "suppliers",
+  warehouseModal: "warehouses",
+  purchaseModal: "purchase-invoices",
+  grnModal: "purchase-invoices",
+  prqModal: "purchase-invoices",
+  poModal: "purchase-invoices",
+  vendorPaymentModal: "purchase-invoices",
+  purchaseReturnModal: "purchase-invoices",
+  jobCardModal: "workshop",
+  partsIssueModal: "workshop",
+  stockAdjModal: "inventory",
+  stockTransferModal: "inventory",
+  stockCountModal: "inventory",
+  branchRequestModal: "inventory"
+};
+
+/** After Save: keep form open and reset so the next entry is ready immediately. */
+function leaveFormAfterSave(modalId){
+  if(modalId === "invoiceModal"){
+    try{ clearInvoiceWip(); }catch(_){}
+    _editingExistingInvoice = false;
+  }
+  if(modalId === "receiptModal") _editingExistingReceipt = false;
+  const el = document.getElementById(modalId);
+  if(!el) return;
+  if(!el.classList.contains("open")){
+    el.classList.add("open");
+    el.style.display = el.classList.contains("drawer--pane") ? "flex" : "block";
+  }
+  try{
+    prepareOpenModal(modalId);
+  }catch(err){
+    console.warn("[S4 after-save ready next]", modalId, err);
+  }
+}
+
+function reopenFormAfterSaveFail(modalId){
+  // Form stays open with entered data when save fails (ready-next only runs after success).
+  openFormModal(modalId, { skipPrepare: true });
 }
 
 function prepareOpenModal(id){
@@ -176,6 +685,20 @@ function prepareOpenModal(id){
   else if(id === "vehicleModal") resetVehicle();
   else if(id === "productModal") resetProduct();
   else if(id === "serviceModal") resetService();
+  else if(id === "supplierModal") resetSupplierForm();
+  else if(id === "warehouseModal") resetWarehouse();
+  else if(id === "stockAdjModal") prepareStockAdjModal();
+  else if(id === "stockTransferModal") prepareStockTransferModal();
+  else if(id === "stockCountModal") prepareStockCountModal();
+  else if(id === "branchRequestModal") prepareBranchRequestModal();
+  else if(id === "grnModal") prepareGrnModal();
+  else if(id === "prqModal") preparePrqModal();
+  else if(id === "poModal") preparePoModal();
+  else if(id === "vendorPaymentModal") prepareVendorPaymentModal();
+  else if(id === "purchaseReturnModal") preparePurchaseReturnModal();
+  else if(id === "purchaseModal") preparePurchaseModal();
+  else if(id === "jobCardModal") prepareJobCardModal();
+  else if(id === "partsIssueModal") preparePartsIssueModal();
 }
 
 function openFormModal(id, opts = {}){
@@ -188,7 +711,11 @@ function openFormModal(id, opts = {}){
     prepareError: null
   };
   const need = MODAL_PERM[id];
-  if(need && !memberCan(member, need)){
+  if(need && !isModuleAllowedInMode(need, shop)){
+    toast("Not available in TOTAL MODE");
+    return info;
+  }
+  if(need && !memberCan(activeMember(), need)){
     toast("You do not have permission for this action.");
     return info;
   }
@@ -196,7 +723,7 @@ function openFormModal(id, opts = {}){
   info.opened = true;
   try{ info.display = getComputedStyle(el).display; }catch(_){}
   try{
-    prepareOpenModal(id);
+    if(!opts.skipPrepare) prepareOpenModal(id);
   }catch(err){
     info.prepareError = String(err && err.message ? err.message : err);
     console.error("open form prepare failed", id, err);
@@ -205,8 +732,8 @@ function openFormModal(id, opts = {}){
   // Keep open even if prepare failed
   if(el && !el.classList.contains("open")){
     el.classList.add("open");
-    el.style.display = "block";
-    el.style.zIndex = (opts.keepOpen && opts.keepOpen.length) ? "6100" : "6000";
+    el.style.display = el.classList.contains("drawer--pane") ? "flex" : "block";
+    el.style.zIndex = (opts.keepOpen && opts.keepOpen.length) ? "6100" : "6001";
   }
   return info;
 }
@@ -225,7 +752,7 @@ function wireModalOpeners(){
   });
 }
 
-/** ESC / mobile Back / Android browser back — close overlays first, then settings sub, then sidebar, then page→dashboard */
+/** ESC / mobile Back / Android browser back - close overlays first, then settings sub, then sidebar, then page?dashboard */
 function handleAppBack(){
   const app = document.getElementById("app");
   if(!app?.classList.contains("visible")) return false;
@@ -245,14 +772,12 @@ function handleAppBack(){
     return true;
   }
 
-  const openDrawer = document.querySelector(".drawer.open");
+  const openDrawer = topOpenDrawer();
   if(openDrawer){
     if(openDrawer.id === "invoiceModal"){
       try{ saveInvoiceWip(); }catch(_){}
     }
-    openDrawer.classList.remove("open");
-    openDrawer.style.display = "";
-    openDrawer.style.zIndex = "";
+    closeModal(openDrawer.id);
     return true;
   }
 
@@ -319,13 +844,8 @@ function wireAppBackControls(){
 }
 
 function firstAllowedPage(){
-  const order = [
-    "dashboard","customers","vehicles","product-catalog","service-catalog","ledger","statements","aging",
-    "invoices","credit-notes","debit-notes","receipts","allocation","cheques","discounts","reports",
-    "communication","users","audit","settings"
-  ];
-  for(const id of order){
-    if(memberCan(member, id)) return id;
+  for(const id of allNavPageIds()){
+    if(canAccessPage(id)) return id;
   }
   return null;
 }
@@ -335,11 +855,14 @@ function showPage(id){
     toast("No modules enabled for your account");
     return;
   }
-  if(!memberCan(member, id)){
-    toast("No permission for this module");
+  if(!canAccessPage(id)){
+    toast(isTotalMode(shop) ? "Not available in TOTAL MODE" : "No permission for this module");
     return;
   }
+  const prevPage = document.querySelector(".page.active")?.id || "";
+  if(prevPage === "statements" && id !== "statements") clearStatementPage();
   if(id !== "users") closePermissions();
+  closeAllDrawers();
   document.querySelectorAll(".page").forEach(p=> p.classList.toggle("active", p.id === id));
   document.querySelectorAll(".nav button[data-page]").forEach(n=> n.classList.toggle("active", n.dataset.page === id));
   document.getElementById("sidebar").classList.remove("open");
@@ -349,10 +872,25 @@ function showPage(id){
     backBtn.hidden = !home || id === home;
   }
   if(id === "vehicles") renderVehicles();
-  if(id === "product-catalog") renderProducts();
+  if(id === "product-catalog") mountProductMasterPage();
   if(id === "service-catalog") renderServices();
-  if(id === "ledger") fillLedger();
-  if(id === "statements") fillStatement();
+  if(id === "warehouses") renderWarehouses();
+  if(id === "inventory") renderInventory();
+  if(id === "suppliers") renderSuppliers();
+  if(id === "purchase-invoices"){
+    renderPurchaseRequisitions();
+    renderPurchaseOrders();
+    renderGoodsReceipts();
+    renderPurchaseInvoices();
+    renderVendorPayments();
+    renderPurchaseReturns();
+  }
+  if(id === "workshop"){
+    renderJobCards();
+    renderPartsIssues();
+  }
+  if(id === "ledger"){ syncLedgerPeriodUi(); fillLedger(); }
+  if(id === "statements"){ syncStmtPeriodUi(); fillStatement(); }
   if(id === "allocation"){ fillAllocSelect(); fillCnAllocSelect(); }
   if(id === "communication") fillWhatsapp();
   if(id === "users") renderTeam();
@@ -362,16 +900,53 @@ function showPage(id){
     if(p) p.style.display = "none";
     initReportPeriodControls();
   }
+  if(id === "cheques"){
+    renderCheques();
+    const items = buildNotificationItems();
+    if(items.some(it=> it.page === "cheques")){
+      acknowledgeNotifications(items);
+      setNotifBadge(0);
+    }
+  }
 }
 
 function applyNavPermissions(){
-  const perms = resolvePermissions(member);
-  document.querySelectorAll(".nav button[data-page]").forEach(btn=>{
-    const page = btn.dataset.page;
-    const ok = !!perms[page];
-    btn.classList.toggle("nav-locked", !ok);
-    btn.disabled = !ok;
+  renderSidebarNav(document.getElementById("sidebarNav"), {
+    memberCan: id => canAccessPage(id),
+    shop
   });
+  syncFoundationChrome();
+}
+
+function syncFoundationChrome(){
+  const mode = getOperatingMode(shop);
+  const badge = document.getElementById("topModeBadge");
+  if(badge){
+    badge.textContent = mode === OPERATING_MODE.TOTAL ? "TOTAL" : "FULL";
+    badge.classList.toggle("top-mode-total", mode === OPERATING_MODE.TOTAL);
+    badge.title = mode === OPERATING_MODE.TOTAL
+      ? "TOTAL MODE - credit tracking only"
+      : "FULL MODE - complete workshop ERP";
+  }
+  const sel = document.getElementById("topBranchSelect");
+  const branches = getBranches();
+  if(sel){
+    const cur = getCurrentBranchId();
+    sel.innerHTML = branches.length
+      ? branches.map(b=> `<option value="${esc(b.id)}"${b.id === cur ? " selected" : ""}>${esc(b.code)} - ${esc(b.name)}</option>`).join("")
+      : `<option value="">-</option>`;
+    sel.disabled = branches.length <= 1;
+  }
+  document.querySelectorAll("[data-require-full]").forEach(el=>{
+    el.hidden = isTotalMode(shop);
+    el.disabled = isTotalMode(shop);
+  });
+  const dashSub = document.getElementById("dashSubtitle");
+  if(dashSub){
+    dashSub.textContent = isTotalMode(shop)
+      ? "TOTAL MODE - credit customers, invoices, receipts"
+      : "FULL MODE - sales, purchase, inventory, workshop";
+  }
 }
 
 function nextNo(prefix, list, field){
@@ -385,17 +960,173 @@ function nextNo(prefix, list, field){
   return `${prefix}${year}-${String(max+1).padStart(4,"0")}`;
 }
 
-/** If `value` is already used on another row, return the next auto serial instead. */
-function uniqueSerial(list, field, value, prefix, excludeId){
-  const v = String(value || "").trim();
-  const taken = list.some(row=>
-    row.id !== excludeId && String(row[field] || "").trim().toLowerCase() === v.toLowerCase()
-  );
-  if(v && !taken) return { value: v, bumped: false };
-  return { value: nextNo(prefix, list, field), bumped: true };
+/** Foundation §1 — branch-scoped atomic serial (Firestore counters). Falls back to local nextNo offline. */
+async function allocateDocSerial(docKey, prefix, { list = [], field = "", draftValue = "", excludeId = "", preferCounter = false } = {}){
+  const draft = String(draftValue || "").trim();
+  if(!preferCounter && draft){
+    const taken = list.some(row=>
+      row.id !== excludeId && String(row[field] || "").trim().toLowerCase() === draft.toLowerCase()
+    );
+    if(!taken) return { value: draft, bumped: false, source: "manual" };
+  }
+  try{
+    const value = await reserveDocNumber(db, docKey, prefix);
+    return { value, bumped: !draft || draft !== value, source: "counter" };
+  }catch(err){
+    console.warn("[S4 allocateDocSerial]", docKey, err);
+    const value = nextNo(prefix, list, field);
+    return { value, bumped: true, source: "fallback" };
+  }
 }
 
-function invBalance(inv){ return Math.max(0, num(inv.total) - num(inv.paid) - num(inv.credited)); }
+function invBalance(inv){
+  const { paidMap, creditedMap } = getInvoiceMoneyMaps();
+  const paid = roundMoney(paidMap[inv.id] || 0);
+  const credited = roundMoney(creditedMap[inv.id] || 0);
+  return Math.max(0, roundMoney(num(inv.total) - paid - credited));
+}
+
+function invalidateInvMoneyCache(){ _invMoneyCache = null; }
+
+function getInvoiceMoneyMaps(){
+  if(_invMoneyCache) return _invMoneyCache;
+  _invMoneyCache = buildInvoicePaidCreditedMaps();
+  return _invMoneyCache;
+}
+
+function receiptHasInvoiceApplication(r){
+  if(!receiptAffectsBalance(r)) return false;
+  if(r.applied) return true;
+  return normalizeReceiptAllocations(r).length > 0;
+}
+
+function normalizeReceiptAllocations(r){
+  const rows = Array.isArray(r?.allocations)
+    ? r.allocations.filter(a=> num(a?.amount) > 0.009)
+    : [];
+  if(rows.length) return rows;
+  const invNo = String(r?.invoice || "").trim();
+  if(!invNo) return [];
+  const amt = num(r?.allocated) > 0.009 ? num(r.allocated) : num(r?.amount);
+  if(amt <= 0.009) return [];
+  return [{ invoiceNo: invNo, amount: amt }];
+}
+
+function resolveAllocToInvoice(a, customer){
+  if(a?.invoiceId){
+    const hit = invoices.find(i=> i.id === a.invoiceId);
+    if(hit) return hit;
+  }
+  const no = String(a?.invoiceNo || a?.invoice || "").trim();
+  if(!no) return null;
+  return invoices.find(i=> i.invNo === no && (!customer || i.customer === customer)) || null;
+}
+
+function invoiceDueBucket(inv){
+  const d = daysPastDue(inv?.dueDate);
+  if(d <= 0) return "current";
+  if(d <= 30) return "d30";
+  if(d <= 60) return "d60";
+  if(d <= 90) return "d90";
+  return "d90p";
+}
+
+/** Per-customer aging — capped at ledger outstanding (matches Statement closing). */
+function customerAgingBuckets(name){
+  const buckets = { current:0, d30:0, d60:0, d90:0, d90p:0 };
+  let remaining = roundMoney(customerOutstanding(name));
+  if(remaining <= 0.009){
+    unlinkedDebitNotes(name).forEach(n=> { buckets.current = roundMoney(buckets.current + num(n.amount)); });
+    return buckets;
+  }
+  const open = invoices
+    .filter(i=> i.customer === name && i.status !== "Draft")
+    .map(i=> ({ inv: i, bal: invBalance(i) }))
+    .filter(x=> x.bal > 0.009)
+    .sort((a,b)=> String(a.inv.dueDate || a.inv.invDate).localeCompare(String(b.inv.dueDate || b.inv.invDate)));
+  for(const row of open){
+    if(remaining <= 0.009) break;
+    const take = roundMoney(Math.min(row.bal, remaining));
+    const bucket = invoiceDueBucket(row.inv);
+    if(bucket) buckets[bucket] = roundMoney(buckets[bucket] + take);
+    remaining = roundMoney(remaining - take);
+  }
+  unlinkedDebitNotes(name).forEach(n=> { buckets.current = roundMoney(buckets.current + num(n.amount)); });
+  if(remaining > 0.009) buckets.current = roundMoney(buckets.current + remaining);
+  return buckets;
+}
+
+function allReceivableCustomers(){
+  const names = new Set();
+  invoices.forEach(i=> { if(i.customer) names.add(i.customer); });
+  unlinkedDebitNotes().forEach(n=> { if(n.customer) names.add(n.customer); });
+  return [...names];
+}
+
+/** Rebuild paid/credited per invoice from receipts, CN, invoice discounts, cheques (source of truth). */
+function buildInvoicePaidCreditedMaps(){
+  const paidMap = {};
+  const creditedMap = {};
+
+  receipts.filter(receiptHasInvoiceApplication).forEach(r=>{
+    const allocs = normalizeReceiptAllocations(r).map(a=>{
+      const inv = resolveAllocToInvoice(a, r.customer);
+      return inv ? { invoiceId: inv.id, amount: num(a.amount) } : null;
+    }).filter(Boolean);
+    if(!allocs.length) return;
+    const disc = num(r.discount);
+    const shares = disc > 0 ? receiptAllocDiscShares(r, allocs) : allocs.map(()=> 0);
+    allocs.forEach((a, i)=>{
+      paidMap[a.invoiceId] = roundMoney((paidMap[a.invoiceId] || 0) + a.amount);
+      creditedMap[a.invoiceId] = roundMoney((creditedMap[a.invoiceId] || 0) + (shares[i] || 0));
+    });
+  });
+
+  cheques.filter(c=> c.status === "Cleared" && c.appliedToInvoice && c.invoice).forEach(c=>{
+    const inv = invoices.find(i=> i.invNo === c.invoice && i.customer === c.customer);
+    if(!inv) return;
+    paidMap[inv.id] = roundMoney((paidMap[inv.id] || 0) + num(c.appliedAmount || c.amount));
+  });
+
+  creditNotes.filter(n=> noteIsLive(n)).forEach(n=>{
+    const parts = Array.isArray(n.allocations) && n.allocations.length
+      ? n.allocations
+      : (String(n.invoice || "").trim()
+          ? [{ invoiceNo: n.invoice, amount: num(n.amount) }]
+          : []);
+    parts.forEach(a=>{
+      const inv = invoices.find(i=>
+        (a.invoiceId && i.id === a.invoiceId) ||
+        (a.invoiceNo && i.invNo === a.invoiceNo && i.customer === n.customer)
+      );
+      if(!inv) return;
+      creditedMap[inv.id] = roundMoney((creditedMap[inv.id] || 0) + num(a.amount));
+    });
+  });
+
+  discounts.filter(d=> d.type === "Invoice" && d.ref).forEach(d=>{
+    const inv = invoices.find(i=> i.invNo === d.ref && i.customer === d.customer);
+    if(!inv) return;
+    creditedMap[inv.id] = roundMoney((creditedMap[inv.id] || 0) + num(d.amount));
+  });
+
+  // Backup: Payment discount ledger rows when receipt.discount field is missing on old data
+  discounts.filter(d=> d.type === "Payment" && d.ref).forEach(d=>{
+    const r = receipts.find(x=> String(x.rvNo || "") === String(d.ref || "") && x.customer === d.customer);
+    if(!r || !receiptHasInvoiceApplication(r) || num(r.discount) > 0.009) return;
+    const allocs = normalizeReceiptAllocations(r).map(a=>{
+      const inv = resolveAllocToInvoice(a, r.customer);
+      return inv ? { invoiceId: inv.id, amount: num(a.amount) } : null;
+    }).filter(Boolean);
+    if(!allocs.length) return;
+    const shares = receiptAllocDiscShares({ ...r, discount: num(d.amount) }, allocs);
+    allocs.forEach((a, i)=>{
+      creditedMap[a.invoiceId] = roundMoney((creditedMap[a.invoiceId] || 0) + (shares[i] || 0));
+    });
+  });
+
+  return { paidMap, creditedMap };
+}
 
 function roundMoney(n){ return Math.round((num(n) + Number.EPSILON) * 100) / 100; }
 
@@ -428,7 +1159,7 @@ function invoiceMoneyPatch(inv, { paidDelta = 0, creditedDelta = 0, updatedBy } 
 }
 
 function receiptAffectsBalance(r){
-  // Must match saveReceipt apply rules — otherwise ledger vs invoice.paid diverge
+  // Must match saveReceipt apply rules - otherwise ledger vs invoice.paid diverge
   const st = r.status || "Posted";
   if(st === "Cancelled" || st === "Bounced" || st === "Pending" || st === "Deposited" || st === "Voided") return false;
   const isCheque = String(r.method || "").includes("Cheque");
@@ -451,7 +1182,7 @@ function cnOpenCredit(n){
     return Math.max(0, roundMoney(amt - used));
   }
   if(num(n.allocated) > 0.009) return Math.max(0, roundMoney(amt - num(n.allocated)));
-  // Legacy: invoice field set at create ⇒ fully applied to that invoice
+  // Legacy: invoice field set at create ? fully applied to that invoice
   if(String(n.invoice || "").trim()) return 0;
   return amt;
 }
@@ -473,26 +1204,219 @@ function badge(st){
 }
 
 function daysPastDue(dueDate){
+  return daysPastDueAsOf(dueDate, today());
+}
+
+function daysPastDueAsOf(dueDate, asOf){
   if(!dueDate) return 0;
-  const d = new Date(dueDate + "T00:00:00");
-  const n = new Date(); n.setHours(0,0,0,0);
+  const d = new Date(String(dueDate).slice(0, 10) + "T00:00:00");
+  if(Number.isNaN(d.getTime())) return 0;
+  const n = new Date(String(asOf || today()).slice(0, 10) + "T00:00:00");
+  if(Number.isNaN(n.getTime())) return 0;
   return Math.floor((n - d) / 86400000);
 }
 
-function agingBucket(inv){
-  if(inv.status === "Draft") return null;
-  const bal = invBalance(inv);
-  if(bal <= 0) return null;
-  const d = daysPastDue(inv.dueDate);
-  if(d <= 0) return "current";
+/** Aging / statement color bucket from overdue days. */
+function overdueBucketFromDays(days){
+  const d = num(days);
+  if(d <= 0) return null;
   if(d <= 30) return "d30";
   if(d <= 60) return "d60";
   if(d <= 90) return "d90";
   return "d90p";
 }
 
+function overdueRowClass(bucket, prefix = "stmt"){
+  if(!bucket) return "";
+  if(bucket === "d30") return `${prefix}-od-30`;
+  if(bucket === "d60") return `${prefix}-od-60`;
+  if(bucket === "d90") return `${prefix}-od-90`;
+  if(bucket === "d90p") return `${prefix}-od-90p`;
+  return "";
+}
+
+function agingBucket(inv){
+  if(inv.status === "Draft") return null;
+  const bal = invBalance(inv);
+  if(bal <= 0) return null;
+  return overdueBucketFromDays(daysPastDue(inv.dueDate)) || "current";
+}
+
 function customerOutstanding(name){
-  return ledgerLines(name).reduce((bal, l)=> bal + l.debit - l.credit, 0);
+  return ledgerLines(name, "").reduce((bal, l)=> bal + l.debit - l.credit, 0);
+}
+
+function customerSubAccounts(customerName){
+  const c = customers.find(x=> x.name === customerName);
+  const list = Array.isArray(c?.subAccounts) ? c.subAccounts : [];
+  return list
+    .map(s=>({
+      id: String(s?.id || "").trim(),
+      name: String(s?.name || "").trim()
+    }))
+    .filter(s=> s.name);
+}
+
+/** Fill sub-account select. includeAll=true → Ledger/Statement (blank = ALL). */
+function fillSubAccountSelect(selectEl, customerName, selected, { includeAll = false, noneLabel = "— None —" } = {}){
+  if(!selectEl) return [];
+  const subs = customerSubAccounts(customerName);
+  const sel = String(selected || "").trim();
+  let html = includeAll
+    ? `<option value="">ALL</option>`
+    : `<option value="">${esc(noneLabel)}</option>`;
+  html += subs.map(s=>
+    `<option value="${esc(s.name)}" ${s.name === sel ? "selected" : ""}>${esc(s.name)}</option>`
+  ).join("");
+  selectEl.innerHTML = html;
+  if(sel && subs.some(s=> s.name === sel)) selectEl.value = sel;
+  else selectEl.value = "";
+  return subs;
+}
+
+function syncInvoiceSubAccountField(selected){
+  const sel = document.getElementById("invSubAccount");
+  const wrap = document.getElementById("invSubAccountField");
+  const name = invCustomer?.value || "";
+  const subs = fillSubAccountSelect(sel, name, selected);
+  if(wrap) wrap.hidden = !subs.length;
+}
+
+function syncReceiptSubAccountField(selected){
+  const sel = document.getElementById("rvSubAccount");
+  const wrap = document.getElementById("rvSubAccountField");
+  const name = document.getElementById("rvCustomer")?.value || "";
+  const subs = fillSubAccountSelect(sel, name, selected, { noneLabel: "— None / ALL bills —" });
+  if(wrap) wrap.hidden = !subs.length;
+}
+
+function syncNoteSubAccountField(prefix, customerName, selected){
+  const sel = document.getElementById(`${prefix}SubAccount`);
+  const wrap = document.getElementById(`${prefix}SubAccountField`);
+  if(!sel) return [];
+  const subs = fillSubAccountSelect(sel, customerName, selected, { noneLabel: "— None —" });
+  if(wrap) wrap.hidden = !subs.length;
+  return subs;
+}
+
+function subAccountFromInvoiceNo(customer, invNo){
+  if(!invNo) return "";
+  const inv = invoices.find(i=> i.invNo === invNo && i.customer === customer);
+  return String(inv?.subAccount || "").trim();
+}
+
+function syncLedgerSubAccountField(){
+  const cust = document.getElementById("ledgerCustomer")?.value || "";
+  const sel = document.getElementById("ledgerSubAccount");
+  const prev = sel?.value || "";
+  fillSubAccountSelect(sel, cust, prev, { includeAll: true });
+}
+
+function syncStmtSubAccountField(selected){
+  const cust = document.getElementById("stmtCustomer")?.value || "";
+  const sel = document.getElementById("stmtSubAccount");
+  const hint = document.getElementById("stmtSubHint");
+  const prev = selected != null ? selected : (sel?.value || "");
+  const subs = fillSubAccountSelect(sel, cust, prev, { includeAll: true });
+  if(hint) hint.hidden = !!subs.length;
+  if(sel) sel.disabled = !cust;
+}
+
+function normalizeCustomerSubAccounts(list){
+  const seen = new Set();
+  const out = [];
+  (list || []).forEach(raw=>{
+    const name = String(raw?.name || raw || "").trim();
+    if(!name) return;
+    const key = name.toLowerCase();
+    if(seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      id: String(raw?.id || "").trim() || (`sub_${Date.now()}_${out.length}`),
+      name
+    });
+  });
+  return out;
+}
+
+function renderCustomerSubRows(){
+  const tbody = document.getElementById("cSubRows");
+  if(!tbody) return;
+  if(!_customerSubAccounts.length){
+    tbody.innerHTML = `<tr><td colspan="2" class="empty">No sub-accounts</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = _customerSubAccounts.map((s, idx)=> `<tr>
+    <td>${esc(s.name)}</td>
+    <td><button class="btn small danger" type="button" data-rm-csub="${idx}">×</button></td>
+  </tr>`).join("");
+  tbody.querySelectorAll("[data-rm-csub]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      _customerSubAccounts.splice(Number(btn.dataset.rmCsub), 1);
+      renderCustomerSubRows();
+    });
+  });
+}
+
+function addCustomerSubAccount(){
+  const input = document.getElementById("cSubName");
+  const name = String(input?.value || "").trim();
+  if(!name) return toast("Enter sub-account name");
+  if(_customerSubAccounts.some(s=> s.name.toLowerCase() === name.toLowerCase())){
+    return toast("Sub-account already added");
+  }
+  _customerSubAccounts.push({ id: `sub_${Date.now()}`, name });
+  if(input) input.value = "";
+  renderCustomerSubRows();
+  input?.focus();
+}
+
+function docMatchesSubAccount(doc, subFilter){
+  const want = String(subFilter || "").trim();
+  if(!want) return true;
+  return String(doc?.subAccount || "").trim() === want;
+}
+
+function invoiceHasSubAccount(invoiceIdOrNo, customer, wantSub){
+  const want = String(wantSub || "").trim();
+  if(!want) return true;
+  const inv = invoices.find(i=>
+    i.id === invoiceIdOrNo
+    || (i.invNo === invoiceIdOrNo && (!customer || i.customer === customer))
+  );
+  return !!(inv && String(inv.subAccount || "").trim() === want);
+}
+
+/** Receipt/CN may omit subAccount but still belong to a sub via allocated invoices. */
+function receiptMatchesSubFilter(r, subFilter){
+  const want = String(subFilter || "").trim();
+  if(!want) return true;
+  if(String(r?.subAccount || "").trim() === want) return true;
+  return (r?.allocations || []).some(a=>
+    invoiceHasSubAccount(a.invoiceId || a.invoiceNo, r.customer, want)
+  );
+}
+
+function noteMatchesSubFilter(n, subFilter){
+  const want = String(subFilter || "").trim();
+  if(!want) return true;
+  if(String(n?.subAccount || "").trim() === want) return true;
+  if(n?.invoice && invoiceHasSubAccount(n.invoice, n.customer, want)) return true;
+  return (n?.allocations || []).some(a=>
+    invoiceHasSubAccount(a.invoiceId || a.invoiceNo, n.customer, want)
+  );
+}
+
+function inferSubAccountFromAllocs(allocs, customer){
+  const names = [];
+  (allocs || []).forEach(a=>{
+    const inv = invoices.find(i=> i.id === a.invoiceId || (a.invoiceNo && i.invNo === a.invoiceNo && i.customer === customer));
+    const s = String(inv?.subAccount || "").trim();
+    if(s) names.push(s);
+  });
+  if(!names.length) return "";
+  const first = names[0];
+  return names.every(n=> n === first) ? first : "";
 }
 
 function customerOverdue(name){
@@ -502,7 +1426,7 @@ function customerOverdue(name){
 function customerOptions(selectEl, selected){
   if(!selectEl) return;
   const sel = selected || "";
-  selectEl.innerHTML = `<option value="">Select…</option>` + customers.map(c=>
+  selectEl.innerHTML = `<option value="">Select-</option>` + customers.map(c=>
     `<option value="${esc(c.name)}" ${c.name===sel?"selected":""}>${esc(c.name)}</option>`
   ).join("");
   if(sel) selectEl.value = sel;
@@ -541,8 +1465,77 @@ function closeAllCustomerCombos(except){
   });
 }
 
+let _s4ComboListPick = false;
+
+function comboScrollInsideList(target){
+  return !!(target && target.closest && target.closest(".cust-combo-list, .inv-combo-list, .catalog-suggest-list"));
+}
+
+/** Shared ↑/↓ highlight for cust-combo, inv-combo, catalog suggest — keep focus on the input. */
+function comboOptionItems(list, attr){
+  if(!list) return [];
+  return [...list.querySelectorAll(`li[${attr}]`)];
+}
+
+function setComboHighlight(list, attr, index){
+  const opts = comboOptionItems(list, attr);
+  if(!opts.length) return null;
+  const i = Math.max(0, Math.min(opts.length - 1, index));
+  opts.forEach((li, n)=> li.setAttribute("aria-selected", n === i ? "true" : "false"));
+  const active = opts[i];
+  try{ active.scrollIntoView({ block: "nearest" }); }catch(_){}
+  return active;
+}
+
+function moveComboHighlight(list, attr, delta){
+  const opts = comboOptionItems(list, attr);
+  if(!opts.length) return null;
+  let idx = opts.findIndex(li=> li.getAttribute("aria-selected") === "true");
+  if(idx < 0) idx = delta > 0 ? 0 : opts.length - 1;
+  else idx += delta;
+  return setComboHighlight(list, attr, idx);
+}
+
+function activeComboOption(list, attr){
+  return comboOptionItems(list, attr).find(li=> li.getAttribute("aria-selected") === "true") || null;
+}
+
+function bindComboListPick(list, wrap, dataAttr, pickFn){
+  if(!list || list._s4ComboPickBound) return;
+  list._s4ComboPickBound = true;
+  list.addEventListener("pointerdown", e=>{
+    const li = e.target.closest(`li[${dataAttr}]`);
+    if(!li) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _s4ComboListPick = true;
+    pickFn(wrap, li.getAttribute(dataAttr));
+    requestAnimationFrame(()=>{ _s4ComboListPick = false; });
+  });
+}
+
+function wireComboGlobalClose(){
+  if(window._s4ComboGlobalWired) return;
+  window._s4ComboGlobalWired = true;
+  document.addEventListener("mousedown", e=>{
+    if(e.target.closest(".cust-combo") || e.target.closest(".cust-combo-list")) return;
+    if(e.target.closest(".inv-combo") || e.target.closest(".inv-combo-list")) return;
+    closeAllCustomerCombos();
+    closeAllInvoiceCombos();
+  });
+  document.addEventListener("scroll", e=>{
+    if(comboScrollInsideList(e.target)) return;
+    closeAllCustomerCombos();
+    closeAllInvoiceCombos();
+  }, true);
+  window.addEventListener("resize", ()=>{
+    closeAllCustomerCombos();
+    closeAllInvoiceCombos();
+  });
+}
+
 function positionCustomerComboList(wrap, list){
-  // Portal to <body> — .modal uses transform, which breaks position:fixed
+  // Portal to <body> - .modal uses transform, which breaks position:fixed
   if(list.parentElement !== document.body){
     list.dataset.comboOwner = wrap.getAttribute("data-combo") || "";
     document.body.appendChild(list);
@@ -581,6 +1574,18 @@ function renderCustomerComboList(wrap, q){
   const input = wrap.querySelector(".cust-combo-input");
   if(!list) return;
   closeAllCustomerCombos(wrap);
+  const owner = wrap.getAttribute("data-combo") || "";
+  if(owner === "piSupplier"){
+    const rows = filterSuppliersForCombo(q).slice(0, 80);
+    if(!rows.length){
+      list.innerHTML = `<li class="cust-combo-empty">${getSuppliers().length ? "No match" : "No suppliers yet"}</li>`;
+    }else{
+      list.innerHTML = rows.map(s=> `<li role="option" data-name="${esc(s.name)}" title="${esc(s.name)}">${esc(s.name)}</li>`).join("");
+    }
+    positionCustomerComboList(wrap, list);
+    if(input) input.setAttribute("aria-expanded", "true");
+    return;
+  }
   const rows = filterCustomersForCombo(q).slice(0, 80);
   if(!rows.length){
     list.innerHTML = `<li class="cust-combo-empty">${customers.length ? "No match" : "No customers yet"}</li>`;
@@ -592,9 +1597,10 @@ function renderCustomerComboList(wrap, q){
 }
 
 function pickCustomerCombo(wrap, name){
+  const owner = wrap.getAttribute("data-combo") || "";
+  if(owner === "piSupplier") return pickSupplierCombo(wrap, name);
   const sel = wrap.querySelector("select");
   const input = wrap.querySelector(".cust-combo-input");
-  const owner = wrap.getAttribute("data-combo") || "";
   const list = wrap.querySelector(".cust-combo-list")
     || document.querySelector(`.cust-combo-list[data-combo-owner="${owner}"]`);
   if(!sel) return;
@@ -608,12 +1614,24 @@ function pickCustomerCombo(wrap, name){
 }
 
 function commitCustomerComboInput(wrap){
+  const owner = wrap.getAttribute("data-combo") || "";
   const sel = wrap.querySelector("select");
   const input = wrap.querySelector(".cust-combo-input");
   if(!sel || !input) return;
   const typed = input.value.trim();
   if(!typed){
-    pickCustomerCombo(wrap, "");
+    if(owner === "piSupplier") pickSupplierCombo(wrap, "");
+    else pickCustomerCombo(wrap, "");
+    return;
+  }
+  if(owner === "piSupplier"){
+    const exact = getSuppliers().find(s=> String(s.name||"").toLowerCase() === typed.toLowerCase());
+    const partial = exact || getSuppliers().find(s=> String(s.name||"").toLowerCase().includes(typed.toLowerCase()));
+    if(partial) pickSupplierCombo(wrap, partial.name);
+    else{
+      input.value = sel.value || "";
+      closeAllCustomerCombos();
+    }
     return;
   }
   const exact = customers.find(c=> String(c.name||"").toLowerCase() === typed.toLowerCase());
@@ -629,79 +1647,128 @@ function wireCustomerCombos(){
   if(window._s4CustComboWired) return;
   window._s4CustComboWired = true;
 
-  document.querySelectorAll(".cust-combo").forEach(wrap=>{
-    const input = wrap.querySelector(".cust-combo-input");
-    const btn = wrap.querySelector(".cust-combo-btn");
-    let list = wrap.querySelector(".cust-combo-list");
+  const ensureOwner = wrap=>{
     const sel = wrap.querySelector("select");
-    if(!input || !sel || !list) return;
-    const owner = wrap.getAttribute("data-combo") || sel.id || "";
+    const owner = wrap.getAttribute("data-combo") || sel?.id || "";
     if(owner) wrap.setAttribute("data-combo", owner);
+    return owner;
+  };
 
-    const getList = ()=> wrap.querySelector(".cust-combo-list")
-      || document.querySelector(`.cust-combo-list[data-combo-owner="${owner}"]`)
-      || list;
+  const getList = wrap=>{
+    const owner = wrap.getAttribute("data-combo") || "";
+    return wrap.querySelector(".cust-combo-list")
+      || document.querySelector(`.cust-combo-list[data-combo-owner="${owner}"]`);
+  };
 
-    input.addEventListener("focus", ()=> renderCustomerComboList(wrap, input.value));
-    input.addEventListener("input", ()=> renderCustomerComboList(wrap, input.value));
-    input.addEventListener("keydown", e=>{
-      const lst = getList();
-      if(e.key === "Escape"){
-        if(lst) lst.hidden = true;
-        input.setAttribute("aria-expanded", "false");
-        input.value = sel.value || "";
-        return;
-      }
-      if(e.key === "Enter"){
-        e.preventDefault();
-        const first = lst && lst.querySelector("li[data-name]");
-        if(first) pickCustomerCombo(wrap, first.getAttribute("data-name"));
-        else commitCustomerComboInput(wrap);
-      }
-      if(e.key === "ArrowDown"){
-        e.preventDefault();
-        renderCustomerComboList(wrap, input.value);
-      }
-    });
-    input.addEventListener("blur", ()=>{
-      setTimeout(()=>{
-        const lst = getList();
-        if(lst && lst.contains(document.activeElement)) return;
-        if(wrap.contains(document.activeElement)) return;
-        commitCustomerComboInput(wrap);
-      }, 150);
-    });
-
-    btn?.addEventListener("mousedown", e=>{
-      e.preventDefault();
-      const lst = getList();
-      if(!lst || lst.hidden){
-        closeAllCustomerCombos(wrap);
-        input.focus();
-        renderCustomerComboList(wrap, "");
-      }else{
-        lst.hidden = true;
-        input.setAttribute("aria-expanded", "false");
-      }
-    });
-
-    list.addEventListener("mousedown", e=>{
-      const li = e.target.closest("li[data-name]");
-      if(!li) return;
-      e.preventDefault();
-      pickCustomerCombo(wrap, li.getAttribute("data-name"));
-    });
+  document.querySelectorAll(".cust-combo").forEach(wrap=>{
+    ensureOwner(wrap);
+    const list = wrap.querySelector(".cust-combo-list");
+    if(list) bindComboListPick(list, wrap, "data-name", pickCustomerCombo);
   });
 
-  document.addEventListener("mousedown", e=>{
-    if(e.target.closest(".cust-combo") || e.target.closest(".cust-combo-list")) return;
-    closeAllCustomerCombos();
+  // Delegation so future .cust-combo fields get the same ↑/↓ / Enter behavior
+  document.addEventListener("focusin", e=>{
+    const input = e.target.closest?.(".cust-combo-input");
+    if(!input) return;
+    const wrap = input.closest(".cust-combo");
+    if(!wrap) return;
+    ensureOwner(wrap);
+    renderCustomerComboList(wrap, input.value);
   });
-  window.addEventListener("resize", ()=> closeAllCustomerCombos());
-  document.addEventListener("scroll", ()=> closeAllCustomerCombos(), true);
+
+  document.addEventListener("input", e=>{
+    const input = e.target.closest?.(".cust-combo-input");
+    if(!input) return;
+    const wrap = input.closest(".cust-combo");
+    if(!wrap) return;
+    renderCustomerComboList(wrap, input.value);
+  });
+
+  document.addEventListener("keydown", e=>{
+    const input = e.target.closest?.(".cust-combo-input");
+    if(!input) return;
+    const wrap = input.closest(".cust-combo");
+    if(!wrap) return;
+    const sel = wrap.querySelector("select");
+    const lst = getList(wrap);
+    const open = !!(lst && !lst.hidden);
+
+    if(e.key === "Escape"){
+      if(lst) lst.hidden = true;
+      input.setAttribute("aria-expanded", "false");
+      input.value = sel?.value || "";
+      return;
+    }
+    if(e.key === "ArrowDown"){
+      e.preventDefault();
+      e.stopPropagation();
+      if(!open) renderCustomerComboList(wrap, input.value);
+      moveComboHighlight(getList(wrap), "data-name", 1);
+      return;
+    }
+    if(e.key === "ArrowUp"){
+      e.preventDefault();
+      e.stopPropagation();
+      if(!open) renderCustomerComboList(wrap, input.value);
+      moveComboHighlight(getList(wrap), "data-name", -1);
+      return;
+    }
+    if(e.key === "Home" && open){
+      e.preventDefault();
+      setComboHighlight(lst, "data-name", 0);
+      return;
+    }
+    if(e.key === "End" && open){
+      e.preventDefault();
+      setComboHighlight(lst, "data-name", comboOptionItems(lst, "data-name").length - 1);
+      return;
+    }
+    if(e.key === "Enter"){
+      e.preventDefault();
+      e.stopPropagation();
+      const hit = activeComboOption(lst, "data-name") || lst?.querySelector("li[data-name]");
+      if(hit) pickCustomerCombo(wrap, hit.getAttribute("data-name"));
+      else commitCustomerComboInput(wrap);
+    }
+  }, true);
+
+  document.addEventListener("focusout", e=>{
+    const input = e.target.closest?.(".cust-combo-input");
+    if(!input) return;
+    const wrap = input.closest(".cust-combo");
+    if(!wrap) return;
+    setTimeout(()=>{
+      if(_s4ComboListPick) return;
+      const lst = getList(wrap);
+      if(lst && lst.contains(document.activeElement)) return;
+      if(wrap.contains(document.activeElement)) return;
+      commitCustomerComboInput(wrap);
+    }, 250);
+  });
+
+  document.addEventListener("pointerdown", e=>{
+    const btn = e.target.closest?.(".cust-combo-btn");
+    if(!btn) return;
+    const wrap = btn.closest(".cust-combo");
+    if(!wrap) return;
+    e.preventDefault();
+    ensureOwner(wrap);
+    const input = wrap.querySelector(".cust-combo-input");
+    const lst = getList(wrap);
+    if(!lst || lst.hidden){
+      closeAllCustomerCombos(wrap);
+      input?.focus();
+      renderCustomerComboList(wrap, "");
+    }else{
+      lst.hidden = true;
+      input?.setAttribute("aria-expanded", "false");
+    }
+  }, true);
+
+  wireComboGlobalClose();
 }
 
-/* ——— Invoice number typeahead (CN / DN / Cheque) ——— */
+/* --- Invoice number typeahead (CN / DN / Cheque) --- */
 function invoicesForCustomer(customer, q){
   const ql = String(q || "").toLowerCase().trim();
   return invoices
@@ -788,10 +1855,10 @@ function renderInvoiceComboList(wrap, q){
   }else{
     list.innerHTML = rows.map(i=>{
       const bal = invBalance(i);
-      const meta = `${i.invDate||""} · Due ${money(bal)} · Total ${money(i.total)}`;
+      const meta = `${i.invDate||""} - Due ${money(bal)} - Total ${money(i.total)}`;
       return `<li role="option" data-invno="${esc(i.invNo)}" title="${esc(i.invNo)}">
         <b>${esc(i.invNo)}</b>
-        <span class="inv-meta">${esc(meta)}${i.manualNo ? " · Manual " + esc(i.manualNo) : ""}${i.computerNo ? " · Comp " + esc(i.computerNo) : ""}</span>
+        <span class="inv-meta">${esc(meta)}${i.manualNo ? " - Manual " + esc(i.manualNo) : ""}${i.computerNo ? " - Comp " + esc(i.computerNo) : ""}</span>
       </li>`;
     }).join("");
   }
@@ -842,81 +1909,144 @@ function wireInvoiceCombos(){
   if(window._s4InvComboWired) return;
   window._s4InvComboWired = true;
 
-  document.querySelectorAll(".inv-combo").forEach(wrap=>{
-    const input = wrap.querySelector(".inv-combo-input");
-    const btn = wrap.querySelector(".inv-combo-btn");
-    let list = wrap.querySelector(".inv-combo-list");
+  const ensureOwner = wrap=>{
     const sel = wrap.querySelector("select");
-    if(!input || !sel || !list) return;
-    const owner = wrap.getAttribute("data-inv-combo") || sel.id || "";
+    const owner = wrap.getAttribute("data-inv-combo") || sel?.id || "";
     if(owner) wrap.setAttribute("data-inv-combo", owner);
+    return owner;
+  };
 
-    const getList = ()=> wrap.querySelector(".inv-combo-list")
-      || document.querySelector(`.inv-combo-list[data-inv-combo-owner="${owner}"]`)
-      || list;
+  const getList = wrap=>{
+    const owner = wrap.getAttribute("data-inv-combo") || "";
+    return wrap.querySelector(".inv-combo-list")
+      || document.querySelector(`.inv-combo-list[data-inv-combo-owner="${owner}"]`);
+  };
 
-    input.addEventListener("focus", ()=> renderInvoiceComboList(wrap, input.value));
-    input.addEventListener("input", ()=> renderInvoiceComboList(wrap, input.value));
-    input.addEventListener("keydown", e=>{
-      const lst = getList();
-      if(e.key === "Escape"){
-        if(lst) lst.hidden = true;
-        input.setAttribute("aria-expanded", "false");
-        input.value = sel.value || "";
-        return;
-      }
-      if(e.key === "Enter"){
-        e.preventDefault();
-        const first = lst && lst.querySelector("li[data-invno]");
-        if(first) pickInvoiceCombo(wrap, first.getAttribute("data-invno"));
-        else commitInvoiceComboInput(wrap);
-      }
-      if(e.key === "ArrowDown"){
-        e.preventDefault();
-        renderInvoiceComboList(wrap, input.value);
-      }
-    });
-    input.addEventListener("blur", ()=>{
-      setTimeout(()=>{
-        const lst = getList();
-        if(lst && lst.contains(document.activeElement)) return;
-        if(wrap.contains(document.activeElement)) return;
-        commitInvoiceComboInput(wrap);
-      }, 150);
-    });
-
-    btn?.addEventListener("mousedown", e=>{
-      e.preventDefault();
-      const lst = getList();
-      if(!lst || lst.hidden){
-        closeAllInvoiceCombos(wrap);
-        input.focus();
-        renderInvoiceComboList(wrap, "");
-      }else{
-        lst.hidden = true;
-        input.setAttribute("aria-expanded", "false");
-      }
-    });
-
-    list.addEventListener("mousedown", e=>{
-      const li = e.target.closest("li[data-invno]");
-      if(!li) return;
-      e.preventDefault();
-      pickInvoiceCombo(wrap, li.getAttribute("data-invno"));
-    });
+  document.querySelectorAll(".inv-combo").forEach(wrap=>{
+    ensureOwner(wrap);
+    const list = wrap.querySelector(".inv-combo-list");
+    if(list) bindComboListPick(list, wrap, "data-invno", pickInvoiceCombo);
   });
 
-  document.addEventListener("mousedown", e=>{
-    if(e.target.closest(".inv-combo") || e.target.closest(".inv-combo-list")) return;
-    closeAllInvoiceCombos();
+  document.addEventListener("focusin", e=>{
+    const input = e.target.closest?.(".inv-combo-input");
+    if(!input) return;
+    const wrap = input.closest(".inv-combo");
+    if(!wrap) return;
+    ensureOwner(wrap);
+    renderInvoiceComboList(wrap, input.value);
   });
-  window.addEventListener("resize", ()=> closeAllInvoiceCombos());
-  document.addEventListener("scroll", ()=> closeAllInvoiceCombos(), true);
+
+  document.addEventListener("input", e=>{
+    const input = e.target.closest?.(".inv-combo-input");
+    if(!input) return;
+    const wrap = input.closest(".inv-combo");
+    if(!wrap) return;
+    renderInvoiceComboList(wrap, input.value);
+  });
+
+  document.addEventListener("keydown", e=>{
+    const input = e.target.closest?.(".inv-combo-input");
+    if(!input) return;
+    const wrap = input.closest(".inv-combo");
+    if(!wrap) return;
+    const sel = wrap.querySelector("select");
+    const lst = getList(wrap);
+    const open = !!(lst && !lst.hidden);
+
+    if(e.key === "Escape"){
+      if(lst) lst.hidden = true;
+      input.setAttribute("aria-expanded", "false");
+      input.value = sel?.value || "";
+      return;
+    }
+    if(e.key === "ArrowDown"){
+      e.preventDefault();
+      e.stopPropagation();
+      if(!open) renderInvoiceComboList(wrap, input.value);
+      moveComboHighlight(getList(wrap), "data-invno", 1);
+      return;
+    }
+    if(e.key === "ArrowUp"){
+      e.preventDefault();
+      e.stopPropagation();
+      if(!open) renderInvoiceComboList(wrap, input.value);
+      moveComboHighlight(getList(wrap), "data-invno", -1);
+      return;
+    }
+    if(e.key === "Home" && open){
+      e.preventDefault();
+      setComboHighlight(lst, "data-invno", 0);
+      return;
+    }
+    if(e.key === "End" && open){
+      e.preventDefault();
+      setComboHighlight(lst, "data-invno", comboOptionItems(lst, "data-invno").length - 1);
+      return;
+    }
+    if(e.key === "Enter"){
+      e.preventDefault();
+      e.stopPropagation();
+      const hit = activeComboOption(lst, "data-invno") || lst?.querySelector("li[data-invno]");
+      if(hit) pickInvoiceCombo(wrap, hit.getAttribute("data-invno"));
+      else commitInvoiceComboInput(wrap);
+    }
+  }, true);
+
+  document.addEventListener("focusout", e=>{
+    const input = e.target.closest?.(".inv-combo-input");
+    if(!input) return;
+    const wrap = input.closest(".inv-combo");
+    if(!wrap) return;
+    setTimeout(()=>{
+      if(_s4ComboListPick) return;
+      const lst = getList(wrap);
+      if(lst && lst.contains(document.activeElement)) return;
+      if(wrap.contains(document.activeElement)) return;
+      commitInvoiceComboInput(wrap);
+    }, 250);
+  });
+
+  document.addEventListener("pointerdown", e=>{
+    const btn = e.target.closest?.(".inv-combo-btn");
+    if(!btn) return;
+    const wrap = btn.closest(".inv-combo");
+    if(!wrap) return;
+    e.preventDefault();
+    ensureOwner(wrap);
+    const input = wrap.querySelector(".inv-combo-input");
+    const lst = getList(wrap);
+    if(!lst || lst.hidden){
+      closeAllInvoiceCombos(wrap);
+      input?.focus();
+      renderInvoiceComboList(wrap, "");
+    }else{
+      lst.hidden = true;
+      input?.setAttribute("aria-expanded", "false");
+    }
+  }, true);
+
+  wireComboGlobalClose();
 }
 
 export function stopTracker(){
   unsubs.splice(0).forEach(u=>{ try{ u(); }catch(_){ } });
-  document.getElementById("app").classList.remove("visible");
+  stopBranchSubscription();
+  stopWarehouseSubscription();
+  stopInventorySubscriptions();
+  const appEl = document.getElementById("app");
+  appEl?.classList.remove("visible");
+}
+
+function syncTopUserChip(){
+  const m = member || getCurrentMember();
+  const name = m?.displayName || "User";
+  const elName = document.getElementById("topUserName");
+  const elAv = document.getElementById("topUserAvatar");
+  const chip = document.getElementById("topUserChip");
+  if(elName) elName.textContent = name;
+  if(elAv) elAv.textContent = name.slice(0, 2).toUpperCase();
+  if(chip) chip.title = `${name} - ${roleLabel(m?.role)}`;
 }
 
 function syncTopShopName(){
@@ -932,15 +2062,50 @@ export function startTracker(opts){
   db = opts.db;
   shop = opts.shop || {};
   member = opts.member || getCurrentMember();
+  initFoundation(db, shop);
+  initMasters({ db, col, who });
+  initInventory({ db, col, num, roundMoney, who, findProductForLine });
   setMemberDisplayName(member?.displayName || "");
   document.getElementById("app").classList.add("visible");
   document.getElementById("userName").textContent = member?.displayName || "User";
-  document.getElementById("userRole").textContent = member?.role === "owner" ? "Owner" : "Staff";
+  document.getElementById("userRole").textContent = roleLabel(member?.role);
   document.getElementById("userAvatar").textContent = (member?.displayName || "U").slice(0,2).toUpperCase();
   syncTopShopName();
+  syncTopUserChip();
   bindUi();
   // bindUi() only runs once per page load, so re-wire modal openers on every login.
   wireModalOpeners();
+  if(isOwnerRole()){
+    ensureDefaultBranch(db, shop).catch(err=> console.warn("[S4 foundation] default branch", err));
+  }
+  subscribeBranches(db, member, ()=>{
+    syncFoundationChrome();
+    renderBranchSettingsRows();
+    fillWarehouseBranchSelect();
+    updateBranchRequestUi();
+    fillBranchRequestSupplyBranches();
+    fillBranchRequestWarehouses();
+  });
+  if(memberCan(member, "warehouses") || memberCan(member, "purchase-invoices")){
+    subscribeWarehouses(()=>{
+      renderWarehouses();
+      syncPurchaseStockLocations();
+      fillStockAdjWarehouses();
+      fillStockTransferWarehouses();
+      fillStockCountWarehouse();
+      syncInvStockLocation();
+      updateStockTransferUi();
+      updateBranchRequestUi();
+      fillBranchRequestWarehouses();
+      syncGrnStockLocations();
+      syncPrtStockLocations();
+      fillCnReturnWarehouses();
+    });
+  }
+  if(memberCan(member, "inventory") || memberCan(member, "purchase-invoices") || memberCan(member, "invoices") || memberCan(member, "credit-notes")){
+    subscribeStockBalances(()=> renderInventory());
+    subscribeStockLedger(()=> renderInventory());
+  }
   applyNavPermissions();
   enforceAccessGate(opts.access);
   const driveSt = document.getElementById("driveBackupStatus");
@@ -956,41 +2121,256 @@ export function startTracker(opts){
   initReportPeriodControls();
   listenIfAllowed("customers", rows => { customers = rows; renderCustomers(); refreshSelects(); renderDashboard(); });
   listenIfAllowed("vehicles", rows => { vehicles = rows; renderVehicles(); refreshSelects(); filterVehiclesForInvoice(); });
-  listenIfAllowed("productCatalog", rows => { products = rows; renderProducts(); });
+  listenIfAllowed("productCatalog", rows => { products = rows; refreshProductMasterPage(); });
+  listenIfAllowed("suppliers", rows => {
+    onSuppliersLoaded(rows);
+    refreshGrnSupplierSelect();
+    refreshPoSupplierSelect();
+    refreshVpSupplierSelect();
+    refreshPrtSupplierSelect();
+  });
+  listenIfAllowed("purchaseInvoices", rows => onPurchaseInvoicesLoaded(rows));
+  listenIfAllowed("goodsReceipts", rows => onGoodsReceiptsLoaded(rows));
+  listenIfAllowed("purchaseRequisitions", rows => onPurchaseRequisitionsLoaded(rows));
+  listenIfAllowed("purchaseOrders", rows => onPurchaseOrdersLoaded(rows));
+  listenIfAllowed("vendorPayments", rows => onVendorPaymentsLoaded(rows));
+  listenIfAllowed("purchaseReturns", rows => onPurchaseReturnsLoaded(rows));
+  initPurchase({
+    db,
+    col,
+    getShop: ()=> shop,
+    getProducts: ()=> products,
+    shopDefaultVat,
+    who,
+    toast,
+    esc,
+    money,
+    badge,
+    num,
+    roundMoney,
+    nextNo,
+    allocateDocSerial,
+    requireModule,
+    commitWrite,
+    logActivity,
+    friendlyFirestoreError,
+    openFormModal,
+    closeModal,
+    leaveFormAfterSave,
+    showPage,
+    openProductMasterDrawer,
+    openProductSearchDrawer,
+    getGoodsReceipts,
+    linkGrnToPurchase,
+  });
+  wirePurchaseUi();
+  initGrn({
+    db,
+    col,
+    getProducts: ()=> products,
+    who,
+    toast,
+    esc,
+    money,
+    badge,
+    num,
+    nextNo,
+    allocateDocSerial,
+    requireModule,
+    logActivity,
+    friendlyFirestoreError,
+    openFormModal,
+    closeModal,
+    leaveFormAfterSave,
+    fillWarehouseSelect
+  });
+  wireGrnUi();
+  initPurchaseRequisition({
+    db,
+    col,
+    getProducts: ()=> products,
+    shopDefaultVat,
+    who,
+    toast,
+    esc,
+    badge,
+    num,
+    nextNo,
+    allocateDocSerial,
+    requireModule,
+    logActivity,
+    friendlyFirestoreError,
+    openFormModal,
+    closeModal,
+    leaveFormAfterSave,
+    preparePoFromPrq
+  });
+  wirePrqUi();
+  initPo({
+    db,
+    col,
+    getProducts: ()=> products,
+    shopDefaultVat,
+    who,
+    toast,
+    esc,
+    money,
+    badge,
+    num,
+    roundMoney,
+    nextNo,
+    allocateDocSerial,
+    requireModule,
+    logActivity,
+    friendlyFirestoreError,
+    openFormModal,
+    closeModal
+  });
+  wirePoUi();
+  initVendorPayment({
+    db,
+    col,
+    who,
+    toast,
+    esc,
+    money,
+    badge,
+    num,
+    roundMoney,
+    nextNo,
+    allocateDocSerial,
+    requireModule,
+    logActivity,
+    friendlyFirestoreError,
+    openFormModal,
+    closeModal,
+    leaveFormAfterSave,
+    openModal,
+    renderPurchaseInvoices
+  });
+  wireVendorPaymentUi();
+  initPurchaseReturn({
+    db,
+    col,
+    shopDefaultVat,
+    who,
+    toast,
+    esc,
+    money,
+    badge,
+    num,
+    roundMoney,
+    nextNo,
+    allocateDocSerial,
+    requireModule,
+    logActivity,
+    friendlyFirestoreError,
+    openFormModal,
+    closeModal,
+    leaveFormAfterSave,
+    fillWarehouseSelect,
+    renderPurchaseInvoices
+  });
+  wirePurchaseReturnUi();
+  initWorkshop({
+    db,
+    col,
+    who,
+    toast,
+    esc,
+    money,
+    badge,
+    num,
+    roundMoney,
+    nextNo,
+    allocateDocSerial,
+    shopDefaultVat,
+    requireModule,
+    logActivity,
+    friendlyFirestoreError,
+    openFormModal,
+    closeModal,
+    leaveFormAfterSave,
+    customerOptions,
+    getCustomers: ()=> customers,
+    getVehicles: ()=> vehicles,
+    getProducts: ()=> products,
+    getServices: ()=> services,
+    fillWarehouseSelect,
+    openInvoiceFromJob
+  });
+  wireWorkshopUi();
+  setProductMasterContext({
+    db,
+    col,
+    shopId: loadSavedFirebaseConfig()?.projectId || "default",
+    getProducts: ()=> products,
+    shopDefaultVat,
+    who,
+    toast,
+    requireModule,
+    isOwnerRole,
+    deleteCatalogDocs,
+    logActivity,
+    firstAllowedPage,
+    showPage,
+    openFormModal,
+    closeModal,
+    leaveFormAfterSave,
+    shopPartEnabled: true,
+  });
   listenIfAllowed("serviceCatalog", rows => { services = rows; renderServices(); });
-  // Live shop settings (invoice entry mode sync Owner → Staff)
+  // Live shop settings (invoice entry mode sync Owner ? Staff)
   unsubs.push(onSnapshot(doc(db, "shop", "info"), snap=>{
     if(!snap.exists()) return;
     const next = snap.data() || {};
-    const modeChanged = (next.invoiceEntryMode || "") !== (shop?.invoiceEntryMode || "");
+    const modeChanged = (next.operatingMode || "full") !== (shop?.operatingMode || "full");
+    const invModeChanged = (next.invoiceEntryMode || "") !== (shop?.invoiceEntryMode || "");
+    const invBillingChanged = (next.invoiceBillingStyle || "") !== (shop?.invoiceBillingStyle || "");
     shop = next;
+    setFoundationShop(shop);
     syncTopShopName();
     if(modeChanged){
+      applyNavPermissions();
+      const active = document.querySelector(".page.active")?.id;
+      if(active && !canAccessPage(active)){
+        const home = firstAllowedPage();
+        if(home) showPage(home);
+      }
+    }
+    if(invModeChanged){
       _formInvoiceMode = null;
       applyInvoiceEntryMode();
     }
+    if(invBillingChanged) applyInvoiceBillingUi();
     syncInvoiceModeSettingsUi();
+    syncInvoiceBillingSettingsUi();
   }, err=> toast(friendlyFirestoreError(err))));
-  listenIfAllowed("invoices", rows => { invoices = rows; renderInvoices(); renderCustomers(); renderDashboard(); renderAging(); fillLedger(); fillStatement(); fillAllocSelect(); fillCnAllocSelect(); refreshNotifications(); });
-  listenIfAllowed("receipts", rows => { receipts = rows; renderReceipts(); renderCustomers(); renderDashboard(); fillAllocSelect(); fillLedger(); fillStatement(); refreshNotifications(); });
-  listenIfAllowed("creditNotes", rows => { creditNotes = rows; renderNotes("cnRows", creditNotes, "cnNo"); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); fillCnAllocSelect(); });
-  listenIfAllowed("debitNotes", rows => { debitNotes = rows; renderNotes("dnRows", debitNotes, "dnNo"); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); });
-  listenIfAllowed("cheques", rows => { cheques = rows; renderCheques(); renderCustomers(); renderDashboard(); refreshNotifications(); });
-  listenIfAllowed("discounts", rows => { discounts = rows; renderDiscounts(); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); });
+  listenIfAllowed("invoices", rows => { invalidateInvMoneyCache(); invoices = rows; renderInvoices(); renderCustomers(); renderDashboard(); renderAging(); fillLedger(); fillStatement(); fillAllocSelect(); fillCnAllocSelect(); refreshNotifications(); });
+  listenIfAllowed("receipts", rows => { invalidateInvMoneyCache(); receipts = rows; renderReceipts(); renderCustomers(); renderDashboard(); fillAllocSelect(); fillLedger(); fillStatement(); refreshNotifications(); });
+  listenIfAllowed("creditNotes", rows => { invalidateInvMoneyCache(); creditNotes = rows; renderNotes("cnRows", creditNotes, "cnNo"); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); fillCnAllocSelect(); });
+  listenIfAllowed("debitNotes", rows => { invalidateInvMoneyCache(); debitNotes = rows; renderNotes("dnRows", debitNotes, "dnNo"); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); });
+  listenIfAllowed("cheques", rows => { invalidateInvMoneyCache(); cheques = rows; renderCheques(); renderCustomers(); renderDashboard(); refreshNotifications(); });
+  listenIfAllowed("discounts", rows => { invalidateInvMoneyCache(); discounts = rows; renderDiscounts(); renderCustomers(); fillLedger(); fillStatement(); renderDashboard(); renderAging(); });
+  listenIfAllowed("stockTransfers", rows => { stockTransfers = rows; renderInventory(); });
+  listenIfAllowed("stockCounts", rows => { stockCounts = rows; renderInventory(); });
+  listenIfAllowed("branchStockRequests", rows => { branchStockRequests = rows; renderInventory(); });
+  listenIfAllowed("jobCards", rows => onJobCardsLoaded(rows));
+  listenIfAllowed("partsIssues", rows => onPartsIssuesLoaded(rows));
   if(memberCan(member, "audit")){
     unsubs.push(subscribeRecentActivity(rows=>{
       window._auditRows = rows;
       document.getElementById("auditRows").innerHTML = rows.length
         ? rows.map(r=>{
             const f = formatActivityRow(r, "en");
-            return `<tr><td>${esc(f.when)}</td><td>${esc(f.who)}</td><td>${esc(r.module||"")}</td><td>${esc(r.action||"")}</td>
+            return `<tr><td>${esc(f.when)}</td><td>${esc(f.who)}</td><td>${esc(r.branchCode || r.branchName || "")}</td><td>${esc(r.module||"")}</td><td>${esc(r.action||"")}</td>
               <td>${esc(r.record||r.invoiceId||"")}</td><td>${esc(r.oldValue||"")}</td><td>${esc(r.newValue||"")}</td><td>${esc(r.reason||f.what)}</td></tr>`;
           }).join("")
-        : `<tr><td colspan="8" class="empty">No activity yet</td></tr>`;
+        : `<tr><td colspan="9" class="empty">No activity yet</td></tr>`;
     }));
   }else{
     const auditRows = document.getElementById("auditRows");
-    if(auditRows) auditRows.innerHTML = `<tr><td colspan="8" class="empty">No permission for audit</td></tr>`;
+    if(auditRows) auditRows.innerHTML = `<tr><td colspan="9" class="empty">No permission for audit</td></tr>`;
   }
   wireIdleDashboardReset();
   wireCloseBackupHooks();
@@ -1013,7 +2393,7 @@ async function enforceAccessGate(accessHint){
   try{
     if(!access) access = await getAccessStatus();
   }catch{
-    access = { allowed:false, reason:"LICENSE_VERIFY_FAILED", deviceFingerprint:"", maskedFingerprint:"—" };
+    access = { allowed:false, reason:"LICENSE_VERIFY_FAILED", deviceFingerprint:"", maskedFingerprint:"-" };
   }
   _fullDeviceFingerprint = access.deviceFingerprint || "";
   const overlay = document.getElementById("licenseGateOverlay");
@@ -1051,7 +2431,7 @@ async function doActivateFromUi(textareaId, msgId){
   const msgEl = msgId ? document.getElementById(msgId) : null;
   const setMsg = (t)=>{ if(msgEl) msgEl.textContent = t; else toast(t); };
   try{
-    setMsg("Verifying…");
+    setMsg("Verifying-");
     const result = await activateLicense(key);
     if(!result.ok){
       setMsg(licenseErrorText(result.reason));
@@ -1076,7 +2456,7 @@ function listen(name, cb){
 
 // Firestore read rules gate every collection by module (firestore.rules 176-223).
 // Subscribing without a granting module fires permission-denied, which listen()
-// surfaces as a toast — restricted staff got one toast per collection on login.
+// surfaces as a toast - restricted staff got one toast per collection on login.
 // Module lists below must stay in sync with the `allow read` conditions.
 const COLLECTION_READ_ACCESS = {
   customers:      { mods: ["customers","invoices","ledger","statements","dashboard","communication"], rows: "customerRows", cols: 9 },
@@ -1088,13 +2468,50 @@ const COLLECTION_READ_ACCESS = {
   creditNotes:    { mods: ["credit-notes","ledger","statements","allocation"], rows: "cnRows", cols: 9 },
   debitNotes:     { mods: ["debit-notes","ledger","statements","aging","dashboard"], rows: "dnRows", cols: 8 },
   cheques:        { mods: ["cheques","ledger","receipts"], rows: "chequeRows", cols: 8 },
-  discounts:      { mods: ["discounts","ledger","statements","receipts"], rows: "discRows", cols: 9 }
+  discounts:      { mods: ["discounts","ledger","statements","receipts"], rows: "discRows", cols: 9 },
+  suppliers:      { mods: ["suppliers","purchase-invoices","dashboard"], rows: "supplierRows", cols: 8 },
+  warehouses:     { mods: ["warehouses","purchase-invoices"], rows: "warehouseRows", cols: 6 },
+  purchaseInvoices: { mods: ["purchase-invoices","dashboard"], rows: "purchaseRows", cols: 11 },
+  goodsReceipts: { mods: ["purchase-invoices","inventory"], rows: "grnRows", cols: 9 },
+  purchaseOrders: { mods: ["purchase-invoices","inventory"], rows: "poRows", cols: 7 },
+  purchaseRequisitions: { mods: ["purchase-invoices","inventory"], rows: "prqRows", cols: 8 },
+  vendorPayments: { mods: ["purchase-invoices"], rows: "vpRows", cols: 9 },
+  purchaseReturns: { mods: ["purchase-invoices","inventory"], rows: "prtRows", cols: 7 },
+  stockTransfers: { mods: ["inventory"], rows: "invTransferRows", cols: 7 },
+  stockCounts: { mods: ["inventory"], rows: "invCountRows", cols: 6 },
+  branchStockRequests: { mods: ["inventory"], rows: "invBranchReqRows", cols: 8 },
+  jobCards: { mods: ["workshop", "dashboard"], rows: "jobCardRows", cols: 10 },
+  partsIssues: { mods: ["workshop", "inventory", "dashboard"], rows: "partsIssueRows", cols: 8 }
+};
+
+const COLLECTION_MODE_PAGE = {
+  vehicles: "vehicles",
+  productCatalog: "product-catalog",
+  serviceCatalog: "service-catalog",
+  suppliers: "suppliers",
+  warehouses: "warehouses",
+  purchaseInvoices: "purchase-invoices",
+  goodsReceipts: "purchase-invoices",
+  purchaseOrders: "purchase-invoices",
+  purchaseRequisitions: "purchase-invoices",
+  vendorPayments: "purchase-invoices",
+  purchaseReturns: "purchase-invoices",
+  jobCards: "workshop",
+  partsIssues: "workshop"
 };
 
 function listenIfAllowed(name, cb){
+  const modePage = COLLECTION_MODE_PAGE[name];
+  if(modePage && !isModuleAllowedInMode(modePage, shop)){
+    try{ cb([]); }catch(err){ console.warn("clear on mode listen failed:", name, err); }
+    const access = COLLECTION_READ_ACCESS[name];
+    const el = access ? document.getElementById(access.rows) : null;
+    if(el) el.innerHTML = `<tr><td colspan="${access.cols}" class="empty">Not available in TOTAL MODE</td></tr>`;
+    return false;
+  }
   const access = COLLECTION_READ_ACCESS[name];
-  if(access && !access.mods.some(m=> memberCan(member, m))){
-    // stopTracker() only drops subscriptions, so clear the cached rows too —
+  if(access && !access.mods.some(m=> memberCan(activeMember(), m))){
+    // stopTracker() only drops subscriptions, so clear the cached rows too -
     // otherwise a re-login as restricted staff would keep the previous user's data.
     try{ cb([]); }catch(err){ console.warn("clear on denied listen failed:", name, err); }
     const el = document.getElementById(access.rows);
@@ -1110,7 +2527,19 @@ function bindUi(){
   uiBound = true;
   wireAppBackControls();
   wireModalOpeners();
+  wireAutoUppercase();
+  wireEnterAsTab();
+  const sidebarNav = document.getElementById("sidebarNav");
+  if(sidebarNav && !sidebarNav._s4NavBound){
+    sidebarNav._s4NavBound = true;
+    sidebarNav.addEventListener("click", e=>{
+      const btn = e.target.closest("button[data-page]");
+      if(!btn || btn.disabled) return;
+      showPage(btn.dataset.page);
+    });
+  }
   document.querySelectorAll("[data-page]").forEach(n=>{
+    if(n.closest("#sidebarNav")) return;
     n.onclick = ()=> showPage(n.dataset.page);
   });
   document.querySelectorAll("[data-close]").forEach(b=> b.onclick = ()=>{
@@ -1126,6 +2555,14 @@ function bindUi(){
       if(d.id === "invoiceModal"){
         try{ saveInvoiceWip(); }catch(_){}
       }
+      if(d.id === "productMasterModal"){
+        closeProductMasterDrawer();
+        return;
+      }
+      if(d.id === "piProductSearchModal"){
+        closeProductSearchDrawer();
+        return;
+      }
       d.classList.remove("open");
       d.style.display = "";
       d.style.zIndex = "";
@@ -1133,6 +2570,10 @@ function bindUi(){
   });
   document.getElementById("menu").onclick = ()=> document.getElementById("sidebar").classList.toggle("open");
   document.getElementById("saveCustomerBtn").onclick = saveCustomer;
+  document.getElementById("cDays")?.addEventListener("input", ()=>{
+    const days = num(cDays?.value) || 30;
+    if(cTerms) cTerms.value = `${days} Days Credit`;
+  });
   document.getElementById("saveVehicleBtn")?.addEventListener("click", saveVehicle);
   document.getElementById("addVehicleBtn")?.addEventListener("click", e=>{
     e.preventDefault();
@@ -1142,7 +2583,7 @@ function bindUi(){
   document.getElementById("invAddVehicleBtn")?.addEventListener("click", e=>{
     e.preventDefault();
     e.stopPropagation();
-    // Keep invoice open underneath — do not wipe WIP / in-progress edits
+    // Keep invoice open underneath - do not wipe WIP / in-progress edits
     openFormModal("vehicleModal", { keepOpen: ["invoiceModal"] });
     const cust = invCustomer?.value || "";
     if(cust) customerOptions(vCustomer, cust);
@@ -1198,6 +2639,9 @@ function bindUi(){
     const el = document.getElementById(id);
     if(!el) return;
     el.addEventListener("input", ()=>{
+      if(id === "invEntryName") _invEntryDefaultDiscPct = 0;
+      if(id === "invEntryDisc") _invEntryDefaultDiscPct = 0;
+      if(id === "invEntryQty" || id === "invEntryPrice") syncInvEntryDefaultDiscount();
       updateInvEntryPreview();
       queueInvoiceWipSave();
     });
@@ -1238,11 +2682,61 @@ function bindUi(){
     invoiceFilter = st;
     renderInvoices();
   };
-  document.getElementById("ledgerCustomer").onchange = fillLedger;
+  document.getElementById("ledgerCustomer").onchange = ()=>{
+    syncLedgerSubAccountField();
+    fillLedger();
+  };
+  document.getElementById("ledgerSubAccount")?.addEventListener("change", fillLedger);
   document.getElementById("ledgerFrom")?.addEventListener("change", fillLedger);
   document.getElementById("ledgerTo")?.addEventListener("change", fillLedger);
-  document.getElementById("stmtCustomer").onchange = fillStatement;
+  document.getElementById("ledgerPeriodMode")?.addEventListener("change", e=>{
+    if(e.target.value === "custom"){
+      initLedgerPeriodControls();
+      const year = num(document.getElementById("ledgerPeriodYear")?.value) || new Date().getFullYear();
+      const monthIndex0 = num(document.getElementById("ledgerPeriodMonth")?.value);
+      const range = monthRangeIso(year, monthIndex0);
+      const fromEl = document.getElementById("ledgerFrom");
+      const toEl = document.getElementById("ledgerTo");
+      if(fromEl) fromEl.value = range.from;
+      if(toEl) toEl.value = range.to;
+    }
+    syncLedgerPeriodUi();
+    fillLedger();
+  });
+  ["ledgerPeriodMonth","ledgerPeriodYear"].forEach(id=>{
+    document.getElementById(id)?.addEventListener("change", ()=>{
+      syncLedgerPeriodUi();
+      fillLedger();
+    });
+  });
+  document.getElementById("stmtCustomer").onchange = ()=>{
+    syncStmtSubAccountField();
+    fillStatement();
+  };
+  document.getElementById("stmtSubAccount")?.addEventListener("change", fillStatement);
   document.getElementById("stmtAsOf")?.addEventListener("change", fillStatement);
+  document.getElementById("stmtOdFrom")?.addEventListener("change", fillStatement);
+  document.getElementById("stmtShowPeriodTxns")?.addEventListener("change", fillStatement);
+  document.getElementById("stmtPeriodMode")?.addEventListener("change", e=>{
+    if(e.target.value === "custom"){
+      initStmtPeriodControls();
+      const year = num(document.getElementById("stmtPeriodYear")?.value) || new Date().getFullYear();
+      const monthIndex0 = num(document.getElementById("stmtPeriodMonth")?.value);
+      const range = monthRangeIso(year, monthIndex0);
+      const fromEl = document.getElementById("stmtFrom");
+      const asOfEl = document.getElementById("stmtAsOf");
+      if(fromEl && !fromEl.value) fromEl.value = range.from;
+      if(asOfEl && !asOfEl.value) asOfEl.value = range.to;
+    }
+    syncStmtPeriodUi();
+    fillStatement();
+  });
+  ["stmtPeriodMonth","stmtPeriodYear"].forEach(id=>{
+    document.getElementById(id)?.addEventListener("change", ()=>{
+      syncStmtPeriodUi();
+      fillStatement();
+    });
+  });
   document.getElementById("waCustomer").onchange = fillWhatsapp;
   document.getElementById("waType")?.addEventListener("change", fillWhatsapp);
   document.getElementById("printStmtBtn").onclick = ()=> exportStatementPdf(false);
@@ -1255,7 +2749,7 @@ function bindUi(){
     if(wt) wt.value = "Statement";
     if(stmtCust) document.getElementById("waCustomer").value = stmtCust;
     fillWhatsapp();
-    toast("PDF ready — attach it in WhatsApp");
+    toast("PDF ready - attach it in WhatsApp");
   });
   document.getElementById("genStmtBtn")?.addEventListener("click", fillStatement);
   document.getElementById("stmtFrom")?.addEventListener("change", fillStatement);
@@ -1269,6 +2763,44 @@ function bindUi(){
   });
   document.getElementById("waQuickRemind")?.addEventListener("click", ()=>{ showPage("communication"); fillWhatsapp(); });
   document.getElementById("saveSettingsBtn").onclick = saveSettings;
+  document.getElementById("topBranchSelect")?.addEventListener("change", e=>{
+    setCurrentBranchId(e.target.value);
+    syncFoundationChrome();
+    toast(`Branch: ${getCurrentBranch()?.name || "-"}`);
+  });
+  document.getElementById("addBranchBtn")?.addEventListener("click", ()=>{
+    if(!isOwnerRole()) return toast("Only owner can manage branches");
+    resetBranchForm();
+    document.getElementById("branchFormGrid")?.removeAttribute("hidden");
+  });
+  document.getElementById("cancelBranchBtn")?.addEventListener("click", ()=>{
+    document.getElementById("branchFormGrid")?.setAttribute("hidden", "");
+    resetBranchForm();
+  });
+  document.getElementById("saveBranchBtn")?.addEventListener("click", saveBranchForm);
+  document.getElementById("saveWarehouseBtn")?.addEventListener("click", saveWarehouse);
+  document.getElementById("warehouseSearch")?.addEventListener("input", renderWarehouses);
+  document.getElementById("invBalanceSearch")?.addEventListener("input", renderInventory);
+  document.getElementById("invLedgerSearch")?.addEventListener("input", renderInventory);
+  document.getElementById("saveStockAdjBtn")?.addEventListener("click", saveStockAdjustment);
+  document.getElementById("saveStockTransferBtn")?.addEventListener("click", saveStockTransfer);
+  document.getElementById("saveStockCountBtn")?.addEventListener("click", saveStockCount);
+  document.getElementById("saveBranchRequestBtn")?.addEventListener("click", saveBranchRequest);
+  document.getElementById("stkCountLoadBtn")?.addEventListener("click", loadStockCountFromWarehouse);
+  document.getElementById("stkCountAddLineBtn")?.addEventListener("click", ()=> addStockCountLine());
+  document.getElementById("stkCountWarehouse")?.addEventListener("change", refreshStockCountSystemQty);
+  document.getElementById("stkAdjType")?.addEventListener("change", syncStockAdjQtySign);
+  document.getElementById("stkTrProduct")?.addEventListener("change", syncStockTransferAvail);
+  document.getElementById("stkTrFrom")?.addEventListener("change", ()=>{
+    syncStockTransferToWarehouse();
+    syncStockTransferAvail();
+  });
+  document.getElementById("ibrSupplyBranch")?.addEventListener("change", ()=>{
+    fillBranchRequestWarehouses();
+    syncBranchRequestAvail();
+  });
+  document.getElementById("ibrProduct")?.addEventListener("change", syncBranchRequestAvail);
+  document.getElementById("ibrFromWarehouse")?.addEventListener("change", syncBranchRequestAvail);
   document.querySelectorAll("[data-settings-view]").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       _currentSettingsView = btn.dataset.settingsView || "hub";
@@ -1295,7 +2827,7 @@ function bindUi(){
       if(msg) msg.textContent = "Full fingerprint copied.";
     }catch(e){
       const msg = document.getElementById("gateLicenseMsg");
-      if(msg) msg.textContent = "Copy failed — ask support for help.";
+      if(msg) msg.textContent = "Copy failed - ask support for help.";
     }
   });
   document.getElementById("inviteBtn").onclick = doInvite;
@@ -1314,7 +2846,7 @@ function bindUi(){
     const html = document.getElementById("periodReportHtml");
     if(html && html.style.display !== "none" && html.innerHTML){
       const printed = await printHtmlDocument(document.getElementById("reportTitle").textContent, html.innerHTML);
-      if(!printed) toast("File ready — open it to print or share");
+      if(!printed) toast("File ready - open it to print or share");
     }else window.print();
   });
   document.getElementById("allocReceipt").onchange = fillAllocRows;
@@ -1322,23 +2854,81 @@ function bindUi(){
   document.getElementById("saveCnAllocBtn")?.addEventListener("click", saveCnAllocation);
   document.getElementById("allocCn")?.addEventListener("change", fillCnAllocRows);
   document.getElementById("invCustomer")?.addEventListener("change", ()=>{
-    filterVehiclesForInvoice();
+    syncInvoiceCustomerFromMaster();
     queueInvoiceWipSave();
+    queueInvoiceDuplicateCheck(true);
   });
-  document.getElementById("rvCustomer")?.addEventListener("change", fillRvAlloc);
-  document.getElementById("rvAmount")?.addEventListener("input", fillRvAlloc);
-  document.getElementById("rvMethod")?.addEventListener("change", ()=>{
-    syncRvMethodUi({ setDefaultStatus: true });
+  document.getElementById("invSubAccount")?.addEventListener("change", ()=>{
+    queueInvoiceWipSave();
+    queueInvoiceDuplicateCheck(true);
   });
+  document.getElementById("invDate")?.addEventListener("change", ()=>{
+    syncInvoiceCustomerFromMaster({ preserveSub: true });
+    queueInvoiceWipSave();
+    queueInvoiceDuplicateCheck(true);
+  });
+  document.getElementById("invBillMonth")?.addEventListener("change", ()=>{
+    syncInvDateFromBillingPeriod({ recalcDue: true });
+    queueInvoiceWipSave();
+    queueInvoiceDuplicateCheck(true);
+  });
+  document.getElementById("invBillYear")?.addEventListener("change", ()=>{
+    syncInvDateFromBillingPeriod({ recalcDue: true });
+    queueInvoiceWipSave();
+    queueInvoiceDuplicateCheck(true);
+  });
+  document.getElementById("invBillYear")?.addEventListener("input", ()=> queueInvoiceDuplicateCheck(false));
+  document.getElementById("invManual")?.addEventListener("input", ()=> queueInvoiceDuplicateCheck(false));
+  document.getElementById("invManual")?.addEventListener("blur", ()=> queueInvoiceDuplicateCheck(true));
+  document.getElementById("invComputer")?.addEventListener("input", ()=> queueInvoiceDuplicateCheck(false));
+  document.getElementById("invComputer")?.addEventListener("blur", ()=> queueInvoiceDuplicateCheck(true));
+  document.getElementById("dupAlertOk")?.addEventListener("click", hideDupAlert);
+  document.getElementById("dupAlertOverlay")?.addEventListener("click", e=>{
+    if(e.target.id === "dupAlertOverlay") hideDupAlert();
+  });
+  document.getElementById("rvCustomer")?.addEventListener("change", ()=>{
+    _rvBillLines = [];
+    syncReceiptSubAccountField("");
+    renderRvBillGrid();
+    fillRvBillPick();
+    updateRvCustomerSummary();
+  });
+  document.getElementById("rvSubAccount")?.addEventListener("change", ()=>{
+    _rvBillLines = [];
+    renderRvBillGrid();
+    fillRvBillPick();
+  });
+  document.getElementById("cSubAddBtn")?.addEventListener("click", addCustomerSubAccount);
+  document.getElementById("cSubName")?.addEventListener("keydown", e=>{
+    if(e.key === "Enter"){
+      e.preventDefault();
+      addCustomerSubAccount();
+    }
+  });
+  wireRvBillUi();
+  wireRvFindUi();
+  wireMasterListDblOpen();
   document.getElementById("cnCustomer")?.addEventListener("change", ()=>{
     const cnCustomer = document.getElementById("cnCustomer");
     const cnInvoice = document.getElementById("cnInvoice");
+    syncNoteSubAccountField("cn", cnCustomer?.value || "");
     if(cnCustomer && cnInvoice) fillNoteInvoices(cnInvoice, cnCustomer.value);
+  });
+  document.getElementById("cnInvoice")?.addEventListener("change", ()=>{
+    const cnCustomer = document.getElementById("cnCustomer")?.value || "";
+    const invNo = document.getElementById("cnInvoice")?.value || "";
+    syncNoteSubAccountField("cn", cnCustomer, subAccountFromInvoiceNo(cnCustomer, invNo));
   });
   document.getElementById("dnCustomer")?.addEventListener("change", ()=>{
     const dnCustomer = document.getElementById("dnCustomer");
     const dnInvoice = document.getElementById("dnInvoice");
+    syncNoteSubAccountField("dn", dnCustomer?.value || "");
     if(dnCustomer && dnInvoice) fillNoteInvoices(dnInvoice, dnCustomer.value);
+  });
+  document.getElementById("dnInvoice")?.addEventListener("change", ()=>{
+    const dnCustomer = document.getElementById("dnCustomer")?.value || "";
+    const invNo = document.getElementById("dnInvoice")?.value || "";
+    syncNoteSubAccountField("dn", dnCustomer, subAccountFromInvoiceNo(dnCustomer, invNo));
   });
   document.getElementById("chqCustomer")?.addEventListener("change", ()=>{
     const chqCustomer = document.getElementById("chqCustomer");
@@ -1350,9 +2940,10 @@ function bindUi(){
     const cnAmount = document.getElementById("cnAmount");
     const inv = invoices.find(i=> i.invNo === cnInvoice?.value);
     if(inv && cnAmount && !num(cnAmount.value)) cnAmount.value = invBalance(inv);
+    renderCnReturnRows(inv);
   });
   document.getElementById("dnInvoice")?.addEventListener("change", ()=>{
-    // Debit note is an additional charge — do not auto-fill amount from invoice balance
+    // Debit note is an additional charge - do not auto-fill amount from invoice balance
   });
   document.getElementById("chqInvoice")?.addEventListener("change", ()=>{
     const chqInvoice = document.getElementById("chqInvoice");
@@ -1389,6 +2980,12 @@ function bindUi(){
       }catch(_){}
       // Mobile WebView often fires a follow-up document click that would instantly close
       window._s4NotifIgnoreCloseUntil = Date.now() + 450;
+      const items = buildNotificationItems();
+      acknowledgeNotifications(items);
+      setNotifBadge(0);
+      p.hidden = false;
+      refreshNotifications();
+      return;
     }
     p.hidden = !opening;
   });
@@ -1421,7 +3018,7 @@ function bindUi(){
       const res = await runFullBackup({ mode: "local", silent: false });
       toast(res.local?.mode === "desktop"
         ? `Local backup: ${res.local.path}`
-        : `Local backup downloaded (${res.local?.filename || ""}) — check Downloads`);
+        : `Local backup downloaded (${res.local?.filename || ""}) - check Downloads`);
       renderBackupPage();
     }catch(e){ toast(friendlyFirestoreError(e)); }
   });
@@ -1437,7 +3034,7 @@ function bindUi(){
     try{
       await restoreLocalBackup(db, file);
       await logActivity({ action:"restore", staffName: who(), module:"Backup", summary: "Local file restore " + file.name });
-      toast("Local restore started — data will appear as sync completes");
+      toast("Local restore started - data will appear as sync completes");
     }catch(err){ toast(friendlyFirestoreError(err)); }
   });
   document.getElementById("recalcBalancesBtn")?.addEventListener("click", async ()=>{
@@ -1462,11 +3059,17 @@ function bindUi(){
 }
 
 function refreshSelects(){
-  ["ledgerCustomer","stmtCustomer","waCustomer","invCustomer","rvCustomer","cnCustomer","dnCustomer","chqCustomer","discCustomer","vCustomer"].forEach(id=>{
+  ["ledgerCustomer","stmtCustomer","waCustomer","invCustomer","rvCustomer","cnCustomer","dnCustomer","chqCustomer","discCustomer","vCustomer","jcCustomer"].forEach(id=>{
     const el = document.getElementById(id);
     if(el) customerOptions(el, el.value);
   });
   filterVehiclesForInvoice();
+  syncLedgerSubAccountField();
+  syncStmtSubAccountField();
+  syncLedgerPeriodUi();
+  syncStmtPeriodUi();
+  syncInvoiceSubAccountField(document.getElementById("invSubAccount")?.value || "");
+  syncReceiptSubAccountField(document.getElementById("rvSubAccount")?.value || "");
 }
 
 /**
@@ -1523,7 +3126,7 @@ async function runFullBackup({ mode = "full", silent = false } = {}){
   return result;
 }
 
-/** Idle return → Dashboard: visibilitychange only (not a reading-time timer). Invoice WIP localStorage is preserved. */
+/** Idle return ? Dashboard: visibilitychange only (not a reading-time timer). Invoice WIP localStorage is preserved. */
 const IDLE_RESET_MS = 300000; // 5 min; change to 600000 for 10 min
 const IDLE_HIDDEN_KEY = "s4_hidden_at";
 
@@ -1566,7 +3169,7 @@ async function handleExitWithBackupPrompt(){
   if(choice === "cancel") return false;
   if(choice === "yes"){
     try{
-      toast("Backup in progress…");
+      toast("Backup in progress-");
       await runFullBackup({ mode: "full", silent: false });
       toast("Backup complete");
     }catch(e){
@@ -1591,7 +3194,7 @@ function wireCloseBackupHooks(){
 
   const platform = String(window.Capacitor?.getPlatform?.() || "").toLowerCase();
   const isAndroid = !!(window.Capacitor?.isNativePlatform?.() && platform === "android");
-  // iPhone PWA/browser: NO close popup — silent periodic + pagehide only.
+  // iPhone PWA/browser: NO close popup - silent periodic + pagehide only.
   const isIosOrBrowser = !isAndroid && !window.s4Desktop;
 
   if(isAndroid){
@@ -1607,7 +3210,7 @@ function wireCloseBackupHooks(){
         runFullBackup({ mode: "full", silent: true }).catch(()=>{});
       });
     }else{
-      console.warn("@capacitor/app not registered — install plugin and cap sync");
+      console.warn("@capacitor/app not registered - install plugin and cap sync");
     }
   }
 
@@ -1631,7 +3234,7 @@ function unlinkedDebitNotes(customerName){
     if(customerName && n.customer !== customerName) return false;
     const invNo = String(n.invoice || "").trim();
     if(!invNo) return true;
-    // Linked but invoice missing/deleted → still count so money is not lost
+    // Linked but invoice missing/deleted ? still count so money is not lost
     const inv = invoices.find(i=> i.invNo === invNo && i.customer === n.customer);
     return !inv;
   });
@@ -1654,7 +3257,7 @@ function linkedDebitTotalForInvoice(invNo, customer){
 }
 
 function totalReceivableAmount(){
-  // Same book as Customer Outstanding / Ledger — net all customers (advances reduce total)
+  // Same book as Customer Outstanding / Ledger - net all customers (advances reduce total)
   const names = new Set();
   customers.forEach(c=>{ if(c.name) names.add(c.name); });
   invoices.forEach(i=>{ if(i.customer) names.add(i.customer); });
@@ -1680,14 +3283,14 @@ function renderDashboard(){
     ["TODAY RECEIVED", money(recToday.reduce((s,i)=> s+num(i.amount),0)), recToday.length + " receipts"],
     ["OVERDUE", money(overdueAmt), overdue.length + " invoices"],
     ["CUSTOMERS", customers.length, customers.filter(c=>c.status==="Active").length + " active"],
-    ["OPEN INVOICE BAL.", money(open.reduce((s,i)=> s + invBalance(i), 0)), open.length + " invoices · unpaid invoice totals only (excludes advances)"]
+    ["OPEN INVOICE BAL.", money(open.reduce((s,i)=> s + invBalance(i), 0)), open.length + " invoices - unpaid invoice totals only (excludes advances)"]
   ].map(([a,b,c])=> `<div class="card"><div class="metric-label">${a}</div><div class="metric">${b}</div><div class="metric-note">${c}</div></div>`).join("");
 
   const buckets = agingSums();
   const max = Math.max(1, ...Object.values(buckets));
-  const labels = [["current","Current"],["d30","1–30"],["d60","31–60"],["d90","61–90"],["d90p","90+"]];
+  const labels = [["current","Current"],["d30","1-30"],["d60","31-60"],["d90","61-90"],["d90p","90+"]];
   document.getElementById("dashAging").innerHTML = labels.map(([k,l])=>
-    `<div class="age-row"><span class="age-label">${l}</span><div class="bar"><i style="width:${Math.round(buckets[k]/max*100)}%"></i></div><b class="age-amt">${money(buckets[k])}</b></div>`
+    `<div class="age-row age-row--${k}"><span class="age-label">${l}</span><div class="bar"><i class="age-bar age-bar--${k}" style="width:${Math.round(buckets[k]/max*100)}%"></i></div><b class="age-amt">${money(buckets[k])}</b></div>`
   ).join("");
 
   const byCust = {};
@@ -1710,38 +3313,36 @@ function renderDashboard(){
 
 function agingSums(){
   const buckets = { current:0, d30:0, d60:0, d90:0, d90p:0 };
-  invoices.forEach(i=>{
-    const b = agingBucket(i);
-    if(b) buckets[b] += invBalance(i);
+  allReceivableCustomers().forEach(name=>{
+    const b = customerAgingBuckets(name);
+    Object.keys(buckets).forEach(k=> { buckets[k] = roundMoney(buckets[k] + b[k]); });
   });
-  // Customer-level debit notes (no invoice link) sit in Current
-  buckets.current += unlinkedDebitTotal();
   return buckets;
 }
 
 function renderAging(){
   const b = agingSums();
-  document.getElementById("agingCards").innerHTML = [
-    ["CURRENT", b.current],["1–30 DAYS", b.d30],["31–60 DAYS", b.d60],["61–90 DAYS", b.d90],["90+ DAYS", b.d90p],
-    ["TOTAL", b.current+b.d30+b.d60+b.d90+b.d90p]
-  ].map(([l,v])=> `<div class="card"><div class="metric-label">${l}</div><div class="metric">${money(v)}</div></div>`).join("");
+  const cardSpecs = [
+    ["CURRENT", b.current, "aging-card--current"],
+    ["1-30 DAYS", b.d30, "aging-card--d30"],
+    ["31-60 DAYS", b.d60, "aging-card--d60"],
+    ["61-90 DAYS", b.d90, "aging-card--d90"],
+    ["90+ DAYS", b.d90p, "aging-card--d90p"],
+    ["TOTAL", b.current+b.d30+b.d60+b.d90+b.d90p, "aging-card--total"]
+  ];
+  document.getElementById("agingCards").innerHTML = cardSpecs.map(([l,v,cls])=>
+    `<div class="card ${cls}"><div class="metric-label">${l}</div><div class="metric">${money(v)}</div></div>`
+  ).join("");
 
   const map = {};
-  invoices.forEach(i=>{
-    const name = i.customer || "—";
-    if(!map[name]) map[name] = { current:0, d30:0, d60:0, d90:0, d90p:0 };
-    const k = agingBucket(i);
-    if(k) map[name][k] += invBalance(i);
-  });
-  unlinkedDebitNotes().forEach(n=>{
-    const name = n.customer || "—";
-    if(!map[name]) map[name] = { current:0, d30:0, d60:0, d90:0, d90p:0 };
-    map[name].current += num(n.amount);
+  allReceivableCustomers().forEach(name=>{
+    map[name] = customerAgingBuckets(name);
   });
   document.getElementById("agingRows").innerHTML = Object.entries(map).map(([name,x])=>{
-    const tot = x.current+x.d30+x.d60+x.d90+x.d90p;
-    if(tot<=0) return "";
-    return `<tr><td>${esc(name)}</td><td>${money(x.current)}</td><td>${money(x.d30)}</td><td>${money(x.d60)}</td><td>${money(x.d90)}</td><td class="red">${money(x.d90p)}</td><td><b>${money(tot)}</b></td>
+    const tot = roundMoney(x.current+x.d30+x.d60+x.d90+x.d90p);
+    if(tot <= 0.009) return "";
+    const overdue = roundMoney(x.d30 + x.d60 + x.d90 + x.d90p);
+    return `<tr><td>${esc(name)}</td><td class="age-cell age-cell--current">${money(x.current)}</td><td class="age-cell age-cell--d30">${money(x.d30)}</td><td class="age-cell age-cell--d60">${money(x.d60)}</td><td class="age-cell age-cell--d90">${money(x.d90)}</td><td class="age-cell age-cell--d90p">${money(x.d90p)}</td><td><b title="Same as Statement closing">${money(tot)}</b>${overdue > 0.009 ? `<br><span class="muted" style="font-size:11px">incl. overdue ${money(overdue)}</span>` : ""}</td>
       <td><button class="btn small" type="button" data-stmt="${esc(name)}">Statement</button></td></tr>`;
   }).join("") || `<tr><td colspan="8" class="empty">No receivables</td></tr>`;
   document.querySelectorAll("[data-stmt]").forEach(b=> b.onclick = ()=>{
@@ -1759,12 +3360,12 @@ function renderCustomers(){
     return blob.includes(q);
   });
   document.getElementById("customerRows").innerHTML = rows.length ? rows.map(c=> `<tr>
-    <td>${esc(c.code)}</td><td>${esc(c.name)}</td><td>${esc(c.contact)}</td><td>${esc(c.mobile)}</td>
+    <td>${esc(c.code)}</td><td class="cell-dbl-open" data-dbl-open="${esc(c.id)}" title="Double-click to open">${esc(c.name)}</td><td>${esc(c.contact)}</td><td>${esc(c.mobile)}</td>
     <td>${money(c.creditLimit)}</td><td>${money(customerOutstanding(c.name))}</td>
     <td class="${customerOverdue(c.name)?"red":""}">${money(customerOverdue(c.name))}</td>
     <td>${badge(c.status||"Active")}</td>
     <td><button class="btn small" type="button" data-edit-c="${c.id}">Open</button></td>
-  </tr>`).join("") : `<tr><td colspan="9" class="empty">No customers — add one</td></tr>`;
+  </tr>`).join("") : `<tr><td colspan="9" class="empty">No customers - add one</td></tr>`;
   document.querySelectorAll("[data-edit-c]").forEach(b=> b.onclick = ()=> editCustomer(b.dataset.editC));
 }
 
@@ -1774,7 +3375,12 @@ function resetCustomer(){
   cName.value = cContact.value = cMobile.value = cWhatsapp.value = cEmail.value = cTrn.value = cAddr.value = cNotes.value = "";
   if(cSalesman) cSalesman.value = "";
   if(cTerms) cTerms.value = "30 Days Credit";
+  if(cOpening) cOpening.value = 0;
   cLimit.value = 0; cDays.value = shop.creditDays || 30; cStatus.value = "Active"; cType.value = "Garage";
+  _customerSubAccounts = [];
+  const cSubName = document.getElementById("cSubName");
+  if(cSubName) cSubName.value = "";
+  renderCustomerSubRows();
 }
 
 function editCustomer(id){
@@ -1787,7 +3393,12 @@ function editCustomer(id){
   cDays.value = c.creditDays||30; cStatus.value = c.status||"Active"; cAddr.value = c.addr||""; cNotes.value = c.notes||"";
   if(cSalesman) cSalesman.value = c.salesman||"";
   if(cTerms) cTerms.value = c.paymentTerms || "30 Days Credit";
-  openFormModal("customerModal");
+  if(cOpening) cOpening.value = c.openingBalance ?? 0;
+  _customerSubAccounts = normalizeCustomerSubAccounts(c.subAccounts);
+  const cSubName = document.getElementById("cSubName");
+  if(cSubName) cSubName.value = "";
+  renderCustomerSubRows();
+  openFormModal("customerModal", { skipPrepare: true });
 }
 
 // Long-term: store customerId on invoices/receipts/notes and match by ID (not name
@@ -1823,7 +3434,7 @@ async function saveCustomer(){
   const name = cName.value.trim();
   if(!name) return toast("Company name required");
   const dup = customers.find(x=> x.id !== cId.value && String(x.name||"").trim().toLowerCase() === name.toLowerCase());
-  if(dup && !confirm(`A customer named '${dup.name}' already exists (Code: ${dup.code||"—"}, Status: ${dup.status||"—"}). Adding a duplicate can cause the wrong customer record's credit limit/block-status to apply on invoices. Continue anyway?`)) return;
+  if(dup && !confirm(`A customer named '${dup.name}' already exists (Code: ${dup.code||"-"}, Status: ${dup.status||"-"}). Adding a duplicate can cause the wrong customer record's credit limit/block-status to apply on invoices. Continue anyway?`)) return;
   const prevCustomer = cId.value ? customers.find(x=> x.id === cId.value) : null;
   const oldName = String(prevCustomer?.name || "").trim();
   const renaming = !!(cId.value && oldName && oldName !== name);
@@ -1831,11 +3442,11 @@ async function saveCustomer(){
   if(renaming){
     const { refs, blocked } = collectCustomerNameRefs(oldName);
     if(blocked.length){
-      return toast(`Cannot rename — you lack write permission for ${blocked.join(", ")}. Ask the owner to rename.`);
+      return toast(`Cannot rename - you lack write permission for ${blocked.join(", ")}. Ask the owner to rename.`);
     }
     renameRefs = refs;
     const ok = confirm(
-      `Rename customer "${oldName}" → "${name}"?\n\n` +
+      `Rename customer "${oldName}" ? "${name}"?\n\n` +
       `Invoices, receipts, notes, cheques, discounts and vehicles are linked by NAME, ` +
       `so ${renameRefs.length} linked record(s) will be updated too.\n\n` +
       `OK = rename and update linked records\nCancel = do not save`
@@ -1847,15 +3458,31 @@ async function saveCustomer(){
     whatsapp: cWhatsapp.value.trim() || cMobile.value.trim(), email: cEmail.value.trim(),
     trn: cTrn.value.trim(), type: cType.value, creditLimit: num(cLimit.value),
     creditDays: num(cDays.value), status: cStatus.value, salesman: (cSalesman?.value||"").trim(),
-    paymentTerms: (cTerms?.value||"").trim(), addr: cAddr.value.trim(), notes: cNotes.value.trim(),
-    updatedAt: Date.now(), updatedBy: who()
+    paymentTerms: (cTerms?.value||"").trim(), openingBalance: num(cOpening?.value),
+    addr: cAddr.value.trim(), notes: cNotes.value.trim(),
+    subAccounts: normalizeCustomerSubAccounts(_customerSubAccounts),
+    ...masterMeta()
   };
+  if(prevCustomer){
+    const oldSubs = normalizeCustomerSubAccounts(prevCustomer.subAccounts).map(s=> s.name);
+    const nextNames = new Set(data.subAccounts.map(s=> s.name.toLowerCase()));
+    const removed = oldSubs.filter(n=> !nextNames.has(n.toLowerCase()));
+    const custKey = renaming ? oldName : name;
+    for(const subName of removed){
+      const used = invoices.some(i=> i.customer === custKey && String(i.subAccount || "").trim() === subName)
+        || receipts.some(r=> r.customer === custKey && String(r.subAccount || "").trim() === subName);
+      if(used && !confirm(
+        `Sub-account "${subName}" is used on existing invoices/receipts.\n` +
+        `Remove it from the master anyway?\n\n` +
+        `(Old documents keep the name — filter will still work.)`
+      )) return;
+    }
+  }
   try{
     const write = (async ()=>{
       if(!cId.value){
-        data.createdAt = Date.now();
-        data.createdBy = who();
-        await addDoc(col("customers"), data);
+        const createMeta = masterCreateMeta();
+        await addDoc(col("customers"), { ...data, ...createMeta });
         return;
       }
       const custRef = doc(db, "customers", cId.value);
@@ -1886,18 +3513,18 @@ async function saveCustomer(){
     })();
     commitWrite(
       write.then(()=>{
-        closeModal("customerModal");
+        leaveFormAfterSave("customerModal");
         return logActivity({
           action: "edit", staffName: who(), customer: name,
           summary: renaming
-            ? `Customer renamed ${oldName} → ${name} (${renameRefs.length} linked record(s))`
+            ? `Customer renamed ${oldName} ? ${name} (${renameRefs.length} linked record(s))`
             : "Customer saved " + name,
           oldValue: renaming ? oldName : "",
           newValue: renaming ? name : ""
         });
       }),
-      { okMsg: renaming ? `Customer renamed — ${renameRefs.length} linked record(s) updated` : "Customer saved" }
-    );
+      { okMsg: renaming ? `Customer renamed - ${renameRefs.length} linked record(s) updated` : "Customer saved" }
+    ).catch(()=> {});
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
@@ -1906,19 +3533,93 @@ function renderInvoices(){
   const rows = invoices.filter(i=>{
     const st = invStatus(i);
     if(invoiceFilter && st !== invoiceFilter) return false;
-    return `${i.invNo} ${i.computerNo||""} ${i.manualNo||""} ${i.customer} ${i.vehicle}`.toLowerCase().includes(q);
+    return `${i.invNo} ${i.computerNo||""} ${i.manualNo||""} ${i.customer} ${i.subAccount||""} ${i.vehicle}`.toLowerCase().includes(q);
   }).sort((a,b)=> String(b.invDate).localeCompare(String(a.invDate)));
-  document.getElementById("invoiceRows").innerHTML = rows.length ? rows.map(i=> `<tr>
-    <td>${esc(i.invNo)}${i.computerNo?`<div class="muted" style="font-size:11px">PC: ${esc(i.computerNo)}</div>`:""}${i.manualNo?`<div class="muted" style="font-size:11px">Manual: ${esc(i.manualNo)}</div>`:""}</td><td>${esc(i.invDate)}</td><td>${esc(i.customer)}</td><td>${esc(i.vehicle)}</td>
-    <td>${esc(i.dueDate)}</td><td>${money(i.total)}</td><td>${money(i.paid)}</td>
-    <td>${money(invBalance(i))}</td><td>${badge(invStatus(i))}</td>
+  document.getElementById("invoiceRows").innerHTML = rows.length ? rows.map(i=>{
+    const st = invStatus(i);
+    const bucket = st === "Overdue" ? overdueBucketFromDays(daysPastDue(i.dueDate)) : null;
+    const rowClass = overdueRowClass(bucket, "inv");
+    return `<tr class="${rowClass}">
+    <td class="cell-dbl-open" data-dbl-open="${esc(i.id)}" title="Double-click to open">${esc(i.invNo)}${i.computerNo?`<div class="muted" style="font-size:11px">PC: ${esc(i.computerNo)}</div>`:""}${i.manualNo?`<div class="muted" style="font-size:11px">Manual: ${esc(i.manualNo)}</div>`:""}</td><td>${esc(invoiceDateDisplay(i))}${i.billingStyle==="monthly"?`<div class="muted" style="font-size:11px">Monthly</div>`:""}</td><td class="cell-dbl-open" data-dbl-open="${esc(i.id)}" title="Double-click to open">${esc(i.customer)}${i.subAccount?`<div class="muted" style="font-size:11px">${esc(i.subAccount)}</div>`:""}</td><td>${esc(i.vehicle)}</td>
+    <td>${esc(i.dueDate)}${st === "Overdue" ? `<div class="muted" style="font-size:11px">${daysPastDue(i.dueDate)}d overdue</div>` : ""}</td><td>${money(i.total)}</td><td>${money(i.paid)}</td>
+    <td>${money(invBalance(i))}</td><td>${badge(st)}</td>
     <td class="actions" style="white-space:nowrap">
-      <button class="btn small" type="button" data-open-inv="${i.id}">Open</button>
+      <button class="btn small" type="button" data-open-inv="${i.id}">Edit</button>
       <button class="btn small danger" type="button" data-del-inv="${i.id}">Delete</button>
     </td>
-  </tr>`).join("") : `<tr><td colspan="10" class="empty">No invoices</td></tr>`;
+  </tr>`;
+  }).join("") : `<tr><td colspan="10" class="empty">No invoices</td></tr>`;
   document.querySelectorAll("[data-open-inv]").forEach(b=> b.onclick = ()=> editInvoice(b.dataset.openInv));
   document.querySelectorAll("[data-del-inv]").forEach(b=> b.onclick = ()=> deleteInvoice(b.dataset.delInv));
+}
+
+function stockableInvoiceItems(items){
+  const rows = items || [];
+  if(!rows.length) return [];
+  if(rows.length === 1){
+    const n = String(rows[0].name || "").toLowerCase();
+    if(n.includes("invoice total") || n === "total") return [];
+  }
+  const out = [];
+  for(const it of rows){
+    if(String(it.lineType || "") === "labour") continue;
+    const qty = num(it.qty);
+    const issued = num(it.jobIssuedQty);
+    const remain = qty - issued;
+    if(remain <= 0.0001) continue;
+    out.push(issued > 0 ? { ...it, qty: remain } : it);
+  }
+  return out;
+}
+
+async function applySalesStockDeltaLocal(items, direction, warehouseId, docRef){
+  if(!items?.length) return;
+  try{
+    await applySalesStockDelta(items, warehouseId ?? "Main", direction, docRef);
+  }catch(e){
+    throw new Error(inventoryErrorText(e?.message || e));
+  }
+}
+
+function catalogStockInvoiceItems(items){
+  return catalogMatchedLines(stockableInvoiceItems(items));
+}
+
+async function applyInvoiceStockMoves(existing, status, newItems, invNo, warehouseId){
+  const wh = warehouseId || existing?.stockLocation || "Main";
+  const prevWh = existing?.stockLocation || "Main";
+  const stockItems = stockableInvoiceItems(newItems);
+  const oldStockItems = stockableInvoiceItems(existing?.items);
+  if(existing?.status === "Posted" && status === "Posted"){
+    await applySalesStockDeltaLocal(oldStockItems, 1, prevWh, invNo);
+    try{
+      await validateStockForLines(stockItems, wh, -1);
+      await applySalesStockDeltaLocal(stockItems, -1, wh, invNo);
+    }catch(e){
+      await applySalesStockDeltaLocal(oldStockItems, -1, prevWh, invNo);
+      throw e;
+    }
+  }else if(existing?.status !== "Posted" && status === "Posted"){
+    await validateStockForLines(stockItems, wh, -1);
+    await applySalesStockDeltaLocal(stockItems, -1, wh, invNo);
+  }else if(existing?.status === "Posted" && status === "Draft"){
+    await applySalesStockDeltaLocal(oldStockItems, 1, prevWh, invNo);
+  }
+}
+
+async function rollbackInvoiceStockMoves(existing, status, newItems, invNo, warehouseId){
+  const wh = warehouseId || existing?.stockLocation || "Main";
+  const prevWh = existing?.stockLocation || "Main";
+  const stockItems = stockableInvoiceItems(newItems);
+  const oldStockItems = stockableInvoiceItems(existing?.items);
+  if(existing?.status === "Posted" && status === "Posted"){
+    await applySalesStockDeltaLocal(stockItems, 1, wh, invNo);
+    await applySalesStockDeltaLocal(oldStockItems, -1, prevWh, invNo);
+  }else if(existing?.status !== "Posted" && status === "Posted"){
+    await applySalesStockDeltaLocal(stockItems, 1, wh, invNo);
+  }else if(existing?.status === "Posted" && status === "Draft"){
+    await applySalesStockDeltaLocal(oldStockItems, -1, prevWh, invNo);
+  }
 }
 
 async function deleteInvoice(id){
@@ -1926,10 +3627,10 @@ async function deleteInvoice(id){
   const i = invoices.find(x=> x.id === id);
   if(!i) return toast("Invoice not found");
   if(num(i.paid) > 0){
-    return toast("Cannot delete — payment already allocated. Remove receipt allocation first.");
+    return toast("Cannot delete - payment already allocated. Remove receipt allocation first.");
   }
   if(num(i.credited) > 0){
-    return toast("Cannot delete — credit/discount already applied on this invoice.");
+    return toast("Cannot delete - credit/discount already applied on this invoice.");
   }
   const linkedDn = debitNotes.some(n=>
     noteIsLive(n)
@@ -1937,7 +3638,7 @@ async function deleteInvoice(id){
     && n.customer === i.customer
   );
   if(linkedDn){
-    return toast("Cannot delete — a debit note is linked to this invoice.");
+    return toast("Cannot delete - a debit note is linked to this invoice.");
   }
   const linkedCn = creditNotes.some(n=>
     noteIsLive(n)
@@ -1948,11 +3649,18 @@ async function deleteInvoice(id){
     && n.customer === i.customer
   );
   if(linkedCn){
-    return toast("Cannot delete — a credit note is linked to this invoice.");
+    return toast("Cannot delete - a credit note is linked to this invoice.");
   }
   const msg = `Delete invoice ${i.invNo} (${money(i.total)})?\nCustomer: ${i.customer}\n\nThis cannot be undone.`;
   if(!confirm(msg)) return;
+  const stockItems = stockableInvoiceItems(i.items);
+  const stockWh = i.stockLocation || "Main";
+  let stockReversed = false;
   try{
+    if(i.status === "Posted" && stockItems.length){
+      await applySalesStockDeltaLocal(stockItems, 1, stockWh, i.invNo);
+      stockReversed = true;
+    }
     await deleteDoc(doc(db, "invoices", id));
     await logActivity({
       action: "delete",
@@ -1969,7 +3677,20 @@ async function deleteInvoice(id){
       closeModal("invoiceModal");
     }
     toast("Invoice deleted");
-  }catch(e){ toast(e.message || String(e)); }
+    if(i.jobCardId){
+      try{ await unlinkJobCardInvoice(i.jobCardId, i.id); }catch(linkErr){ console.warn("[S4 job invoice unlink]", linkErr); }
+    }
+  }catch(e){
+    if(stockReversed){
+      try{
+        await applySalesStockDeltaLocal(stockItems, -1, stockWh, i.invNo);
+      }catch(undoErr){
+        console.warn("[S4 invoice delete] stock undo failed", undoErr);
+        return toast("Invoice not deleted - stock was adjusted; try again or fix stock manually.");
+      }
+    }
+    toast(e?.message || String(e));
+  }
 }
 
 function getShopInvoiceEntryMode(){
@@ -2031,7 +3752,7 @@ async function selectInvoiceEntryMode(mode){
   applyInvoiceEntryMode();
   try{
     await setDoc(doc(db, "shop", "info"), { invoiceEntryMode: mode, updatedAt: Date.now() }, { merge: true });
-    toast(mode === "simple" ? "Simple total mode — applied for all staff" : "Detailed line mode — applied for all staff");
+    toast(mode === "simple" ? "Simple total mode - applied for all staff" : "Detailed line mode - applied for all staff");
   }catch(e){
     toast(friendlyFirestoreError(e));
   }
@@ -2052,16 +3773,36 @@ function wireInvoiceModeSettings(){
   };
   bindBtn("invoiceModeDetailedBtn", "detailed");
   bindBtn("invoiceModeSimpleBtn", "simple");
+  const bindBilling = (id, style)=>{
+    const btn = document.getElementById(id);
+    if(!btn || btn._invBillingClick) return;
+    btn._invBillingClick = true;
+    btn.addEventListener("click", e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      selectInvoiceBillingStyle(style);
+    });
+  };
+  bindBilling("invoiceBillingMonthlyBtn", "monthly");
+  bindBilling("invoiceBillingDateBtn", "date");
   if(!root._invModeWired){
     root._invModeWired = true;
     root.addEventListener("click", e=>{
-      const btn = e.target.closest("[data-invoice-mode]");
-      if(!btn || btn.disabled) return;
-      e.preventDefault();
-      selectInvoiceEntryMode(btn.getAttribute("data-invoice-mode"));
+      const modeBtn = e.target.closest("[data-invoice-mode]");
+      if(modeBtn && !modeBtn.disabled){
+        e.preventDefault();
+        selectInvoiceEntryMode(modeBtn.getAttribute("data-invoice-mode"));
+        return;
+      }
+      const billBtn = e.target.closest("[data-invoice-billing]");
+      if(billBtn && !billBtn.disabled){
+        e.preventDefault();
+        selectInvoiceBillingStyle(billBtn.getAttribute("data-invoice-billing"));
+      }
     });
   }
   syncInvoiceModeSettingsUi();
+  syncInvoiceBillingSettingsUi();
 }
 
 function syncInvoiceModeSettingsUi(){
@@ -2074,9 +3815,122 @@ function syncInvoiceModeSettingsUi(){
   const hint = document.getElementById("invoiceModeHint");
   if(hint){
     hint.textContent = owner
-      ? "Owner: pick a mode with one click — the same mode applies automatically on every salesman PC."
+      ? "Owner: pick a mode with one click - the same mode applies automatically on every salesman PC."
       : `Current shop mode: ${mode === "simple" ? "Total amount only" : "Detailed entry"} (only the Owner can change it).`;
   }
+}
+
+function getShopInvoiceBillingStyle(){
+  const fromShop = shop?.invoiceBillingStyle;
+  if(fromShop === "monthly" || fromShop === "date"){
+    _invoiceBillingStyleMem = fromShop;
+    return fromShop;
+  }
+  if(isTotalMode(shop)) return "monthly";
+  try{
+    const m = localStorage.getItem(INVOICE_BILLING_STYLE_KEY);
+    if(m === "monthly" || m === "date") return m;
+  }catch(_){}
+  return _invoiceBillingStyleMem || "date";
+}
+
+function invoiceMonthYearFromDoc(inv){
+  if(inv?.billingStyle === "monthly" && inv.billingYear != null && inv.billingMonth != null){
+    return { year: num(inv.billingYear), monthIndex0: num(inv.billingMonth) };
+  }
+  const d = String(inv?.invDate || "").slice(0, 10);
+  if(!d) return null;
+  return { year: num(d.slice(0, 4)), monthIndex0: num(d.slice(5, 7)) - 1 };
+}
+
+function invoiceDateDisplay(inv){
+  if(!inv) return "";
+  if(inv.billingStyle === "monthly"){
+    const my = invoiceMonthYearFromDoc(inv);
+    if(my && my.monthIndex0 >= 0 && my.monthIndex0 <= 11) return `${MONTH_NAMES[my.monthIndex0]} ${my.year}`;
+  }
+  return inv.invDate || "";
+}
+
+function initInvBillPeriodControls(){
+  const y = document.getElementById("invBillYear");
+  const m = document.getElementById("invBillMonth");
+  if(y && !y.value) y.value = new Date().getFullYear();
+  if(m && (m.value === "" || m.selectedIndex < 0)) m.value = String(new Date().getMonth());
+}
+
+function syncInvDateFromBillingPeriod({ recalcDue = true } = {}){
+  if(getShopInvoiceBillingStyle() !== "monthly") return;
+  initInvBillPeriodControls();
+  const year = num(document.getElementById("invBillYear")?.value) || new Date().getFullYear();
+  const monthIndex0 = num(document.getElementById("invBillMonth")?.value);
+  const range = monthRangeIso(year, monthIndex0);
+  if(invDate) invDate.value = range.to;
+  if(recalcDue && shouldAutoInvoiceDue()){
+    const name = invCustomer?.value || "";
+    const c = customers.find(x=> x.name === name);
+    const days = num(c?.creditDays) || num(shop.creditDays) || 30;
+    if(invDue) invDue.value = addDaysToIsoDate(range.to, days);
+  }
+}
+
+function setInvBillPeriod(year, monthIndex0){
+  const yEl = document.getElementById("invBillYear");
+  const mEl = document.getElementById("invBillMonth");
+  if(yEl) yEl.value = num(year) || new Date().getFullYear();
+  if(mEl) mEl.value = String(Math.max(0, Math.min(11, num(monthIndex0))));
+  syncInvDateFromBillingPeriod({ recalcDue: true });
+}
+
+function syncInvoiceBillingUi(){
+  const monthly = getShopInvoiceBillingStyle() === "monthly";
+  const dateWrap = document.querySelector(".inv-billing-date-wrap");
+  const monthWrap = document.getElementById("invBillingMonthlyWrap");
+  if(dateWrap) dateWrap.hidden = monthly;
+  if(monthWrap) monthWrap.hidden = !monthly;
+  if(monthly){
+    initInvBillPeriodControls();
+    syncInvDateFromBillingPeriod({ recalcDue: false });
+  }
+}
+
+async function selectInvoiceBillingStyle(style){
+  const s = style === "monthly" ? "monthly" : "date";
+  if(!isOwnerRole()){
+    toast("Only the Owner can change invoice billing style");
+    syncInvoiceBillingSettingsUi();
+    return;
+  }
+  _invoiceBillingStyleMem = s;
+  try{ localStorage.setItem(INVOICE_BILLING_STYLE_KEY, s); }catch(_){}
+  syncInvoiceBillingSettingsUi();
+  applyInvoiceBillingUi();
+  try{
+    await setDoc(doc(db, "shop", "info"), { invoiceBillingStyle: s, updatedAt: Date.now() }, { merge: true });
+    toast(s === "monthly" ? "Monthly billing (Month + Year) - applied for all staff" : "Specific date billing - applied for all staff");
+  }catch(e){
+    toast(friendlyFirestoreError(e));
+  }
+}
+
+function syncInvoiceBillingSettingsUi(){
+  const style = getShopInvoiceBillingStyle();
+  const owner = isOwnerRole();
+  document.querySelectorAll("[data-invoice-billing]").forEach(btn=>{
+    btn.classList.toggle("active", btn.getAttribute("data-invoice-billing") === style);
+    btn.disabled = !owner;
+  });
+  const hint = document.getElementById("invoiceBillingHint");
+  if(hint){
+    hint.textContent = owner
+      ? "Owner: monthly billing uses Month + Year on the invoice (one full-month invoice per customer)."
+      : `Current billing: ${style === "monthly" ? "Month & Year" : "Specific date"} (only the Owner can change it).`;
+  }
+}
+
+function applyInvoiceBillingUi(){
+  syncInvoiceBillingUi();
+  if(getShopInvoiceBillingStyle() === "monthly") syncInvDateFromBillingPeriod({ recalcDue: shouldAutoInvoiceDue() });
 }
 
 function applyInvoiceEntryMode(){
@@ -2087,6 +3941,7 @@ function applyInvoiceEntryMode(){
   if(simpleBlock) simpleBlock.hidden = !simple;
   const vatInfo = document.getElementById("invSimpleVatInfo");
   if(vatInfo) vatInfo.value = `VAT ${num(shop.vatRate) || 5}% included in total`;
+  applyInvoiceBillingUi();
   calcInvoice();
 }
 
@@ -2094,8 +3949,97 @@ function applyInvoiceEntryMode(){
 const EXPIRY_WARN_DAYS = 10;
 const EXPIRY_NOTIF_HOUR = 11;
 const EXPIRY_NOTIF_KEY = "s4_expiry_notif_day_v1";
+const NOTIF_ACK_KEY = "s4_notif_ack_fp_v1";
 
-/** OS / system tray notification — Web Notification fails inside Android WebView. */
+function buildNotificationItems(){
+  const items = [];
+  if(window._s4ExpiryBanner){
+    items.push({
+      fpKey: `expiry|${window._s4ExpiryBanner.days ?? ""}|${String(window._s4ExpiryBanner.title || "")}`,
+      title: window._s4ExpiryBanner.title,
+      detail: window._s4ExpiryBanner.detail,
+      page: "settings"
+    });
+  }
+  const overdue = invoices.filter(i=> invStatus(i) === "Overdue");
+  if(overdue.length){
+    const sum = roundMoney(overdue.reduce((s,i)=> s + invBalance(i), 0));
+    items.push({
+      fpKey: `aging|${overdue.length}|${sum}`,
+      title:`${overdue.length} overdue invoice(s)`,
+      detail: money(sum),
+      page:"aging"
+    });
+  }
+  const pendingChq = cheques.filter(c=> c.status === "Pending" || c.status === "Deposited");
+  if(pendingChq.length){
+    const sum = roundMoney(pendingChq.reduce((s,c)=> s + num(c.amount), 0));
+    items.push({
+      fpKey: `cheques|${pendingChq.length}|${sum}`,
+      title:`${pendingChq.length} pending cheque(s)`,
+      detail: money(sum),
+      page:"cheques"
+    });
+  }
+  const unalloc = receipts.filter(r=> num(r.unallocated) > 0.009 && receiptAffectsBalance(r));
+  if(unalloc.length){
+    const sum = roundMoney(unalloc.reduce((s,r)=> s + num(r.unallocated), 0));
+    items.push({
+      fpKey: `allocation|${unalloc.length}|${sum}`,
+      title:`${unalloc.length} unallocated receipt(s)`,
+      detail: money(sum),
+      page:"allocation"
+    });
+  }
+  const hold = customers.filter(c=> c.status === "Hold" || c.status === "Blocked");
+  if(hold.length){
+    items.push({
+      fpKey: `customers|${hold.length}`,
+      title:`${hold.length} customer(s) on hold/blocked`,
+      detail:"",
+      page:"customers"
+    });
+  }
+  return items;
+}
+
+function notificationFingerprint(items){
+  return items.map(it=> it.fpKey || it.page).join(";");
+}
+
+function loadNotifAck(){
+  try{ return localStorage.getItem(NOTIF_ACK_KEY) || ""; }catch(_){ return ""; }
+}
+
+function acknowledgeNotifications(items){
+  const fp = notificationFingerprint(items);
+  window._s4NotifAckFp = fp;
+  window._s4NotifBellOpened = true;
+  try{ localStorage.setItem(NOTIF_ACK_KEY, fp); }catch(_){}
+}
+
+function setNotifBadge(unread){
+  const countEl = document.getElementById("notifCount");
+  if(!countEl) return;
+  const n = Math.max(0, Number(unread) || 0);
+  countEl.textContent = String(n);
+  countEl.hidden = n === 0;
+}
+
+function unreadNotificationCount(items){
+  if(!items.length) return 0;
+  const fp = notificationFingerprint(items);
+  if(window._s4NotifLastFp != null && fp !== window._s4NotifLastFp){
+    window._s4NotifBellOpened = false;
+  }
+  window._s4NotifLastFp = fp;
+  const acked = window._s4NotifAckFp ?? loadNotifAck();
+  if(window._s4NotifAckFp == null) window._s4NotifAckFp = acked;
+  if(window._s4NotifBellOpened || fp === acked) return 0;
+  return items.length;
+}
+
+/** OS / system tray notification - Web Notification fails inside Android WebView. */
 async function showSystemNotification(title, body){
   try{
     if(isAndroidNative()){
@@ -2179,8 +4123,8 @@ async function maybeShowExpiryReminder(){
     window._s4ExpiryBanner = {
       title: days === 0 ? "Software expires today" : `Software expires in ${days} day(s)`,
       detail: end
-        ? `Expire date: ${String(end).slice(0, 10)} · Help & Support → Contact S4 Business Thinking`
-        : "Help & Support → Contact S4 Business Thinking",
+        ? `Expire date: ${String(end).slice(0, 10)} - Help & Support ? Contact S4 Business Thinking`
+        : "Help & Support ? Contact S4 Business Thinking",
       days,
       at: Date.now()
     };
@@ -2195,18 +4139,32 @@ async function maybeShowExpiryReminder(){
     ? "Software expires today"
     : `Software expires in ${days} day(s)`;
   const detail = end
-    ? `Expire date: ${String(end).slice(0, 10)} · Help & Support → Contact S4 Business Thinking`
-    : "Help & Support → Contact S4 Business Thinking";
+    ? `Expire date: ${String(end).slice(0, 10)} - Help & Support ? Contact S4 Business Thinking`
+    : "Help & Support ? Contact S4 Business Thinking";
   window._s4ExpiryBanner = { title, detail, days, at: Date.now() };
   refreshNotifications();
   if(already) return;
-  toast(`${title} — ${detail}`);
+  toast(`${title} - ${detail}`);
   await showSystemNotification(title, detail);
   try{ localStorage.setItem(EXPIRY_NOTIF_KEY, dayKey); }catch(_){}
 }
 
 function invoiceWipFieldIds(){
-  return ["invId","invNo","invComputer","invManual","invDate","invDue","invCustomer","invVehicle","invDriver","invReceived","invDn","invLpo","invRef","invTerms","invNotes","invSimpleTotal"];
+  return ["invId","invNo","invComputer","invManual","invDate","invDue","invBillMonth","invBillYear","invStockLoc","invCustomer","invSubAccount","invVehicle","invDriver","invReceived","invDn","invLpo","invRef","invTerms","invNotes","invSimpleTotal","invJobCardId","invJobNo"];
+}
+
+function productDefaultDiscountPct(product){
+  const raw = String(product?.defaultDiscount ?? "").trim().replace(/%$/, "");
+  const pct = num(raw);
+  return pct > 0 ? pct : 0;
+}
+
+function syncInvEntryDefaultDiscount(){
+  const discEl = document.getElementById("invEntryDisc");
+  if(!discEl || !_invEntryDefaultDiscPct) return;
+  const qty = num(document.getElementById("invEntryQty")?.value) || 1;
+  const price = num(document.getElementById("invEntryPrice")?.value);
+  discEl.value = roundMoney(qty * price * _invEntryDefaultDiscPct / 100);
 }
 
 function normalizeInvLineItem(raw){
@@ -2218,7 +4176,9 @@ function normalizeInvLineItem(raw){
   const code = String(raw.code || "").trim();
   const net = Math.max(0, qty * price - disc);
   const vatAmt = net * vat / 100;
-  return { name, code, qty, price, disc, vat, net, vatAmt, line: net + vatAmt };
+  const jobIssuedQty = Math.max(0, num(raw.jobIssuedQty));
+  const lineType = raw.lineType === "labour" ? "labour" : (raw.lineType === "part" ? "part" : "");
+  return { name, code, qty, price, disc, vat, net, vatAmt, line: net + vatAmt, jobIssuedQty, lineType };
 }
 
 function readInvEntryDraft(){
@@ -2251,6 +4211,9 @@ function loadInvLineForEdit(idx){
   set("invEntryPrice", x.price);
   set("invEntryDisc", x.disc);
   set("invEntryVat", x.vat);
+  _invEntryDefaultDiscPct = 0;
+  _invRestoreJobIssuedQty = num(it.jobIssuedQty);
+  _invRestoreLineType = it.lineType === "labour" ? "labour" : (it.lineType === "part" ? "part" : "");
   _invoiceLineItems.splice(idx, 1);
   renderInvItemList();
   updateInvEntryPreview();
@@ -2262,6 +4225,9 @@ function loadInvLineForEdit(idx){
 }
 
 function clearInvEntryFields(){
+  _invEntryDefaultDiscPct = 0;
+  _invRestoreJobIssuedQty = 0;
+  _invRestoreLineType = "";
   ["invEntryName","invEntryCode","invEntryPrice","invEntryDisc"].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.value = "";
@@ -2281,7 +4247,7 @@ function updateInvEntryPreview(){
   if(!el) return;
   const draft = readInvEntryDraft();
   if(!String(draft.name).trim()){
-    el.textContent = "—";
+    el.textContent = "-";
     return;
   }
   el.textContent = money(normalizeInvLineItem(draft).line);
@@ -2291,7 +4257,7 @@ function renderInvItemList(){
   const tbody = document.getElementById("invItemRows");
   if(!tbody) return;
   if(!_invoiceLineItems.length){
-    tbody.innerHTML = `<tr class="inv-empty-row"><td colspan="8" class="empty" data-label="">No items added yet — use Add above</td></tr>`;
+    tbody.innerHTML = `<tr class="inv-empty-row"><td colspan="8" class="empty" data-label="">No items added yet - use Add above</td></tr>`;
     return;
   }
   tbody.innerHTML = _invoiceLineItems.map((it, idx)=>{
@@ -2327,13 +4293,18 @@ function renderInvItemList(){
 function commitInvEntryLine(){
   const draft = readInvEntryDraft();
   if(!String(draft.name).trim()) return toast("Enter product / service name");
+  if(_invRestoreJobIssuedQty && num(draft.qty) + 0.0001 < _invRestoreJobIssuedQty){
+    return toast("Qty cannot be below already issued from the job");
+  }
   _invoiceLineItems.push({
     name: String(draft.name).trim(),
     code: String(draft.code).trim(),
     qty: draft.qty,
     price: draft.price,
     disc: draft.disc,
-    vat: draft.vat
+    vat: draft.vat,
+    jobIssuedQty: _invRestoreJobIssuedQty,
+    lineType: _invRestoreLineType
   });
   clearInvEntryFields();
   renderInvItemList();
@@ -2347,13 +4318,19 @@ function flushInvDraftLine(){
   if(getInvoiceEntryMode() === "simple") return;
   const draft = readInvEntryDraft();
   if(!String(draft.name).trim()) return;
+  if(_invRestoreJobIssuedQty && num(draft.qty) + 0.0001 < _invRestoreJobIssuedQty){
+    toast("Qty cannot be below already issued from the job");
+    return false;
+  }
   _invoiceLineItems.push({
     name: String(draft.name).trim(),
     code: String(draft.code).trim(),
     qty: draft.qty,
     price: draft.price,
     disc: draft.disc,
-    vat: draft.vat
+    vat: draft.vat,
+    jobIssuedQty: _invRestoreJobIssuedQty,
+    lineType: _invRestoreLineType
   });
   clearInvEntryFields();
   renderInvItemList();
@@ -2368,7 +4345,9 @@ function setInvoiceLineItems(items){
       qty: it.qty ?? 1,
       price: it.price ?? 0,
       disc: it.disc ?? 0,
-      vat: it.vat ?? (shop.vatRate ?? 5)
+      vat: it.vat ?? (shop.vatRate ?? 5),
+      jobIssuedQty: Math.max(0, num(it.jobIssuedQty)),
+      lineType: it.lineType === "labour" ? "labour" : (it.lineType === "part" ? "part" : "")
     }));
   renderInvItemList();
 }
@@ -2390,7 +4369,7 @@ function collectInvoiceFormState(){
 
 function applyInvoiceFormState(state){
   if(!state) return false;
-  // Always follow current shop preference — never lock UI to a stale WIP mode
+  // Always follow current shop preference - never lock UI to a stale WIP mode
   _formInvoiceMode = null;
   applyInvoiceEntryMode();
   invoiceWipFieldIds().forEach(id=>{
@@ -2398,12 +4377,17 @@ function applyInvoiceFormState(state){
     if(el && state[id] != null) el.value = state[id];
   });
   if(state.invCustomer){
-    const invCustomer = document.getElementById("invCustomer");
-    if(invCustomer){
-      customerOptions(invCustomer, state.invCustomer);
-      invCustomer.value = state.invCustomer;
+    const invCustomerEl = document.getElementById("invCustomer");
+    if(invCustomerEl){
+      customerOptions(invCustomerEl, state.invCustomer);
+      invCustomerEl.value = state.invCustomer;
     }
+    const invCustomerInput = document.getElementById("invCustomerInput");
+    if(invCustomerInput) invCustomerInput.value = state.invCustomer;
+    syncInvoiceCustomerFromMaster({ recalcDue: false, preserveSub: true });
+    if(state.invSubAccount != null) syncInvoiceSubAccountField(state.invSubAccount);
   }
+  if(state.invStockLoc) syncInvStockLocation(state.invStockLoc);
   const savedLines = state.lineItems || state.items || [];
   const committed = savedLines.filter(it=>{
     const name = String(it?.name || "").trim();
@@ -2546,39 +4530,99 @@ function updateCreditCards(grand){
   const c = customers.find(x=> x.name === name);
   const limit = num(c?.creditLimit);
   const due = name ? customerOutstanding(name) : 0;
-  // Editing existing invoice: outstanding already includes old total — don't double-count
+  // Editing existing invoice: outstanding already includes old total - don't double-count
   const existing = invId?.value ? invoices.find(x=> x.id === invId.value) : null;
   const oldTotal = existing && existing.status !== "Draft" ? num(existing.total) : 0;
   const dnLinked = linkedDebitTotalForInvoice(invNo?.value, name);
   const after = due - oldTotal + num(grand) + dnLinked;
-  if(invLim) invLim.textContent = c ? money(limit) : "—";
-  if(invDueNow) invDueNow.textContent = name ? money(due) : "—";
+  if(invLim) invLim.textContent = c ? money(limit) : "-";
+  if(invDueNow) invDueNow.textContent = name ? money(due) : "-";
   if(invNowTot) invNowTot.textContent = money(roundMoney(num(grand) + dnLinked));
   if(invAfter){
-    invAfter.textContent = name ? money(after) : "—";
+    invAfter.textContent = name ? money(after) : "-";
     invAfter.style.color = (limit > 0 && after > limit) ? "#d92d20" : "#079455";
   }
 }
 
-function filterVehiclesForInvoice(){
+function addDaysToIsoDate(isoDate, days){
+  const d = new Date(String(isoDate) + "T12:00:00");
+  if(Number.isNaN(d.getTime())) return "";
+  d.setDate(d.getDate() + Math.max(0, num(days)));
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Hard-block when same party + same date + same document number match.
+ * Credit invoice: customer + invDate + manualNo OR computerNo (sub-account optional, not part of dup key)
+ * Purchase invoice: supplier + date + supplierInvNo
+ */
+function findDuplicatePartyDocInvoice({ rows, excludeId, date, party, partyField, dateField, numbers, sameFields, dateGranularity = "day" }){
+  const d = String(date || "").slice(0, 10);
+  const p = String(party || "").trim().toLowerCase();
+  if(!d || !p) return null;
+  const list = rows || [];
+  const dateMatches = (rowVal)=>{
+    const rv = String(rowVal || "").slice(0, 10);
+    if(dateGranularity === "month") return rv.slice(0, 7) === d.slice(0, 7);
+    return rv === d;
+  };
+  for(const spec of numbers || []){
+    const val = String(spec?.value || "").trim().toLowerCase();
+    if(!val) continue;
+    const field = spec.field;
+    const hit = list.find(row=>{
+      if(excludeId && row.id === excludeId) return false;
+      if(!dateMatches(row[dateField])) return false;
+      if(String(row[partyField] || "").trim().toLowerCase() !== p) return false;
+      if(sameFields){
+        for(const [k, v] of Object.entries(sameFields)){
+          if(String(row[k] || "").trim().toLowerCase() !== String(v || "").trim().toLowerCase()) return false;
+        }
+      }
+      return String(row[field] || "").trim().toLowerCase() === val;
+    });
+    if(hit) return { row: hit, label: spec.label || field, field, value: spec.value };
+  }
+  return null;
+}
+
+function shouldAutoInvoiceDue(){
+  const existing = invId?.value ? invoices.find(x=> x.id === invId.value) : null;
+  return !existing || existing.status === "Draft";
+}
+
+function syncInvoiceCustomerFromMaster(opts = {}){
+  const recalcDue = opts.recalcDue !== false;
   const name = invCustomer?.value || "";
   const c = customers.find(x=> x.name === name);
-  if(invTerms) invTerms.value = c?.paymentTerms || (num(c?.creditDays)||shop.creditDays||30) + " Days Credit";
   const days = num(c?.creditDays) || num(shop.creditDays) || 30;
-  if(invDate?.value && !invId?.value){
-    const d = new Date(invDate.value + "T00:00:00");
-    d.setDate(d.getDate() + days);
-    invDue.value = d.toISOString().slice(0,10);
+  const invCustomerInput = document.getElementById("invCustomerInput");
+  if(invCustomerInput && invCustomerInput.value !== name) invCustomerInput.value = name;
+  if(invTerms) invTerms.value = c?.paymentTerms || `${days} Days Credit`;
+  const invCreditDays = document.getElementById("invCreditDays");
+  if(invCreditDays) invCreditDays.value = name ? String(days) : "";
+  if(recalcDue && shouldAutoInvoiceDue()){
+    if(getShopInvoiceBillingStyle() === "monthly") syncInvDateFromBillingPeriod({ recalcDue: true });
+    else if(invDate?.value) invDue.value = addDaysToIsoDate(invDate.value, days);
   }
   const list = document.getElementById("invVehicleList");
   if(list){
     const rows = vehicles.filter(v=> !name || v.customer === name);
     list.innerHTML = rows.map(v=>{
-      const label = [v.plate, v.make, v.model].filter(Boolean).join(" · ");
+      const label = [v.plate, v.make, v.model].filter(Boolean).join(" - ");
       return `<option value="${esc(v.plate || "")}">${esc(label)}</option>`;
     }).join("");
   }
   if(document.getElementById("invGrand") || document.getElementById("invSimpleTotal")) calcInvoice();
+  else updateCreditCards(0);
+  syncInvoiceSubAccountField(opts.preserveSub ? document.getElementById("invSubAccount")?.value : "");
+}
+
+function filterVehiclesForInvoice(){
+  syncInvoiceCustomerFromMaster();
 }
 
 function renderVehicles(){
@@ -2591,12 +4635,12 @@ function renderVehicles(){
   }).sort((a,b)=> String(a.plate||"").localeCompare(String(b.plate||"")));
   tbody.innerHTML = rows.length ? rows.map(v=> `<tr>
     <td>${esc(v.plate)}</td><td>${esc(v.customer)}</td><td>${esc(v.make)}</td><td>${esc(v.model)}</td>
-    <td>${esc(v.vin)}</td><td>${esc(v.engine)}</td>
+    <td>${esc(v.year || "")}</td><td>${esc(v.colour || "")}</td><td>${esc(v.vin)}</td>
     <td>
       <button class="btn small" type="button" data-edit-v="${v.id}">Open</button>
       <button class="btn small danger" type="button" data-del-v="${v.id}">Delete</button>
     </td>
-  </tr>`).join("") : `<tr><td colspan="7" class="empty">No vehicles — add one</td></tr>`;
+  </tr>`).join("") : `<tr><td colspan="8" class="empty">No vehicles - add one</td></tr>`;
   tbody.querySelectorAll("[data-edit-v]").forEach(b=> b.onclick = ()=> editVehicle(b.dataset.editV));
   tbody.querySelectorAll("[data-del-v]").forEach(b=> b.onclick = ()=> deleteVehicle(b.dataset.delV));
 }
@@ -2604,6 +4648,10 @@ function renderVehicles(){
 function resetVehicle(){
   vId.value = "";
   vPlate.value = vMake.value = vModel.value = vVin.value = vEngine.value = "";
+  if(vYear) vYear.value = "";
+  if(vVariant) vVariant.value = "";
+  if(vMileage) vMileage.value = "";
+  if(vColour) vColour.value = "";
   if(vNotes) vNotes.value = "";
   customerOptions(vCustomer, "");
 }
@@ -2618,8 +4666,12 @@ function editVehicle(id){
   vModel.value = v.model || "";
   vVin.value = v.vin || "";
   vEngine.value = v.engine || "";
+  if(vYear) vYear.value = v.year || "";
+  if(vVariant) vVariant.value = v.variant || "";
+  if(vMileage) vMileage.value = v.mileage ?? "";
+  if(vColour) vColour.value = v.colour || "";
   if(vNotes) vNotes.value = v.notes || "";
-  openFormModal("vehicleModal");
+  openFormModal("vehicleModal", { skipPrepare: true });
 }
 
 async function saveVehicle(){
@@ -2632,31 +4684,37 @@ async function saveVehicle(){
     && String(x.plate||"").trim().toLowerCase() === plate.toLowerCase()
     && String(x.customer||"").trim().toLowerCase() === customer.toLowerCase()
   );
-  if(dup && !confirm(`Plate '${dup.plate}' already exists for ${dup.customer || "—"}. Continue anyway?`)) return;
+  if(dup && !confirm(`Plate '${dup.plate}' already exists for ${dup.customer || "-"}. Continue anyway?`)) return;
   const data = {
     plate, customer, make: (vMake.value||"").trim(), model: (vModel.value||"").trim(),
+    year: String(vYear?.value || "").trim(),
+    variant: (vVariant?.value||"").trim(),
     vin: (vVin.value||"").trim(), engine: (vEngine.value||"").trim(),
+    mileage: num(vMileage?.value),
+    colour: (vColour?.value||"").trim(),
     notes: (vNotes?.value||"").trim(),
-    updatedAt: Date.now(), updatedBy: who()
+    ...masterMeta()
   };
   const invoiceOpen = document.getElementById("invoiceModal")?.classList.contains("open");
   try{
     let write;
     if(vId.value) write = updateDoc(doc(db, "vehicles", vId.value), data);
-    else { data.createdAt = Date.now(); data.createdBy = who(); write = addDoc(col("vehicles"), data); }
+    else { Object.assign(data, masterCreateMeta()); write = addDoc(col("vehicles"), data); }
+    if(invoiceOpen) closeModal("vehicleModal");
     commitWrite(
       Promise.resolve(write).then(()=>{
-        closeModal("vehicleModal");
         if(invoiceOpen){
           const invVehicle = document.getElementById("invVehicle");
           if(invVehicle) invVehicle.value = plate;
           filterVehiclesForInvoice();
           queueInvoiceWipSave();
+        }else{
+          leaveFormAfterSave("vehicleModal");
         }
         return logActivity({ action:"edit", staffName: who(), customer, summary: "Vehicle saved " + plate });
       }),
       { okMsg: "Vehicle saved" }
-    );
+    ).catch(()=>{});
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
@@ -2670,7 +4728,682 @@ async function deleteVehicle(id){
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
-/* ——— Product / Service catalog ——— */
+function fillWarehouseBranchSelect(selectedId){
+  const sel = document.getElementById("whBranch");
+  if(!sel) return;
+  const branches = getBranches();
+  sel.innerHTML = branches.length
+    ? branches.map(b=> `<option value="${esc(b.id)}"${b.id === selectedId ? " selected" : ""}>${esc(b.code)} - ${esc(b.name)}</option>`).join("")
+    : `<option value="${getCurrentBranchId()}">Current branch</option>`;
+}
+
+function renderWarehouses(){
+  const tbody = document.getElementById("warehouseRows");
+  if(!tbody) return;
+  const q = (document.getElementById("warehouseSearch")?.value || "").toLowerCase();
+  const branches = getBranches();
+  const branchName = id=> branches.find(b=> b.id === id)?.code || "";
+  const rows = getWarehouses().filter(w=>{
+    const blob = `${w.code} ${w.name} ${w.addr} ${branchName(w.branchId)}`.toLowerCase();
+    return blob.includes(q);
+  });
+  tbody.innerHTML = rows.length ? rows.map(w=> `<tr>
+    <td>${esc(w.code)}</td><td>${esc(w.name)}</td><td>${esc(branchName(w.branchId))}</td>
+    <td>${esc(w.addr||"")}</td><td>${badge(w.status === "inactive" ? "Inactive" : "Active")}</td>
+    <td><button class="btn small" type="button" data-edit-wh="${esc(w.id)}">Open</button></td>
+  </tr>`).join("") : `<tr><td colspan="6" class="empty">No warehouses - add one</td></tr>`;
+  tbody.querySelectorAll("[data-edit-wh]").forEach(btn=>{
+    btn.addEventListener("click", ()=> editWarehouse(btn.dataset.editWh));
+  });
+}
+
+function resetWarehouse(){
+  document.getElementById("whId").value = "";
+  const n = getWarehouses().length + 1;
+  document.getElementById("whCode").value = `WH-${String(n).padStart(2, "0")}`;
+  document.getElementById("whName").value = "";
+  document.getElementById("whAddr").value = "";
+  document.getElementById("whStatus").value = "active";
+  fillWarehouseBranchSelect(getCurrentBranchId());
+}
+
+function editWarehouse(id){
+  const w = getWarehouses().find(x=> x.id === id);
+  if(!w) return;
+  document.getElementById("whId").value = w.id;
+  document.getElementById("whCode").value = w.code || "";
+  document.getElementById("whName").value = w.name || "";
+  document.getElementById("whAddr").value = w.addr || "";
+  document.getElementById("whStatus").value = w.status === "inactive" ? "inactive" : "active";
+  fillWarehouseBranchSelect(w.branchId || getCurrentBranchId());
+  openFormModal("warehouseModal", { skipPrepare: true });
+}
+
+async function saveWarehouse(){
+  if(!requireModule("warehouses")) return;
+  try{
+    const id = document.getElementById("whId").value;
+    await saveWarehouseRecord(id, {
+      code: document.getElementById("whCode").value,
+      name: document.getElementById("whName").value,
+      branchId: document.getElementById("whBranch").value,
+      addr: document.getElementById("whAddr").value,
+      status: document.getElementById("whStatus").value
+    });
+    leaveFormAfterSave("warehouseModal");
+    toast("Warehouse saved");
+    await logActivity({ action: id ? "edit" : "add", staffName: who(), module: "warehouses", record: document.getElementById("whCode").value, summary: "Warehouse saved" });
+  }catch(e){
+    toast(e?.message === "WAREHOUSE_REQUIRED" ? "Warehouse code and name required" : friendlyFirestoreError(e));
+  }
+}
+
+function fillStockAdjProducts(){
+  const sel = document.getElementById("stkAdjProduct");
+  if(!sel) return;
+  const rows = products.slice().sort((a,b)=> String(a.name||"").localeCompare(String(b.name||"")));
+  sel.innerHTML = `<option value="">- Select product -</option>` + rows.map(p=>
+    `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.code||"-")})</option>`
+  ).join("");
+}
+
+function syncInvStockLocation(preserveValue){
+  const sel = document.getElementById("invStockLoc");
+  if(!sel) return;
+  fillWarehouseSelect(sel, preserveValue ?? sel.value);
+}
+
+function fillStockAdjWarehouses(){
+  const sel = document.getElementById("stkAdjWarehouse");
+  if(!sel) return;
+  fillWarehouseSelect(sel, sel.value || "Main");
+}
+
+function prepareStockAdjModal(){
+  fillStockAdjProducts();
+  fillStockAdjWarehouses();
+  const qty = document.getElementById("stkAdjQty");
+  const cost = document.getElementById("stkAdjCost");
+  const reason = document.getElementById("stkAdjReason");
+  const type = document.getElementById("stkAdjType");
+  if(qty) qty.value = "0";
+  if(cost) cost.value = "0";
+  if(reason) reason.value = "";
+  if(type) type.value = "OPENING";
+}
+
+function fillStockTransferProducts(){
+  const sel = document.getElementById("stkTrProduct");
+  if(!sel) return;
+  const rows = products.slice().sort((a,b)=> String(a.name||"").localeCompare(String(b.name||"")));
+  sel.innerHTML = `<option value="">- Select product -</option>` + rows.map(p=>
+    `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.code||"-")})</option>`
+  ).join("");
+}
+
+function fillStockTransferWarehouses(){
+  const fromSel = document.getElementById("stkTrFrom");
+  const toSel = document.getElementById("stkTrTo");
+  const fromVal = fromSel?.value;
+  const toVal = toSel?.value;
+  if(fromSel) fillWarehouseSelect(fromSel, fromVal);
+  if(toSel) fillWarehouseSelect(toSel, toVal);
+  syncStockTransferToWarehouse();
+}
+
+function activeBranchCount(){
+  const rows = getBranches().filter(b=> b.status !== "inactive");
+  return rows.length > 0 ? rows.length : getBranches().length;
+}
+
+function branchLabel(branchId){
+  const b = getBranches().find(x=> x.id === branchId);
+  return b ? `${b.code} - ${b.name}` : String(branchId || "-");
+}
+
+function canApproveBranchRequest(req){
+  if(!req || req.status !== "pending") return false;
+  if(isOwnerRole()) return true;
+  return String(req.supplyingBranchId || "") === String(getCurrentBranchId() || "");
+}
+
+function updateBranchRequestUi(){
+  const needSecond = activeBranchCount() < 2;
+  const hint = document.getElementById("ibrHint");
+  const listHint = document.getElementById("ibrListHint");
+  const saveBtn = document.getElementById("saveBranchRequestBtn");
+  const openBtn = document.getElementById("openBranchRequestBtn");
+  if(hint) hint.hidden = !needSecond;
+  if(listHint) listHint.hidden = !needSecond;
+  if(saveBtn) saveBtn.disabled = needSecond;
+  if(openBtn){
+    openBtn.disabled = needSecond;
+    openBtn.title = needSecond ? "Add a second branch in Settings ? Branches first" : "";
+  }
+}
+
+function fillBranchRequestProducts(){
+  const sel = document.getElementById("ibrProduct");
+  if(!sel) return;
+  const rows = products.slice().sort((a,b)=> String(a.name||"").localeCompare(String(b.name||"")));
+  sel.innerHTML = `<option value="">- Select -</option>` + rows.map(p=>
+    `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.code||"-")})</option>`
+  ).join("");
+}
+
+function fillBranchRequestSupplyBranches(){
+  const sel = document.getElementById("ibrSupplyBranch");
+  if(!sel) return;
+  const cur = getCurrentBranchId();
+  const branches = getBranches().filter(b=> b.status !== "inactive" && b.id !== cur);
+  const prev = sel.value;
+  sel.innerHTML = branches.length
+    ? branches.map(b=> `<option value="${esc(b.id)}">${esc(b.code)} - ${esc(b.name)}</option>`).join("")
+    : `<option value="">No other branch</option>`;
+  if(prev && branches.some(b=> b.id === prev)) sel.value = prev;
+}
+
+function fillBranchRequestWarehouses(){
+  const reqBranch = getCurrentBranchId();
+  const supBranch = document.getElementById("ibrSupplyBranch")?.value || "";
+  fillWarehouseSelectForBranch(document.getElementById("ibrToWarehouse"), reqBranch);
+  if(supBranch) fillWarehouseSelectForBranch(document.getElementById("ibrFromWarehouse"), supBranch);
+}
+
+function syncBranchRequestAvail(){
+  const productId = document.getElementById("ibrProduct")?.value || "";
+  const fromWh = document.getElementById("ibrFromWarehouse")?.value || "Main";
+  const avail = document.getElementById("ibrAvail");
+  if(!avail) return;
+  if(!productId){ avail.value = "-"; return; }
+  avail.value = String(getBalance(productId, fromWh).qty);
+}
+
+function prepareBranchRequestModal(){
+  fillBranchRequestProducts();
+  fillBranchRequestSupplyBranches();
+  fillBranchRequestWarehouses();
+  const no = document.getElementById("ibrReqNo");
+  const date = document.getElementById("ibrReqDate");
+  const qty = document.getElementById("ibrQty");
+  const reason = document.getElementById("ibrReason");
+  const reqBranch = document.getElementById("ibrRequestBranch");
+  if(no) no.value = nextNo("IBR-", branchStockRequests, "requestNo");
+  if(date) date.value = today();
+  if(qty) qty.value = "1";
+  if(reason) reason.value = "";
+  if(reqBranch) reqBranch.value = branchLabel(getCurrentBranchId());
+  updateBranchRequestUi();
+  syncBranchRequestAvail();
+}
+
+async function saveBranchRequest(){
+  if(!requireModule("inventory")) return;
+  const supplyingBranchId = document.getElementById("ibrSupplyBranch")?.value || "";
+  const productId = document.getElementById("ibrProduct")?.value || "";
+  const product = products.find(p=> p.id === productId);
+  if(!supplyingBranchId) return toast("Select supplying branch");
+  if(!product) return toast("Select a product");
+  const qty = num(document.getElementById("ibrQty")?.value);
+  if(qty <= 0) return toast("Enter quantity");
+  const requestSerial = await allocateDocSerial("branch_request", "IBR-", {
+    list: branchStockRequests, field: "requestNo", draftValue: document.getElementById("ibrReqNo")?.value, preferCounter: true
+  });
+  const requestNo = requestSerial.value;
+  try{
+    await createBranchStockRequest({
+      requestNo,
+      date: document.getElementById("ibrReqDate")?.value || today(),
+      requestingBranchId: getCurrentBranchId(),
+      supplyingBranchId,
+      productId,
+      productCode: product.code || "",
+      productName: product.name || "",
+      qty,
+      fromWarehouseId: document.getElementById("ibrFromWarehouse")?.value || "Main",
+      toWarehouseId: document.getElementById("ibrToWarehouse")?.value || "Main",
+      reason: document.getElementById("ibrReason")?.value || ""
+    });
+    leaveFormAfterSave("branchRequestModal");
+    toast("Branch request created - awaiting approval");
+    await logActivity({
+      action: "add", staffName: who(), module: "inventory",
+      record: requestNo, summary: `${qty} - ${product.name} from ${branchLabel(supplyingBranchId)}`
+    });
+    renderInventory();
+  }catch(e){
+    toast(inventoryErrorText(e?.message || e));
+  }
+}
+
+async function approveBranchRequest(id){
+  if(!requireModule("inventory")) return;
+  const req = branchStockRequests.find(r=> r.id === id);
+  if(!req) return toast("Request not found");
+  if(!canApproveBranchRequest(req)) return toast("Only the supplying branch (or owner) can approve");
+  const transferSerial = await allocateDocSerial("stock_transfer", "TR-", {
+    list: stockTransfers, field: "transferNo", preferCounter: true
+  });
+  const transferNo = transferSerial.value;
+  try{
+    await approveBranchStockRequest(req, transferNo);
+    toast("Request approved - stock transferred");
+    await logActivity({
+      action: "update", staffName: who(), module: "inventory",
+      record: req.requestNo, summary: `Approved ? ${transferNo} - ${req.qty} - ${req.productName}`
+    });
+    renderInventory();
+  }catch(e){
+    toast(inventoryErrorText(e?.message || e));
+  }
+}
+
+async function rejectBranchRequest(id){
+  if(!requireModule("inventory")) return;
+  const req = branchStockRequests.find(r=> r.id === id);
+  if(!req) return toast("Request not found");
+  if(!canApproveBranchRequest(req)) return toast("Only the supplying branch (or owner) can reject");
+  try{
+    await rejectBranchStockRequest(id, "");
+    toast("Request rejected");
+    await logActivity({
+      action: "update", staffName: who(), module: "inventory",
+      record: req.requestNo, summary: `Rejected - ${req.qty} - ${req.productName}`
+    });
+    renderInventory();
+  }catch(e){
+    toast(inventoryErrorText(e?.message || e));
+  }
+}
+
+function syncStockTransferToWarehouse(){
+  const fromSel = document.getElementById("stkTrFrom");
+  const toSel = document.getElementById("stkTrTo");
+  if(!fromSel || !toSel) return;
+  if(fromSel.value && fromSel.value === toSel.value){
+    const alt = [...toSel.options].find(o=> o.value && o.value !== fromSel.value);
+    if(alt) toSel.value = alt.value;
+  }
+}
+
+function updateStockTransferUi(){
+  const whCount = activeWarehouseCount();
+  const needSecond = whCount < 2;
+  const hint = document.getElementById("stkTrHint");
+  const saveBtn = document.getElementById("saveStockTransferBtn");
+  const openBtn = document.querySelector('[data-open="stockTransferModal"]');
+  if(hint) hint.hidden = !needSecond;
+  if(saveBtn) saveBtn.disabled = needSecond;
+  if(openBtn){
+    openBtn.disabled = needSecond;
+    openBtn.title = needSecond ? "Add 2+ warehouses in Warehouse Master first" : "";
+  }
+}
+
+function prepareStockTransferModal(){
+  fillStockTransferProducts();
+  fillStockTransferWarehouses();
+  const no = document.getElementById("stkTrNo");
+  const date = document.getElementById("stkTrDate");
+  const qty = document.getElementById("stkTrQty");
+  const reason = document.getElementById("stkTrReason");
+  if(no) no.value = nextNo("TR-", stockTransfers, "transferNo");
+  if(date) date.value = today();
+  if(qty) qty.value = "1";
+  if(reason) reason.value = "";
+  updateStockTransferUi();
+  syncStockTransferAvail();
+}
+
+function syncStockTransferAvail(){
+  const productId = document.getElementById("stkTrProduct")?.value || "";
+  const fromWh = document.getElementById("stkTrFrom")?.value || "Main";
+  const avail = document.getElementById("stkTrAvail");
+  if(!avail) return;
+  if(!productId){ avail.value = "-"; return; }
+  const bal = getBalance(productId, fromWh);
+  avail.value = String(bal.qty);
+}
+
+async function saveStockTransfer(){
+  if(!requireModule("inventory")) return;
+  const productId = document.getElementById("stkTrProduct")?.value || "";
+  const product = products.find(p=> p.id === productId);
+  if(!product) return toast("Select a product");
+  const fromWh = document.getElementById("stkTrFrom")?.value || "Main";
+  const toWh = document.getElementById("stkTrTo")?.value || "";
+  const qty = num(document.getElementById("stkTrQty")?.value);
+  if(!toWh) return toast("Select destination warehouse");
+  if(fromWh === toWh) return toast("From and To warehouse must be different");
+  if(qty <= 0) return toast("Enter quantity");
+  const trSerial = await allocateDocSerial("stock_transfer", "TR-", {
+    list: stockTransfers, field: "transferNo", draftValue: document.getElementById("stkTrNo")?.value, preferCounter: true
+  });
+  const transferNo = trSerial.value;
+  try{
+    await postStockTransfer({
+      productId,
+      productCode: product.code || "",
+      productName: product.name || "",
+      fromWarehouseId: fromWh,
+      toWarehouseId: toWh,
+      qty,
+      reason: document.getElementById("stkTrReason")?.value || "",
+      transferNo,
+      date: document.getElementById("stkTrDate")?.value || today()
+    });
+    leaveFormAfterSave("stockTransferModal");
+    toast("Stock transfer posted");
+    await logActivity({
+      action: "add", staffName: who(), module: "inventory",
+      record: transferNo, summary: `${qty} - ${product.name}: ${formatStockLocation(fromWh)} ? ${formatStockLocation(toWh)}`
+    });
+    renderInventory();
+  }catch(e){
+    toast(inventoryErrorText(e?.message || e));
+  }
+}
+
+function fillStockCountWarehouse(){
+  const sel = document.getElementById("stkCountWarehouse");
+  if(!sel) return;
+  fillWarehouseSelect(sel, sel.value || "Main");
+}
+
+function prepareStockCountModal(){
+  _stockCountLines = [];
+  fillStockCountWarehouse();
+  const no = document.getElementById("stkCountNo");
+  const date = document.getElementById("stkCountDate");
+  const notes = document.getElementById("stkCountNotes");
+  if(no) no.value = nextNo("SC-", stockCounts, "countNo");
+  if(date) date.value = today();
+  if(notes) notes.value = "";
+  renderStockCountRows();
+}
+
+function stockCountWarehouseId(){
+  return document.getElementById("stkCountWarehouse")?.value || "Main";
+}
+
+function loadStockCountFromWarehouse(){
+  const wh = stockCountWarehouseId();
+  const balances = getStockBalances().filter(b=>
+    normalizeWarehouseId(b.warehouseId) === normalizeWarehouseId(wh) && num(b.qty) > 0.0001
+  );
+  if(!balances.length) return toast("No stock in this warehouse - add lines manually");
+  _stockCountLines = balances.map(b=>({
+    productId: b.productId,
+    productCode: b.productCode || "",
+    productName: b.productName || "",
+    systemQty: num(b.qty),
+    physicalQty: num(b.qty),
+    reason: ""
+  }));
+  renderStockCountRows();
+  toast(`Loaded ${balances.length} product(s)`);
+}
+
+function addStockCountLine(){
+  _stockCountLines.push({
+    productId: "", productCode: "", productName: "",
+    systemQty: 0, physicalQty: 0, reason: ""
+  });
+  renderStockCountRows();
+}
+
+function refreshStockCountSystemQty(){
+  const wh = stockCountWarehouseId();
+  _stockCountLines.forEach(line=>{
+    if(!line.productId) return;
+    line.systemQty = getBalance(line.productId, wh).qty;
+  });
+  renderStockCountRows();
+}
+
+function renderStockCountRows(){
+  const body = document.getElementById("stkCountRows");
+  if(!body) return;
+  const wh = stockCountWarehouseId();
+  const productOpts = products.slice().sort((a,b)=> String(a.name||"").localeCompare(String(b.name||"")));
+  if(!_stockCountLines.length){
+    body.innerHTML = `<tr><td colspan="7" class="empty">Load warehouse stock or add a product</td></tr>`;
+    return;
+  }
+  body.innerHTML = _stockCountLines.map((line, idx)=>{
+    const sys = line.productId ? getBalance(line.productId, wh).qty : num(line.systemQty);
+    const phys = num(line.physicalQty);
+    const variance = roundMoney(phys - sys);
+    const opts = `<option value="">- Select -</option>` + productOpts.map(p=>
+      `<option value="${esc(p.id)}"${p.id === line.productId ? " selected" : ""}>${esc(p.name)} (${esc(p.code||"-")})</option>`
+    ).join("");
+    return `<tr data-idx="${idx}">
+      <td><select class="stk-count-product" data-idx="${idx}">${opts}</select></td>
+      <td>${esc(line.productCode || "-")}</td>
+      <td class="stk-count-sys">${esc(sys)}</td>
+      <td><input class="stk-count-phys" data-idx="${idx}" type="number" step="0.01" value="${phys}"></td>
+      <td class="stk-count-var">${variance > 0 ? "+" : ""}${esc(variance)}</td>
+      <td><input class="stk-count-reason" data-idx="${idx}" type="text" value="${esc(line.reason || "")}" placeholder="Variance reason"></td>
+      <td><button class="btn small danger stk-count-del" type="button" data-idx="${idx}">-</button></td>
+    </tr>`;
+  }).join("");
+
+  body.querySelectorAll(".stk-count-product").forEach(sel=>{
+    sel.addEventListener("change", e=>{
+      const i = num(e.target.dataset.idx);
+      const p = products.find(x=> x.id === e.target.value);
+      if(!p || !_stockCountLines[i]) return;
+      _stockCountLines[i].productId = p.id;
+      _stockCountLines[i].productCode = p.code || "";
+      _stockCountLines[i].productName = p.name || "";
+      _stockCountLines[i].systemQty = getBalance(p.id, wh).qty;
+      _stockCountLines[i].physicalQty = _stockCountLines[i].systemQty;
+      renderStockCountRows();
+    });
+  });
+  body.querySelectorAll(".stk-count-phys").forEach(inp=>{
+    inp.addEventListener("input", e=>{
+      const i = num(e.target.dataset.idx);
+      if(_stockCountLines[i]) _stockCountLines[i].physicalQty = num(e.target.value);
+      const row = e.target.closest("tr");
+      const sys = num(row?.querySelector(".stk-count-sys")?.textContent);
+      const varEl = row?.querySelector(".stk-count-var");
+      const v = roundMoney(num(e.target.value) - sys);
+      if(varEl) varEl.textContent = (v > 0 ? "+" : "") + String(v);
+    });
+  });
+  body.querySelectorAll(".stk-count-reason").forEach(inp=>{
+    inp.addEventListener("input", e=>{
+      const i = num(e.target.dataset.idx);
+      if(_stockCountLines[i]) _stockCountLines[i].reason = e.target.value;
+    });
+  });
+  body.querySelectorAll(".stk-count-del").forEach(btn=>{
+    btn.addEventListener("click", e=>{
+      const i = num(e.target.dataset.idx);
+      _stockCountLines.splice(i, 1);
+      renderStockCountRows();
+    });
+  });
+}
+
+async function saveStockCount(){
+  if(!requireModule("inventory")) return;
+  const warehouseId = stockCountWarehouseId();
+  if(!_stockCountLines.length) return toast("Add at least one product line");
+  const lines = _stockCountLines.filter(l=> l.productId).map(l=>({
+    productId: l.productId,
+    productCode: l.productCode || "",
+    productName: l.productName || "",
+    physicalQty: num(l.physicalQty),
+    reason: l.reason || ""
+  }));
+  if(!lines.length) return toast("Select products on each line");
+  const countSerial = await allocateDocSerial("stock_count", "SC-", {
+    list: stockCounts, field: "countNo", draftValue: document.getElementById("stkCountNo")?.value, preferCounter: true
+  });
+  const countNo = countSerial.value;
+  try{
+    await postStockCount({
+      countNo,
+      date: document.getElementById("stkCountDate")?.value || today(),
+      warehouseId,
+      notes: document.getElementById("stkCountNotes")?.value || "",
+      lines
+    });
+    leaveFormAfterSave("stockCountModal");
+    toast("Stock count posted");
+    await logActivity({
+      action: "add", staffName: who(), module: "inventory",
+      record: countNo, summary: `Stock count - ${formatStockLocation(warehouseId)} - ${lines.length} line(s)`
+    });
+    renderInventory();
+  }catch(e){
+    toast(inventoryErrorText(e?.message || e));
+  }
+}
+
+function syncStockAdjQtySign(){
+  const type = document.getElementById("stkAdjType")?.value || "OPENING";
+  const qty = document.getElementById("stkAdjQty");
+  if(!qty) return;
+  const v = Math.abs(num(qty.value));
+  if(type === "ADJUSTMENT_OUT" || type === "DAMAGE") qty.value = v ? -v : 0;
+  else if(v) qty.value = v;
+}
+
+function renderInventory(){
+  const balBody = document.getElementById("invBalanceRows");
+  const ledBody = document.getElementById("invLedgerRows");
+  const cards = document.getElementById("invSummaryCards");
+  if(!balBody && !ledBody) return;
+
+  const bq = (document.getElementById("invBalanceSearch")?.value || "").toLowerCase();
+  const balances = getStockBalances().filter(b=>{
+    const wh = formatStockLocation(b.warehouseId);
+    const blob = `${b.productName} ${b.productCode} ${wh}`.toLowerCase();
+    return blob.includes(bq);
+  });
+  const totalQty = balances.reduce((s,b)=> s + num(b.qty), 0);
+  const totalVal = balances.reduce((s,b)=> s + num(b.qty) * num(b.avgCost), 0);
+  if(cards){
+    cards.innerHTML = `
+      <div class="card"><div class="metric-label">SKU LOCATIONS</div><div class="metric">${balances.length}</div></div>
+      <div class="card"><div class="metric-label">TOTAL QTY</div><div class="metric">${totalQty.toLocaleString("en-AE",{maximumFractionDigits:2})}</div></div>
+      <div class="card"><div class="metric-label">STOCK VALUE (WAC)</div><div class="metric">${money(totalVal)}</div></div>`;
+  }
+  updateStockTransferUi();
+  if(balBody){
+    balBody.innerHTML = balances.length ? balances.map(b=>{
+      const val = num(b.qty) * num(b.avgCost);
+      return `<tr>
+        <td>${esc(b.productName)}</td><td>${esc(b.productCode)}</td>
+        <td>${esc(formatStockLocation(b.warehouseId))}</td>
+        <td>${esc(b.qty)}</td><td>${money(b.avgCost)}</td><td>${money(val)}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="6" class="empty">No stock balances - post opening stock or purchase</td></tr>`;
+  }
+
+  const lq = (document.getElementById("invLedgerSearch")?.value || "").toLowerCase();
+  const ledger = getStockLedger().filter(r=>{
+    const blob = `${r.docType} ${r.docRef} ${r.productName} ${r.productCode} ${r.reason}`.toLowerCase();
+    return blob.includes(lq);
+  });
+  if(ledBody){
+    ledBody.innerHTML = ledger.length ? ledger.map(r=> `<tr>
+      <td>${esc(r.date || "")}</td><td>${esc(r.docType)}</td><td>${esc(r.docRef)}</td>
+      <td>${esc(r.productName)}</td>
+      <td>${r.qtyIn ? esc(r.qtyIn) : ""}</td><td>${r.qtyOut ? esc(r.qtyOut) : ""}</td>
+      <td>${esc(r.balance)}</td><td>${money(r.totalCost || r.unitCost)}</td>
+    </tr>`).join("") : `<tr><td colspan="8" class="empty">No ledger entries yet</td></tr>`;
+  }
+
+  const trBody = document.getElementById("invTransferRows");
+  if(trBody){
+    const rows = stockTransfers.slice().sort((a,b)=> String(b.date||"").localeCompare(String(a.date||""))).slice(0, 50);
+    trBody.innerHTML = rows.length ? rows.map(t=> `<tr>
+      <td>${esc(t.transferNo)}</td><td>${esc(t.date)}</td><td>${esc(t.productName)}</td>
+      <td>${esc(formatStockLocation(t.fromWarehouseId))}</td><td>${esc(formatStockLocation(t.toWarehouseId))}</td>
+      <td>${esc(t.qty)}</td><td>${esc(t.createdBy || "")}</td>
+    </tr>`).join("") : `<tr><td colspan="7" class="empty">No transfers yet</td></tr>`;
+  }
+
+  const cntBody = document.getElementById("invCountRows");
+  if(cntBody){
+    const rows = stockCounts.slice().sort((a,b)=> String(b.date||"").localeCompare(String(a.date||""))).slice(0, 50);
+    cntBody.innerHTML = rows.length ? rows.map(c=> `<tr>
+      <td>${esc(c.countNo)}</td><td>${esc(c.date)}</td>
+      <td>${esc(formatStockLocation(c.warehouseId))}</td>
+      <td>${esc(c.lineCount ?? (c.lines?.length || 0))}</td>
+      <td>${esc(c.varianceLines ?? 0)}</td>
+      <td>${esc(c.createdBy || "")}</td>
+    </tr>`).join("") : `<tr><td colspan="6" class="empty">No stock counts yet</td></tr>`;
+  }
+
+  const ibrBody = document.getElementById("invBranchReqRows");
+  if(ibrBody){
+    const rows = branchStockRequests.slice().sort((a,b)=> String(b.createdAt||0).localeCompare(String(a.createdAt||0))).slice(0, 50);
+    ibrBody.innerHTML = rows.length ? rows.map(r=>{
+      const status = String(r.status || "pending");
+      const statusLabel = status === "posted" ? "Posted" : status === "rejected" ? "Rejected" : "Pending";
+      let actions = "";
+      if(status === "pending" && canApproveBranchRequest(r)){
+        actions = `<button class="btn small primary" type="button" data-approve-ibr="${esc(r.id)}">Approve</button>
+          <button class="btn small" type="button" data-reject-ibr="${esc(r.id)}">Reject</button>`;
+      }else if(status === "posted" && r.transferNo){
+        actions = `<span class="muted">${esc(r.transferNo)}</span>`;
+      }
+      return `<tr>
+        <td>${esc(r.requestNo)}</td><td>${esc(r.date)}</td>
+        <td>${esc(r.productName)}</td><td>${esc(r.qty)}</td>
+        <td>${esc(branchLabel(r.supplyingBranchId))}</td>
+        <td>${esc(branchLabel(r.requestingBranchId))}</td>
+        <td>${esc(statusLabel)}</td><td>${actions}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="8" class="empty">No branch requests yet</td></tr>`;
+    ibrBody.querySelectorAll("[data-approve-ibr]").forEach(btn=>{
+      btn.addEventListener("click", ()=> approveBranchRequest(btn.dataset.approveIbr));
+    });
+    ibrBody.querySelectorAll("[data-reject-ibr]").forEach(btn=>{
+      btn.addEventListener("click", ()=> rejectBranchRequest(btn.dataset.rejectIbr));
+    });
+  }
+  updateBranchRequestUi();
+}
+
+async function saveStockAdjustment(){
+  if(!requireModule("inventory")) return;
+  const productId = document.getElementById("stkAdjProduct")?.value || "";
+  const product = products.find(p=> p.id === productId);
+  if(!product) return toast("Select a product");
+  syncStockAdjQtySign();
+  let qty = num(document.getElementById("stkAdjQty")?.value);
+  const type = document.getElementById("stkAdjType")?.value || "OPENING";
+  if(type === "ADJUSTMENT_OUT" || type === "DAMAGE") qty = -Math.abs(qty);
+  else qty = Math.abs(qty);
+  if(!qty) return toast("Enter quantity");
+  try{
+    await postStockAdjustment({
+      productId,
+      productCode: product.code || "",
+      productName: product.name || "",
+      warehouseId: document.getElementById("stkAdjWarehouse")?.value || "Main",
+      qty,
+      unitCost: num(document.getElementById("stkAdjCost")?.value),
+      docType: type,
+      reason: document.getElementById("stkAdjReason")?.value || type,
+      docRef: type
+    });
+    leaveFormAfterSave("stockAdjModal");
+    toast("Stock movement posted");
+    await logActivity({ action: "add", staffName: who(), module: "inventory", record: product.code || product.name, summary: `${type} ${qty} - ${product.name}` });
+    renderInventory();
+  }catch(e){
+    toast(inventoryErrorText(e?.message || e));
+  }
+}
+
+/* --- Product / Service catalog --- */
 function shopDefaultVat(){ return num(shop.vatRate) || 5; }
 
 function renderProducts(){
@@ -2685,10 +5418,10 @@ function renderProducts(){
     <td><input type="checkbox" class="catalog-check" data-kind="product" value="${esc(p.id)}"></td>
     <td>${esc(p.name)}</td><td>${esc(p.code)}</td><td>${money(p.price)}</td><td>${esc(p.vat ?? "")}%</td><td>${esc(p.category)}</td>
     <td>
-      <button class="btn small" type="button" data-edit-p="${p.id}">Open</button>
+      <button class="btn small" type="button" data-edit-p="${p.id}">Edit</button>
       <button class="btn small danger" type="button" data-del-p="${p.id}">Delete</button>
     </td>
-  </tr>`).join("") : `<tr><td colspan="7" class="empty">No products — add one</td></tr>`;
+  </tr>`).join("") : `<tr><td colspan="7" class="empty">No products - add one</td></tr>`;
   const selAll = document.getElementById("productSelectAll");
   if(selAll) selAll.checked = false;
   tbody.querySelectorAll("[data-edit-p]").forEach(b=> b.onclick = ()=> editProduct(b.dataset.editP));
@@ -2713,7 +5446,7 @@ function editProduct(id){
   pVat.value = p.vat ?? shopDefaultVat();
   pCategory.value = p.category || "";
   if(pNotes) pNotes.value = p.notes || "";
-  openFormModal("productModal");
+  openFormModal("productModal", { skipPrepare: true });
 }
 
 async function saveProduct(){
@@ -2736,11 +5469,11 @@ async function saveProduct(){
     else { data.createdAt = Date.now(); data.createdBy = who(); write = addDoc(col("productCatalog"), data); }
     commitWrite(
       Promise.resolve(write).then(()=>{
-        closeModal("productModal");
+        leaveFormAfterSave("productModal");
         return logActivity({ action:"edit", staffName: who(), summary: "Product saved " + name });
       }),
       { okMsg: "Product saved" }
-    );
+    ).catch(()=>{});
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
@@ -2764,12 +5497,15 @@ function renderServices(){
   }).sort((a,b)=> String(a.name||"").localeCompare(String(b.name||"")));
   tbody.innerHTML = rows.length ? rows.map(s=> `<tr>
     <td><input type="checkbox" class="catalog-check" data-kind="service" value="${esc(s.id)}"></td>
-    <td>${esc(s.name)}</td><td>${money(s.price)}</td><td>${esc(s.vat ?? "")}%</td><td>${esc(s.category)}</td>
+    <td>${esc(s.code || "")}</td>
+    <td>${esc(s.name)}</td><td>${money(s.price)}</td><td>${esc(s.standardTime ?? "")}</td>
+    <td>${esc(s.vat ?? "")}%</td><td>${esc(s.category)}</td>
+    <td>${badge(s.active === false || s.status === "inactive" ? "Inactive" : "Active")}</td>
     <td>
-      <button class="btn small" type="button" data-edit-s="${s.id}">Open</button>
+      <button class="btn small" type="button" data-edit-s="${s.id}">Edit</button>
       <button class="btn small danger" type="button" data-del-s="${s.id}">Delete</button>
     </td>
-  </tr>`).join("") : `<tr><td colspan="6" class="empty">No services — add one</td></tr>`;
+  </tr>`).join("") : `<tr><td colspan="9" class="empty">No services - add one</td></tr>`;
   const selAll = document.getElementById("serviceSelectAll");
   if(selAll) selAll.checked = false;
   tbody.querySelectorAll("[data-edit-s]").forEach(b=> b.onclick = ()=> editService(b.dataset.editS));
@@ -2778,22 +5514,28 @@ function renderServices(){
 
 function resetService(){
   sId.value = "";
+  if(sCode) sCode.value = `SRV-${String(services.length + 1).padStart(4, "0")}`;
   sName.value = sCategory.value = "";
   if(sNotes) sNotes.value = "";
   sPrice.value = 0;
   sVat.value = shopDefaultVat();
+  if(sStdTime) sStdTime.value = 0;
+  if(sActive) sActive.value = "active";
 }
 
 function editService(id){
   const s = services.find(x=> x.id === id);
   if(!s) return;
   sId.value = s.id;
+  if(sCode) sCode.value = s.code || "";
   sName.value = s.name || "";
   sPrice.value = s.price ?? 0;
   sVat.value = s.vat ?? shopDefaultVat();
   sCategory.value = s.category || "";
+  if(sStdTime) sStdTime.value = s.standardTime ?? 0;
+  if(sActive) sActive.value = (s.active === false || s.status === "inactive") ? "inactive" : "active";
   if(sNotes) sNotes.value = s.notes || "";
-  openFormModal("serviceModal");
+  openFormModal("serviceModal", { skipPrepare: true });
 }
 
 async function saveService(){
@@ -2805,21 +5547,25 @@ async function saveService(){
     if(dup && !confirm(`Service '${dup.name}' already exists. Continue anyway?`)) return;
   }
   const data = {
+    code: (sCode?.value||"").trim(),
     name, price: num(sPrice.value), vat: num(sVat.value),
+    standardTime: num(sStdTime?.value),
+    active: (sActive?.value || "active") !== "inactive",
+    status: (sActive?.value || "active") === "inactive" ? "inactive" : "active",
     category: (sCategory.value||"").trim(), notes: (sNotes?.value||"").trim(),
-    updatedAt: Date.now(), updatedBy: who()
+    ...masterMeta()
   };
   try{
     let write;
     if(sId.value) write = updateDoc(doc(db, "serviceCatalog", sId.value), data);
-    else { data.createdAt = Date.now(); data.createdBy = who(); write = addDoc(col("serviceCatalog"), data); }
+    else { Object.assign(data, masterCreateMeta()); write = addDoc(col("serviceCatalog"), data); }
     commitWrite(
       Promise.resolve(write).then(()=>{
-        closeModal("serviceModal");
+        leaveFormAfterSave("serviceModal");
         return logActivity({ action:"edit", staffName: who(), summary: "Service saved " + name });
       }),
       { okMsg: "Service saved" }
-    );
+    ).catch(()=>{});
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
@@ -2853,7 +5599,7 @@ async function deleteSelectedServices(){
   if(!ids.length) return toast("Select at least one service");
   if(!confirm(`Delete ${ids.length} selected service(s)?\nThis cannot be undone.`)) return;
   try{
-    toast(`Deleting ${ids.length}…`);
+    toast(`Deleting ${ids.length}-`);
     const n = await deleteCatalogDocs("serviceCatalog", ids);
     await logActivity({ action:"delete", staffName: who(), module:"Service Catalog", summary: `Bulk deleted ${n} services` });
     toast(`Deleted ${n} service(s)`);
@@ -2867,7 +5613,7 @@ async function deleteAllServices(){
   if(!confirm(`Delete ALL ${n} services from catalog?\nThis cannot be undone.`)) return;
   if(!confirm(`Final confirm: permanently delete all ${n} services?`)) return;
   try{
-    toast(`Deleting ${n}…`);
+    toast(`Deleting ${n}-`);
     const count = await deleteCatalogDocs("serviceCatalog", services.map(s=> s.id));
     await logActivity({ action:"delete", staffName: who(), module:"Service Catalog", summary: `Cleared all ${count} services` });
     toast(`Deleted all ${count} services`);
@@ -2880,7 +5626,7 @@ async function deleteSelectedProducts(){
   if(!ids.length) return toast("Select at least one product");
   if(!confirm(`Delete ${ids.length} selected product(s)?\nThis cannot be undone.`)) return;
   try{
-    toast(`Deleting ${ids.length}…`);
+    toast(`Deleting ${ids.length}-`);
     const n = await deleteCatalogDocs("productCatalog", ids);
     await logActivity({ action:"delete", staffName: who(), module:"Product Catalog", summary: `Bulk deleted ${n} products` });
     toast(`Deleted ${n} product(s)`);
@@ -2894,7 +5640,7 @@ async function deleteAllProducts(){
   if(!confirm(`Delete ALL ${n} products from catalog?\nThis cannot be undone.`)) return;
   if(!confirm(`Final confirm: permanently delete all ${n} products?`)) return;
   try{
-    toast(`Deleting ${n}…`);
+    toast(`Deleting ${n}-`);
     const count = await deleteCatalogDocs("productCatalog", products.map(p=> p.id));
     await logActivity({ action:"delete", staffName: who(), module:"Product Catalog", summary: `Cleared all ${count} products` });
     toast(`Deleted all ${count} products`);
@@ -2954,11 +5700,11 @@ function renderCatalogSuggest(q){
   if(!input || !list) return;
   const rows = catalogMatches(q).slice(0, 40);
   if(!rows.length){
-    list.innerHTML = `<li class="cust-combo-empty">${(products.length || services.length) ? "No match — free type OK" : "Catalog empty — type freely or add Product/Service"}</li>`;
+    list.innerHTML = `<li class="cust-combo-empty">${(products.length || services.length) ? "No match - free type OK" : "Catalog empty - type freely or add Product/Service"}</li>`;
   }else{
     list.innerHTML = rows.map(r=>{
       const tag = r.kind === "product" ? "Product" : "Service";
-      const meta = [r.code, money(r.price), `${r.vat}% VAT`].filter(Boolean).join(" · ");
+      const meta = [r.code, money(r.price), `${r.vat}% VAT`].filter(Boolean).join(" - ");
       return `<li role="option" data-cat-kind="${r.kind}" data-cat-id="${esc(r.id)}" title="${esc(r.name)}">
         ${esc(r.name)}<span class="cat-tag">[${tag}]</span>
         <span class="cat-meta">${esc(meta)}</span>
@@ -2981,6 +5727,22 @@ function applyCatalogPick(kind, id){
   if(codeEl) codeEl.value = kind === "product" ? (row.code || "") : "";
   if(priceEl) priceEl.value = row.price ?? 0;
   if(vatEl) vatEl.value = row.vat ?? shopDefaultVat();
+  const discEl = document.getElementById("invEntryDisc");
+  if(kind === "product"){
+    _invEntryDefaultDiscPct = productDefaultDiscountPct(row);
+    if(discEl){
+      if(_invEntryDefaultDiscPct){
+        const qty = num(document.getElementById("invEntryQty")?.value) || 1;
+        const price = num(row.price);
+        discEl.value = roundMoney(qty * price * _invEntryDefaultDiscPct / 100);
+      }else{
+        discEl.value = 0;
+      }
+    }
+  }else{
+    _invEntryDefaultDiscPct = 0;
+    if(discEl) discEl.value = 0;
+  }
   hideCatalogSuggest();
   updateInvEntryPreview();
   queueInvoiceWipSave();
@@ -3094,7 +5856,7 @@ async function importCatalogCsv(kind, file){
       }
       ok++;
     }
-    toast(`Imported ${ok}${skip ? ` · skipped ${skip}` : ""}`);
+    toast(`Imported ${ok}${skip ? ` - skipped ${skip}` : ""}`);
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
@@ -3113,19 +5875,37 @@ function wireCatalogSuggest(){
       hideCatalogSuggest();
       return;
     }
+    const open = list && !list.hidden;
     if(e.key === "ArrowDown"){
       e.preventDefault();
-      renderCatalogSuggest(input.value);
-      const first = list.querySelector("li[data-cat-id]");
-      if(first) first.focus?.();
+      e.stopPropagation();
+      if(!open) renderCatalogSuggest(input.value);
+      moveComboHighlight(list, "data-cat-id", 1);
+      return;
+    }
+    if(e.key === "ArrowUp"){
+      e.preventDefault();
+      e.stopPropagation();
+      if(!open) renderCatalogSuggest(input.value);
+      moveComboHighlight(list, "data-cat-id", -1);
+      return;
+    }
+    if(e.key === "Home" && open){
+      e.preventDefault();
+      setComboHighlight(list, "data-cat-id", 0);
+      return;
+    }
+    if(e.key === "End" && open){
+      e.preventDefault();
+      setComboHighlight(list, "data-cat-id", comboOptionItems(list, "data-cat-id").length - 1);
       return;
     }
     if(e.key === "Enter"){
-      const first = !list.hidden && list.querySelector("li[data-cat-id]");
-      if(first){
+      const hit = activeComboOption(list, "data-cat-id") || (!list.hidden && list.querySelector("li[data-cat-id]"));
+      if(hit){
         e.preventDefault();
         e.stopImmediatePropagation();
-        applyCatalogPick(first.getAttribute("data-cat-kind"), first.getAttribute("data-cat-id"));
+        applyCatalogPick(hit.getAttribute("data-cat-kind"), hit.getAttribute("data-cat-id"));
       }
     }
   }, true);
@@ -3145,23 +5925,37 @@ function wireCatalogSuggest(){
   document.getElementById("invoiceModal")?.addEventListener("scroll", hideCatalogSuggest, true);
 }
 
+function setInvoiceModalSub(text){
+  const el = document.getElementById("invModalSub");
+  if(el) el.textContent = text || "Invoice builder";
+}
+
 function resetInvoice(){
   _formInvoiceMode = null;
   invId.value = "";
+  const invJobCardId = document.getElementById("invJobCardId");
+  const invJobNoEl = document.getElementById("invJobNo");
+  if(invJobCardId) invJobCardId.value = "";
+  if(invJobNoEl) invJobNoEl.value = "";
   invNo.value = nextNo(shop.invPrefix || "INV-", invoices, "invNo");
   const invComputer = document.getElementById("invComputer");
   if(invComputer) invComputer.value = "";
   if(invManual) invManual.value = "";
-  invDate.value = today();
-  const days = num(shop.creditDays) || 30;
-  const d = new Date(); d.setDate(d.getDate()+days);
-  invDue.value = d.toISOString().slice(0,10);
+  if(getShopInvoiceBillingStyle() === "monthly"){
+    setInvBillPeriod(new Date().getFullYear(), new Date().getMonth());
+  }else{
+    invDate.value = today();
+    const days = num(shop.creditDays) || 30;
+    invDue.value = addDaysToIsoDate(invDate.value, days);
+  }
   customerOptions(invCustomer, "");
   filterVehiclesForInvoice();
   invDriver.value = invReceived.value = invLpo.value = invNotes.value = "";
   if(invDn) invDn.value = "";
   if(invRef) invRef.value = "";
   if(invTerms) invTerms.value = (shop.creditDays || 30) + " Days Credit";
+  syncInvStockLocation("Main");
+  syncInvoiceSubAccountField("");
   if(document.getElementById("invSimpleTotal")) document.getElementById("invSimpleTotal").value = "";
   setInvoiceLineItems([]);
   clearInvEntryFields();
@@ -3169,6 +5963,9 @@ function resetInvoice(){
   updateInvoiceWipHint(!!loadInvoiceWip());
   const delBtn = document.getElementById("deleteInvoiceBtn");
   if(delBtn) delBtn.hidden = true;
+  setInvoiceModalSub("Invoice builder");
+  _lastInvoiceDupKey = "";
+  refreshInvoiceDuplicateUi({ showPopup: false });
 }
 
 function editInvoice(id){
@@ -3176,18 +5973,33 @@ function editInvoice(id){
   clearInvoiceWip();
   const i = invoices.find(x=> x.id === id);
   if(!i) return;
-  invId.value = i.id; invNo.value = i.invNo; invDate.value = i.invDate; invDue.value = i.dueDate;
+  invId.value = i.id; invNo.value = i.invNo;
+  if(i.billingStyle === "monthly"){
+    const my = invoiceMonthYearFromDoc(i);
+    if(my) setInvBillPeriod(my.year, my.monthIndex0);
+    else { invDate.value = i.invDate; invDue.value = i.dueDate; }
+  }else{
+    invDate.value = i.invDate; invDue.value = i.dueDate;
+  }
   const invComputer = document.getElementById("invComputer");
   if(invComputer) invComputer.value = i.computerNo || "";
   if(invManual) invManual.value = i.manualNo || "";
-  customerOptions(invCustomer, i.customer); filterVehiclesForInvoice(); invVehicle.value = i.vehicle||"";
+  customerOptions(invCustomer, i.customer);
+  syncInvoiceCustomerFromMaster({ recalcDue: false, preserveSub: true });
+  syncInvoiceSubAccountField(i.subAccount || "");
+  invVehicle.value = i.vehicle||"";
   invDriver.value = i.driver||""; invReceived.value = i.receivedBy||""; invLpo.value = i.lpo||""; invNotes.value = i.notes||"";
   if(invDn) invDn.value = i.deliveryNote||"";
   if(invRef) invRef.value = i.reference||"";
   if(invTerms) invTerms.value = i.paymentTerms||"";
+  const invJobCardId = document.getElementById("invJobCardId");
+  const invJobNoEl = document.getElementById("invJobNo");
+  if(invJobCardId) invJobCardId.value = i.jobCardId || "";
+  if(invJobNoEl) invJobNoEl.value = i.jobNo || "";
+  syncInvStockLocation(i.stockLocation || "Main");
   const simpleTotalEl = document.getElementById("invSimpleTotal");
   if(getInvoiceEntryMode() === "simple" || (i.items||[]).length === 1 && (i.items[0].name||"").toLowerCase().includes("total")){
-    // Stored total may already include linked debit notes — show base only so re-save does not double-add
+    // Stored total may already include linked debit notes - show base only so re-save does not double-add
     const dnPart = linkedDebitTotalForInvoice(i.invNo, i.customer);
     if(simpleTotalEl) simpleTotalEl.value = roundMoney(Math.max(0, num(i.total) - dnPart));
   }else if(simpleTotalEl) simpleTotalEl.value = "";
@@ -3197,17 +6009,90 @@ function editInvoice(id){
   updateInvoiceWipHint(false);
   const delBtn = document.getElementById("deleteInvoiceBtn");
   if(delBtn) delBtn.hidden = false;
-  openFormModal("invoiceModal");
+  const st = i.status === "Draft" ? "Draft" : (invStatus(i) || "Posted");
+  setInvoiceModalSub(
+    i.jobNo
+      ? `${i.invNo} - ${st} - Job ${i.jobNo}`
+      : `${i.invNo} - ${st} - add lines or fix mistakes, then Post Invoice`
+  );
+  openFormModal("invoiceModal", { skipPrepare: true });
+  refreshInvoiceDuplicateUi({ showPopup: false });
+}
+
+function jobItemsToInvoiceLines(job){
+  return (job?.items || []).map(it=>({
+    name: String(it.name || "").trim(),
+    code: String(it.code || "").trim(),
+    qty: it.qty ?? 1,
+    price: it.rate ?? it.price ?? 0,
+    disc: it.disc ?? 0,
+    vat: it.vatPct ?? it.vat ?? (shop.vatRate ?? 5),
+    jobIssuedQty: it.lineType === "labour" ? 0 : num(it.issuedQty),
+    lineType: it.lineType === "labour" ? "labour" : "part"
+  })).filter(x=> x.name);
+}
+
+function warehouseFromJob(job){
+  const hits = (getPartsIssues() || []).filter(p=> p.jobCardId === job.id);
+  if(hits.length){
+    hits.sort((a, b)=> String(b.issueDate || "").localeCompare(String(a.issueDate || "")));
+    return hits[0].warehouseId || "Main";
+  }
+  return job.warehouseId || "Main";
+}
+
+/** §15 Workshop Sale: Job → Invoice. Issued parts do not stock-out again. */
+function openInvoiceFromJob(jobId){
+  if(!requireModule("invoices")) return;
+  const job = (getJobCards() || []).find(j=> j.id === jobId);
+  if(!job) return toast("Job card not found");
+  if(String(job.status) === "Cancelled") return toast("Cannot invoice a cancelled job");
+  const existing = invoices.find(i=> i.id === job.invoiceId)
+    || invoices.find(i=> i.jobCardId === job.id);
+  if(existing){
+    closeModal("jobCardModal");
+    editInvoice(existing.id);
+    return;
+  }
+  const lines = jobItemsToInvoiceLines(job);
+  if(!lines.length && num(job.grandTotal) <= 0) return toast("Add parts or labour on the job first");
+  closeModal("jobCardModal");
+  clearInvoiceWip();
+  _editingExistingInvoice = false;
+  resetInvoice();
+  setInvoiceEntryMode("detailed", { formOnly: true });
+  applyInvoiceEntryMode();
+  const invJobCardId = document.getElementById("invJobCardId");
+  const invJobNoEl = document.getElementById("invJobNo");
+  if(invJobCardId) invJobCardId.value = job.id;
+  if(invJobNoEl) invJobNoEl.value = job.jobNo || "";
+  if(invRef) invRef.value = job.jobNo || "";
+  customerOptions(invCustomer, job.customer || "");
+  const invCustomerInput = document.getElementById("invCustomerInput");
+  if(invCustomerInput) invCustomerInput.value = job.customer || "";
+  syncInvoiceCustomerFromMaster({ recalcDue: true });
+  if(invVehicle) invVehicle.value = job.vehicle || "";
+  syncInvStockLocation(warehouseFromJob(job));
+  setInvoiceLineItems(lines);
+  calcInvoice();
+  const unissued = lines.some(it=> it.lineType !== "labour" && num(it.qty) > num(it.jobIssuedQty) + 0.0001);
+  setInvoiceModalSub(unissued ? `${job.jobNo} → invoice (unissued parts will stock-out on Post)` : `${job.jobNo} → invoice`);
+  openFormModal("invoiceModal", { skipPrepare: true });
 }
 
 async function saveInvoice(status){
   if(!requireModule("invoices")) return;
-  if(_invoiceSaving) return toast("Save already in progress…");
-  flushInvDraftLine();
+  if(_invoiceSaving) return toast("Save already in progress-");
+  if(flushInvDraftLine() === false) return;
   const calc = calcInvoice();
   const customer = invCustomer.value;
   if(!customer) return toast("Select customer");
   if(!calc.items.length) return toast(getInvoiceEntryMode() === "simple" ? "Enter total amount" : "Add at least one product line");
+  const jobLinkId = (document.getElementById("invJobCardId")?.value || "").trim();
+  if(!invId.value && jobLinkId){
+    const dupJobInv = invoices.find(i=> i.jobCardId === jobLinkId);
+    if(dupJobInv) return toast("This job already has invoice " + dupJobInv.invNo);
+  }
   const c = customers.find(x=> x.name === customer);
   if(c && c.status === "Blocked") return toast("Customer is blocked");
   if(c && c.status === "Hold" && status === "Posted") return toast("Customer is on hold");
@@ -3216,11 +6101,11 @@ async function saveInvoice(status){
   const oldTotal = existing && existing.status !== "Draft" ? num(existing.total) : 0;
   if(!invId.value){
     const hadNo = !!String(invNo.value || "").trim();
-    const serial = uniqueSerial(invoices, "invNo", invNo.value, shop.invPrefix || "INV-");
-    if(serial.bumped){
-      if(invNo) invNo.value = serial.value;
-      if(hadNo) toast("Invoice No. already used — posting as " + serial.value);
-    }
+    const serial = await allocateDocSerial("invoice", shop.invPrefix || "INV-", {
+      list: invoices, field: "invNo", draftValue: invNo.value, preferCounter: true
+    });
+    if(invNo) invNo.value = serial.value;
+    if(serial.bumped && hadNo) toast("Invoice No. assigned — posting as " + serial.value);
   }
   // Preserve linked debit-note charges when re-saving line items
   const dnLinked = linkedDebitTotalForInvoice(invNo.value, customer);
@@ -3229,7 +6114,7 @@ async function saveInvoice(status){
   const floorPaidCred = roundMoney(existingPaid + existingCredited);
   if(existing && status !== "Draft" && grandWithDn + 0.009 < floorPaidCred){
     return toast(
-      `Cannot save — total ${money(grandWithDn)} is below paid+credited ${money(floorPaidCred)}. ` +
+      `Cannot save - total ${money(grandWithDn)} is below paid+credited ${money(floorPaidCred)}. ` +
       `Reverse receipts / credit notes first, or raise the invoice total.`
     );
   }
@@ -3239,22 +6124,31 @@ async function saveInvoice(status){
   }
   const manualNo = (invManual?.value||"").trim();
   const computerNo = (document.getElementById("invComputer")?.value || "").trim();
-  if(manualNo){
-    const dupM = invoices.find(i=> i.id !== invId.value && String(i.manualNo||"").trim().toLowerCase() === manualNo.toLowerCase());
-    if(dupM && !confirm(`This Manual Invoice No. is already used on invoice ${dupM.invNo} (${dupM.customer}, ${money(dupM.total)}). Continue anyway?`)) return;
-  }
-  if(computerNo){
-    const dupC = invoices.find(i=> i.id !== invId.value && String(i.computerNo||"").trim().toLowerCase() === computerNo.toLowerCase());
-    if(dupC && !confirm(`This Computer Invoice No. is already used on invoice ${dupC.invNo} (${dupC.customer}, ${money(dupC.total)}). Continue anyway?`)) return;
+  if(getShopInvoiceBillingStyle() === "monthly") syncInvDateFromBillingPeriod({ recalcDue: false });
+  const invDateStr = String(invDate?.value || "").slice(0, 10);
+  const invSub = (document.getElementById("invSubAccount")?.value || "").trim();
+  const billingStyle = getShopInvoiceBillingStyle();
+  const dupDoc = findInvoiceDuplicate({ customer, invDateStr, manualNo, computerNo, excludeId: invId.value });
+  if(dupDoc){
+    showDupAlert(formatInvoiceDupMessage(dupDoc, { customer, invDateStr, manualNo, computerNo }));
+    refreshInvoiceDuplicateUi({ showPopup: false });
+    return;
   }
   const data = {
     invNo: invNo.value.trim(),
     computerNo,
     manualNo,
     invDate: invDate.value, dueDate: invDue.value,
-    customer, vehicle: invVehicle.value, driver: invDriver.value.trim(),
+    billingStyle,
+    billingMonth: billingStyle === "monthly" ? num(document.getElementById("invBillMonth")?.value) : null,
+    billingYear: billingStyle === "monthly" ? num(document.getElementById("invBillYear")?.value) : null,
+    customer, subAccount: invSub,
+    vehicle: invVehicle.value, driver: invDriver.value.trim(),
     receivedBy: invReceived.value.trim(), lpo: invLpo.value.trim(), notes: invNotes.value.trim(),
     deliveryNote: (invDn?.value||"").trim(), reference: (invRef?.value||"").trim(), paymentTerms: (invTerms?.value||"").trim(),
+    stockLocation: document.getElementById("invStockLoc")?.value?.trim() || "Main",
+    jobCardId: (document.getElementById("invJobCardId")?.value || existing?.jobCardId || "").trim(),
+    jobNo: (document.getElementById("invJobNo")?.value || existing?.jobNo || "").trim(),
     items: calc.items, subtotal: calc.sub, discount: calc.disc, vat: calc.vat, total: grandWithDn,
     paid: existingPaid,
     credited: existingCredited,
@@ -3263,24 +6157,328 @@ async function saveInvoice(status){
   try{
     let write;
     _invoiceSaving = true;
-    if(invId.value) write = updateDoc(doc(db,"invoices", invId.value), data);
-    else {
-      data.createdAt = Date.now(); data.createdBy = who(); data.paid = 0;
-      write = addDoc(col("invoices"), data).then(ref=>{ invId.value = ref.id; return ref; });
+    const invNoStr = data.invNo;
+    const stockWh = document.getElementById("invStockLoc")?.value?.trim() || existing?.stockLocation || "Main";
+    const needsStock = status === "Posted" || existing?.status === "Posted";
+    if(invId.value){
+      write = (async ()=>{
+        if(needsStock) await applyInvoiceStockMoves(existing, status, calc.items, invNoStr, stockWh);
+        try{
+          await updateDoc(doc(db,"invoices", invId.value), data);
+        }catch(docErr){
+          if(needsStock) await rollbackInvoiceStockMoves(existing, status, calc.items, invNoStr, stockWh);
+          throw docErr;
+        }
+      })();
+    }else {
+      write = (async ()=>{
+        if(status === "Posted"){
+          await applyInvoiceStockMoves(null, status, calc.items, invNoStr, stockWh);
+        }
+        try{
+          data.createdAt = Date.now();
+          data.createdBy = who();
+          data.paid = 0;
+          data.stockLocation = stockWh;
+          const ref = await addDoc(col("invoices"), data);
+          invId.value = ref.id;
+        }catch(docErr){
+          if(status === "Posted"){
+            await rollbackInvoiceStockMoves(null, status, calc.items, invNoStr, stockWh);
+          }
+          throw docErr;
+        }
+      })();
     }
+    const stockMoved = status === "Posted" && catalogStockInvoiceItems(calc.items).length > 0;
+    const stockNote = stockMoved ? " - stock updated" : "";
     commitWrite(
-      Promise.resolve(write).then(()=>{
-        clearInvoiceWip();
-        _editingExistingInvoice = false;
-        closeModal("invoiceModal");
-        return logActivity({ action: status==="Draft"?"draft":"add", staffName: who(), module:"Invoice", record: data.invNo, customer, summary: (status==="Draft"?"Draft ":"Posted ") + data.invNo, newValue: money(data.total) });
+      Promise.resolve(write).then(async ()=>{
+        const savedInvId = invId.value;
+        if(data.jobCardId && savedInvId){
+          try{
+            await linkJobCardToInvoice({
+              jobCardId: data.jobCardId,
+              invoiceId: savedInvId,
+              invoiceNo: data.invNo,
+              posted: status === "Posted"
+            });
+          }catch(linkErr){
+            console.warn("[S4 job invoice link]", linkErr);
+          }
+        }
+        await logActivity({ action: status==="Draft"?"draft":"add", staffName: who(), module:"Invoice", record: data.invNo, customer, summary: (status==="Draft"?"Draft ":"Posted ") + data.invNo, newValue: money(data.total) });
+        leaveFormAfterSave("invoiceModal");
       }),
-      { okMsg: status === "Draft" ? "Draft saved" : "Invoice posted" }
-    ).catch(()=>{}).finally(()=>{ _invoiceSaving = false; });
+      { okMsg: status === "Draft" ? "Draft saved" : "Invoice posted" + stockNote }
+    ).catch(()=>{
+      /* keep entered data for retry */
+    }).finally(()=>{ _invoiceSaving = false; });
   }catch(e){
     _invoiceSaving = false;
     toast(friendlyFirestoreError(e));
   }
+}
+
+function renderRvFindRows(q = ""){
+  const tbody = document.getElementById("rvFindRows");
+  if(!tbody) return;
+  const ql = String(q || "").toLowerCase().trim();
+  const rows = receipts.filter(r=>{
+    if(!ql) return true;
+    return `${r.rvNo} ${r.customer} ${r.chequeNo} ${r.ref} ${r.method}`.toLowerCase().includes(ql);
+  }).sort((a,b)=> String(b.date).localeCompare(String(a.date))).slice(0, 80);
+  tbody.innerHTML = rows.length ? rows.map(r=> `<tr data-rv-find-id="${esc(r.id)}" class="rv-find-hit">
+    <td><b>${esc(r.rvNo)}</b></td>
+    <td>${esc(r.date)}</td>
+    <td>${esc(r.customer)}</td>
+    <td class="num">${money(r.amount)}</td>
+    <td>${badge(r.status || "Posted")}</td>
+  </tr>`).join("") : `<tr><td colspan="5" class="empty">${ql ? "No matching receipts" : "No receipts yet"}</td></tr>`;
+}
+
+function openRvFindModal(){
+  if(!requireModule("receipts")) return;
+  const q = document.getElementById("rvFindQuery");
+  if(q) q.value = "";
+  renderRvFindRows("");
+  openModal("rvFindModal", { keepOpen: ["receiptModal"] });
+  setTimeout(()=> q?.focus(), 50);
+}
+
+function receiptBillRowsForPrint(r){
+  const fromReceipt = (r?.allocations || []).map(a=>{
+    const inv = invoices.find(x=> x.id === a.invoiceId);
+    return {
+      invNo: inv?.invNo || "",
+      invDate: inv?.invDate || "",
+      billAmount: inv ? roundMoney(inv.total) : 0,
+      received: roundMoney(num(a.amount))
+    };
+  }).filter(x=> x.received > 0.009);
+  if(fromReceipt.length) return fromReceipt;
+  return _rvBillLines.map(l=> ({
+    invNo: l.invNo,
+    invDate: l.invDate,
+    billAmount: l.billAmount,
+    received: l.received
+  }));
+}
+
+function receiptPrintCss(){
+  return `
+  body.doc-receipt{padding:16px;background:#f4f6f9}
+  body.doc-receipt .foot{max-width:720px;margin:12px auto 0;text-align:center}
+  .rv-print{max-width:720px;margin:0 auto}
+  .rv-print-sheet{border:2px solid #1a3d66;border-radius:8px;overflow:hidden;background:#fff;box-shadow:0 2px 12px rgba(22,48,82,.08)}
+  .rv-print-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px 20px;background:linear-gradient(180deg,#1e4976 0%,#153a5f 100%);color:#fff}
+  .rv-print-co{font-size:17px;font-weight:700;line-height:1.25;letter-spacing:.02em}
+  .rv-print-sub{font-size:11px;opacity:.92;margin-top:4px}
+  .rv-print-badge{background:#fff;color:#153a5f;font-weight:700;font-size:11px;padding:9px 14px;border-radius:5px;letter-spacing:.1em;white-space:nowrap}
+  .rv-print-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-bottom:1px solid #d5dde8}
+  .rv-print-meta-box{padding:12px 16px;border-right:1px solid #d5dde8;background:#f8fafc}
+  .rv-print-meta-box:last-child{border-right:0}
+  .rv-print-meta-box .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#667085;margin-bottom:4px}
+  .rv-print-meta-box .val{display:block;font-size:14px;font-weight:700;color:#172033}
+  .rv-print-meta-box .val.status{color:#0d6e4f}
+  .rv-print-meta-box .val.status.pending{color:#b45309}
+  .rv-print-meta-box .val.status.dead{color:#b42318}
+  .rv-print-panel{margin:0;padding:0;border-bottom:1px solid #d5dde8}
+  .rv-print-panel-title{padding:8px 16px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:#2d5a8e}
+  .rv-print-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}
+  .rv-print-field{padding:10px 16px;border-bottom:1px solid #e8edf3;border-right:1px solid #e8edf3;min-height:52px}
+  .rv-print-field:nth-child(2n){border-right:0}
+  .rv-print-field.full{grid-column:1/-1;border-right:0}
+  .rv-print-field .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#667085;margin-bottom:3px}
+  .rv-print-field .val{display:block;font-size:13px;font-weight:600;color:#172033;line-height:1.35;word-break:break-word}
+  .rv-print-amount{display:flex;align-items:stretch;border-bottom:1px solid #d5dde8}
+  .rv-print-amount-main{flex:1;padding:16px 20px;background:#eef4fb;border-right:1px solid #d5dde8}
+  .rv-print-amount-main .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#4b6280;margin-bottom:6px}
+  .rv-print-amount-main .val{font-size:26px;font-weight:800;color:#153a5f;letter-spacing:.02em}
+  .rv-print-amount-side{display:flex;flex-direction:column;justify-content:center;min-width:160px;padding:12px 16px;background:#fafbfc}
+  .rv-print-amount-side .row{display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:3px 0}
+  .rv-print-amount-side .row .lbl{color:#667085}
+  .rv-print-amount-side .row .val{font-weight:700;color:#172033}
+  .rv-print-bills{padding:0 0 4px}
+  .rv-print-bills-title{padding:8px 16px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:#2d5a8e}
+  .rv-print-table{width:100%;border-collapse:collapse;margin:0}
+  .rv-print-table th,.rv-print-table td{border:1px solid #d5dde8;padding:9px 12px;font-size:12px;text-align:left}
+  .rv-print-table th{background:#e8f0fa;color:#1a3d66;font-size:10px;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+  .rv-print-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .rv-print-table tbody tr:nth-child(even){background:#fafbfc}
+  .rv-print-table tfoot td{font-weight:700;background:#f0f5fb;border-top:2px solid #1a3d66}
+  .rv-print-table tfoot td.num{text-align:right}
+  .rv-print-narr{padding:12px 16px;border-bottom:1px solid #d5dde8;background:#fffbeb;font-size:12px;line-height:1.45}
+  .rv-print-narr .lbl{font-weight:700;color:#92400e;margin-right:6px}
+  .rv-print-sign{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:20px 24px 24px}
+  .rv-print-sign-box{border-top:1px solid #98a6b8;padding-top:8px;font-size:11px;color:#667085;text-align:center}
+  @media print{
+    body.doc-receipt{padding:0;background:#fff}
+    .rv-print-sheet{box-shadow:none;border-radius:0}
+  }
+  @media(max-width:560px){
+    .rv-print-head{flex-direction:column;align-items:flex-start}
+    .rv-print-meta{grid-template-columns:1fr}
+    .rv-print-meta-box{border-right:0;border-bottom:1px solid #d5dde8}
+    .rv-print-grid{grid-template-columns:1fr}
+    .rv-print-field{border-right:0}
+    .rv-print-amount{flex-direction:column}
+    .rv-print-amount-main{border-right:0;border-bottom:1px solid #d5dde8}
+  }`;
+}
+
+function receiptStatusClass(status){
+  const st = String(status || "Posted");
+  if(/^(Cancelled|Voided|Bounced)$/i.test(st)) return "dead";
+  if(/^Pending$/i.test(st)) return "pending";
+  return "status";
+}
+
+function buildReceiptBillTableHtml(r){
+  const billRows = receiptBillRowsForPrint(r);
+  if(!billRows.length) return "";
+  const tr = billRows.map(b=> `<tr>
+    <td>${esc(b.invNo)}</td>
+    <td>${esc(b.invDate)}</td>
+    <td class="num">${money(b.billAmount)}</td>
+    <td class="num">${money(b.received)}</td>
+  </tr>`).join("");
+  const totalBill = roundMoney(billRows.reduce((s,b)=> s + num(b.billAmount), 0));
+  const totalRecv = roundMoney(billRows.reduce((s,b)=> s + num(b.received), 0));
+  return `<div class="rv-print-bills">
+    <div class="rv-print-bills-title">Bills Received Against</div>
+    <table class="rv-print-table">
+      <thead><tr>
+        <th>Bill No</th><th>Bill Date</th><th>Bill Amount</th><th>Received Amt</th>
+      </tr></thead>
+      <tbody>${tr}</tbody>
+      <tfoot><tr>
+        <td colspan="2">Total</td>
+        <td class="num">${money(totalBill)}</td>
+        <td class="num">${money(totalRecv)}</td>
+      </tr></tfoot>
+    </table>
+  </div>`;
+}
+
+function buildReceiptPrintBody(r, includeBills = false){
+  const status = r.status || "Posted";
+  const collectedBy = r.collectedBy || r.createdBy || r.updatedBy || who();
+  const disc = num(r.discount || 0);
+  const allocated = num(r.allocated);
+  const unalloc = Math.max(0, num(r.amount) - allocated);
+  const shopLines = [shop.phone, shop.trn ? `TRN: ${shop.trn}` : ""].filter(Boolean);
+  const narrParts = [];
+  if(r.ref) narrParts.push(`<span class="lbl">Narration:</span>${esc(r.ref)}`);
+  if(r.chequeNo){
+    let chq = `<span class="lbl">Cheque:</span>${esc(r.chequeNo)}`;
+    if(r.bank) chq += ` &nbsp;·&nbsp; <span class="lbl">Bank:</span>${esc(r.bank)}`;
+    if(r.chequeDate) chq += ` &nbsp;·&nbsp; <span class="lbl">Chq Date:</span>${esc(r.chequeDate)}`;
+    if(r.pdcDate) chq += ` &nbsp;·&nbsp; <span class="lbl">PDC:</span>${esc(r.pdcDate)}`;
+    narrParts.push(chq);
+  }
+  const narrHtml = narrParts.length
+    ? `<div class="rv-print-narr">${narrParts.join("<br>")}</div>`
+    : "";
+  const billsHtml = includeBills ? buildReceiptBillTableHtml(r) : "";
+  return `<div class="rv-print">
+    <div class="rv-print-sheet">
+      <header class="rv-print-head">
+        <div>
+          <div class="rv-print-co">${esc(shop.name || "S4 Workshop")}</div>
+          ${shopLines.length ? `<div class="rv-print-sub">${esc(shopLines.join(" · "))}</div>` : ""}
+        </div>
+        <div class="rv-print-badge">RECEIPT VOUCHER</div>
+      </header>
+      <div class="rv-print-meta">
+        <div class="rv-print-meta-box"><span class="lbl">Receipt No</span><span class="val">${esc(r.rvNo)}</span></div>
+        <div class="rv-print-meta-box"><span class="lbl">Date</span><span class="val">${esc(r.date)}</span></div>
+        <div class="rv-print-meta-box"><span class="lbl">Status</span><span class="val ${receiptStatusClass(status)}">${esc(status)}</span></div>
+      </div>
+      <div class="rv-print-panel">
+        <div class="rv-print-panel-title">Payment Details</div>
+        <div class="rv-print-grid">
+          <div class="rv-print-field full"><span class="lbl">Customer</span><span class="val">${esc(r.customer)}</span></div>
+          <div class="rv-print-field"><span class="lbl">Collected By</span><span class="val">${esc(collectedBy)}</span></div>
+          <div class="rv-print-field"><span class="lbl">Mode of Payment</span><span class="val">${esc(r.method || "Cash")}</span></div>
+        </div>
+      </div>
+      <div class="rv-print-amount">
+        <div class="rv-print-amount-main">
+          <span class="lbl">Amount Received</span>
+          <span class="val">${money(r.amount)}</span>
+        </div>
+        <div class="rv-print-amount-side">
+          <div class="row"><span class="lbl">Discount</span><span class="val">${money(disc)}</span></div>
+          <div class="row"><span class="lbl">Allocated</span><span class="val">${money(allocated)}</span></div>
+          ${unalloc > 0.009 ? `<div class="row"><span class="lbl">Advance</span><span class="val">${money(unalloc)}</span></div>` : ""}
+        </div>
+      </div>
+      ${narrHtml}
+      ${billsHtml}
+      <div class="rv-print-sign">
+        <div class="rv-print-sign-box">Customer Signature</div>
+        <div class="rv-print-sign-box">Authorized Signatory</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function printReceiptVoucher(r, { includeBills = false } = {}){
+  if(!r) return;
+  const title = `Receipt ${r.rvNo || ""}`;
+  const body = buildReceiptPrintBody(r, includeBills);
+  const printed = await printHtmlDocument(title, body, {
+    hideTitle: true,
+    bodyClass: "doc-receipt",
+    extraCss: receiptPrintCss()
+  });
+  if(!printed) toast("Receipt ready to print / share");
+}
+
+function maybePrintReceiptAfterSave(saved){
+  const preview = document.getElementById("rvPrintPreview")?.checked;
+  const billDetails = document.getElementById("rvPrintBillDetails")?.checked;
+  if(!preview && !billDetails) return;
+  printReceiptVoucher(saved, { includeBills: !!billDetails }).catch(err=> toast(String(err?.message || err)));
+}
+
+function bindTableDblOpen(tbodyId, onOpen){
+  const tbody = document.getElementById(tbodyId);
+  if(!tbody || tbody.dataset.dblOpenBound) return;
+  tbody.dataset.dblOpenBound = "1";
+  tbody.addEventListener("dblclick", e=>{
+    const cell = e.target.closest("[data-dbl-open]");
+    if(!cell) return;
+    onOpen(cell.dataset.dblOpen);
+  });
+}
+
+function wireMasterListDblOpen(){
+  bindTableDblOpen("customerRows", editCustomer);
+  bindTableDblOpen("invoiceRows", editInvoice);
+  bindTableDblOpen("receiptRows", id=>{
+    const r = receipts.find(x=> x.id === id);
+    if(!r) return;
+    const st = r.status || "Posted";
+    if(st === "Voided" || st === "Cancelled" || st === "Bounced"){
+      return toast("Cannot edit a voided / cancelled receipt");
+    }
+    editReceipt(id);
+  });
+}
+
+function wireRvFindUi(){
+  if(document.body._rvFindUiBound) return;
+  document.body._rvFindUiBound = true;
+  document.getElementById("rvFindBtn")?.addEventListener("click", openRvFindModal);
+  document.getElementById("rvFindQuery")?.addEventListener("input", e=> renderRvFindRows(e.target.value));
+  document.getElementById("rvFindRows")?.addEventListener("click", e=>{
+    const tr = e.target.closest("[data-rv-find-id]");
+    if(!tr) return;
+    closeModal("rvFindModal");
+    editReceipt(tr.dataset.rvFindId);
+  });
 }
 
 function renderReceipts(){
@@ -3295,44 +6493,471 @@ function renderReceipts(){
     const un = Math.max(0, num(r.amount) - alloc);
     const st = r.status || "Posted";
     const canVoid = st !== "Voided" && st !== "Cancelled" && st !== "Bounced";
+    const canEdit = canVoid;
+    const dbl = canEdit ? `class="cell-dbl-open" data-dbl-open="${esc(r.id)}" title="Double-click to open"` : "";
     const actions = [
+      canEdit ? `<button class="btn small" type="button" data-edit-rv="${r.id}">Edit</button>` : "",
+      `<button class="btn small" type="button" data-receipt-print="${r.id}">Print</button>`,
       `<button class="btn small" type="button" data-receipt-pdf="${r.id}">PDF</button>`,
       canVoid ? `<button class="btn small danger" type="button" data-void-rv="${r.id}">Void</button>` : ""
     ].filter(Boolean).join(" ");
-    return `<tr><td>${esc(r.rvNo)}</td><td>${esc(r.date)}</td><td>${esc(r.customer)}</td><td>${esc(r.method)}</td>
+    return `<tr><td ${dbl}>${esc(r.rvNo)}</td><td>${esc(r.date)}</td><td ${dbl}>${esc(r.customer)}</td><td>${esc(r.method)}</td>
       <td>${esc(r.ref || r.chequeNo)}</td><td>${money(r.amount)}</td><td>${money(alloc)}</td>
       <td class="${un?"orange":""}">${money(un)}</td><td>${badge(st)}</td>
-      <td>${actions || "—"}</td></tr>`;
+      <td>${actions || "-"}</td></tr>`;
   }).join("") : `<tr><td colspan="10" class="empty">No receipts</td></tr>`;
+  document.querySelectorAll("[data-edit-rv]").forEach(b=> b.onclick = ()=> editReceipt(b.dataset.editRv));
   document.querySelectorAll("[data-void-rv]").forEach(b=> b.onclick = ()=> voidReceipt(b.dataset.voidRv));
   document.querySelectorAll("[data-receipt-pdf]").forEach(b=> b.onclick = ()=> exportReceiptPdfById(b.dataset.receiptPdf));
+  document.querySelectorAll("[data-receipt-print]").forEach(b=> b.onclick = ()=>{
+    const rec = receipts.find(x=> x.id === b.dataset.receiptPrint);
+    if(rec) printReceiptVoucher(rec, { includeBills: true });
+  });
 }
 
 function syncRvMethodUi({ setDefaultStatus = false } = {}){
+  const modal = document.getElementById("receiptModal");
   const rvMethod = document.getElementById("rvMethod");
   const rvStatus = document.getElementById("rvStatus");
   const m = rvMethod?.value || "Cash";
   const isCheque = m.includes("Cheque");
   const isPdc = m === "PDC Cheque";
-  document.querySelectorAll(".cheque-only").forEach(el=>{ el.style.display = isCheque ? "" : "none"; });
-  document.querySelectorAll(".pdc-only").forEach(el=>{ el.style.display = isPdc ? "" : "none"; });
-  if(rvStatus){
-    const cashOk = new Set(["Posted", "Cancelled"]);
-    const chequeOk = new Set(["Pending", "Deposited", "Cleared", "Bounced", "Cancelled"]);
-    [...rvStatus.options].forEach(opt=>{
-      const allow = isCheque ? chequeOk.has(opt.value) : cashOk.has(opt.value);
-      opt.hidden = !allow;
-      opt.disabled = !allow;
+  if(modal){
+    modal.querySelectorAll(".cheque-only").forEach(el=>{
+      if(el.id === "rvChequeHint") return;
+      el.style.display = isCheque ? "" : "none";
     });
-    if(setDefaultStatus){
-      rvStatus.value = isCheque ? "Pending" : "Posted";
-    }else if(rvStatus.selectedOptions[0]?.hidden || rvStatus.selectedOptions[0]?.disabled){
-      rvStatus.value = isCheque ? "Pending" : "Posted";
-    }
+    modal.querySelectorAll(".pdc-only").forEach(el=>{
+      el.style.display = isPdc ? "" : "none";
+    });
+  }
+  const hint = document.getElementById("rvChequeHint");
+  if(hint) hint.style.display = isCheque ? "" : "none";
+  if(rvStatus && setDefaultStatus) rvStatus.value = isCheque ? "Pending" : "Posted";
+}
+
+function updateRvCustomerSummary(){
+  const customer = document.getElementById("rvCustomer")?.value || "";
+  const balEl = document.getElementById("rvBalancePending");
+  const ledEl = document.getElementById("rvLedgerBalance");
+  const editing = getRvEditingReceipt();
+  const prevAllocMap = {};
+  (editing?.allocations || []).forEach(a=> { prevAllocMap[a.invoiceId] = num(a.amount); });
+  if(!customer){
+    if(balEl) balEl.textContent = "Balance : —";
+    if(ledEl) ledEl.textContent = "Current Ledger Balance: —";
+    return;
+  }
+  const open = openInvoicesForReceipt(customer, prevAllocMap);
+  const pendingBal = roundMoney(open.reduce((s, inv)=> s + rvBillBalance(inv, editing), 0));
+  const ledgerBal = roundMoney(customerOutstanding(customer));
+  if(balEl) balEl.textContent = `Balance : ${money(pendingBal)} (${open.length} Bills Pending)`;
+  if(ledEl) ledEl.textContent = `Current Ledger Balance: ${money(ledgerBal)} Dr`;
+}
+
+function setReceiptModalSub(text){
+  const el = document.getElementById("rvModalSub");
+  if(el) el.textContent = text || "Customer payment and allocation";
+}
+
+function setReceiptCustomerLocked(locked){
+  const rvCustomer = document.getElementById("rvCustomer");
+  const inp = rvCustomer?.closest(".cust-combo")?.querySelector(".cust-combo-input");
+  if(rvCustomer) rvCustomer.disabled = !!locked;
+  if(inp) inp.readOnly = !!locked;
+}
+
+function openInvoicesForReceipt(customer, prevAllocMap = {}){
+  return invoices
+    .filter(i=>{
+      if(i.customer !== customer || i.status === "Draft") return false;
+      return invBalance(i) > 0.009 || num(prevAllocMap[i.id]) > 0.009;
+    })
+    .sort((a,b)=> String(a.dueDate||a.invDate).localeCompare(String(b.dueDate||b.invDate)));
+}
+
+/** Split receipt discount across allocations (stored discShare, else legacy cash weights). */
+function receiptAllocDiscShares(r, allocs){
+  const discTotal = num(r.discount);
+  if(discTotal <= 0.009 || !allocs.length) return allocs.map(()=> 0);
+  const stored = allocs.map(a=> roundMoney(num(a.discShare)));
+  const storedSum = roundMoney(stored.reduce((s,x)=> s + x, 0));
+  if(storedSum > 0.009 && Math.abs(storedSum - discTotal) <= 0.02) return stored;
+  return distributeProportionally(discTotal, allocs.map(a=> num(a.amount)));
+}
+
+/** Proportional discount by each invoice outstanding (selected invoices). */
+function computeRvDiscShares(allocs, discTotal, prevAllocMap = {}){
+  if(discTotal <= 0.009 || !allocs.length) return allocs.map(()=> 0);
+  const weights = allocs.map(a=>{
+    const inv = invoices.find(x=> x.id === a.invoiceId);
+    if(!inv) return Math.max(0, num(a.amount));
+    const prevCash = roundMoney(prevAllocMap[inv.id] || 0);
+    return roundMoney(invBalance(inv) + prevCash);
+  });
+  return distributeProportionally(discTotal, weights);
+}
+
+function getRvEditingReceipt(){
+  const rvId = document.getElementById("rvId")?.value;
+  return rvId ? receipts.find(x=> x.id === rvId) : null;
+}
+
+function rvBillBalance(inv, editing = null){
+  const prevCash = editing ? num((editing.allocations || []).find(a=> a.invoiceId === inv.id)?.amount) : 0;
+  return roundMoney(invBalance(inv) + prevCash);
+}
+
+function rvBillPrevPaid(inv, editing = null){
+  const prevCash = editing ? num((editing.allocations || []).find(a=> a.invoiceId === inv.id)?.amount) : 0;
+  return roundMoney(Math.max(0, num(inv.paid) - prevCash));
+}
+
+function rvBillOptionLabel(inv, editing){
+  const bal = rvBillBalance(inv, editing);
+  let label = inv.invNo || "";
+  if(inv.manualNo) label += ` | M:${inv.manualNo}`;
+  if(inv.computerNo) label += ` | PC:${inv.computerNo}`;
+  return `${label} (${money(bal)})`;
+}
+
+function rvBillSearchBlob(inv){
+  return `${inv.invNo||""} ${inv.manualNo||""} ${inv.computerNo||""}`.toLowerCase();
+}
+
+function rvOpenBillsForPick(customer, excludeInGrid = true){
+  const editing = getRvEditingReceipt();
+  const prevAllocMap = {};
+  (editing?.allocations || []).forEach(a=> { prevAllocMap[a.invoiceId] = num(a.amount); });
+  const inGrid = new Set(_rvBillLines.map(l=> l.invoiceId));
+  const sub = (document.getElementById("rvSubAccount")?.value || "").trim();
+  return openInvoicesForReceipt(customer, prevAllocMap)
+    .filter(inv=> !sub || String(inv.subAccount || "").trim() === sub)
+    .filter(inv=> !excludeInGrid || !inGrid.has(inv.id));
+}
+
+function findRvBillBySearch(q){
+  const customer = document.getElementById("rvCustomer")?.value || "";
+  const ql = String(q || "").trim();
+  if(!customer || !ql) return { inv: null, matches: [] };
+  const open = rvOpenBillsForPick(customer, true);
+  const qLower = ql.toLowerCase();
+  const exact = open.filter(inv=>
+    String(inv.invNo || "").toLowerCase() === qLower
+    || String(inv.manualNo || "").toLowerCase() === qLower
+    || String(inv.computerNo || "").toLowerCase() === qLower
+  );
+  if(exact.length === 1) return { inv: exact[0], matches: exact };
+  if(exact.length > 1) return { inv: exact[0], matches: exact };
+  const partial = open.filter(inv=> rvBillSearchBlob(inv).includes(qLower));
+  if(partial.length === 1) return { inv: partial[0], matches: partial };
+  return { inv: null, matches: partial };
+}
+
+function syncRvBillSearchFromPick(){
+  const invId = document.getElementById("rvBillPick")?.value || "";
+  const search = document.getElementById("rvBillSearch");
+  if(!search) return;
+  const inv = invoices.find(x=> x.id === invId);
+  if(!inv){ search.value = ""; return; }
+  const parts = [];
+  if(inv.manualNo) parts.push(inv.manualNo);
+  if(inv.computerNo) parts.push(inv.computerNo);
+  search.value = parts.length ? parts.join(" / ") : (inv.invNo || "");
+}
+
+function selectRvBillInvoice(inv){
+  if(!inv) return false;
+  const pick = document.getElementById("rvBillPick");
+  if(!pick) return false;
+  const editing = getRvEditingReceipt();
+  if(![...pick.options].some(o=> o.value === inv.id)){
+    pick.insertAdjacentHTML("beforeend", `<option value="${esc(inv.id)}">${esc(rvBillOptionLabel(inv, editing))}</option>`);
+  }
+  pick.value = inv.id;
+  onRvBillPickChange();
+  syncRvBillSearchFromPick();
+  return true;
+}
+
+function onRvBillSearchCommit(){
+  const search = document.getElementById("rvBillSearch");
+  const q = search?.value || "";
+  if(!q.trim()) return false;
+  const customer = document.getElementById("rvCustomer")?.value || "";
+  if(!customer){ toast("Select customer first"); return false; }
+  const { inv, matches } = findRvBillBySearch(q);
+  if(!inv){
+    if(matches.length > 1) toast(`${matches.length} bills match — pick Bill No from list`);
+    else toast("No open bill matches that number");
+    return false;
+  }
+  selectRvBillInvoice(inv);
+  document.getElementById("rvBillReceive")?.focus();
+  return true;
+}
+
+function clearRvBillEntryFields(){
+  ["rvBillDate","rvBillAmount","rvBillPrev","rvBillBalance","rvBillReceive","rvBillSearch"].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.value = "";
+  });
+}
+
+function fillRvBillPick(){
+  const customer = document.getElementById("rvCustomer")?.value || "";
+  const pick = document.getElementById("rvBillPick");
+  if(!pick) return;
+  const editing = getRvEditingReceipt();
+  if(!customer){
+    pick.innerHTML = `<option value="">Select customer first</option>`;
+    clearRvBillEntryFields();
+    return;
+  }
+  const open = rvOpenBillsForPick(customer, true);
+  pick.innerHTML = `<option value="">-- Select bill --</option>` + open.map(inv=>
+    `<option value="${esc(inv.id)}">${esc(rvBillOptionLabel(inv, editing))}</option>`
+  ).join("");
+  clearRvBillEntryFields();
+  updateRvCustomerSummary();
+}
+
+function onRvBillPickChange(){
+  const invId = document.getElementById("rvBillPick")?.value || "";
+  const inv = invoices.find(x=> x.id === invId);
+  const editing = getRvEditingReceipt();
+  if(!inv){
+    ["rvBillDate","rvBillAmount","rvBillPrev","rvBillBalance","rvBillReceive"].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) el.value = "";
+    });
+    return;
+  }
+  const balance = rvBillBalance(inv, editing);
+  const rvBillDate = document.getElementById("rvBillDate");
+  const rvBillAmount = document.getElementById("rvBillAmount");
+  const rvBillPrev = document.getElementById("rvBillPrev");
+  const rvBillBalanceEl = document.getElementById("rvBillBalance");
+  const rvBillReceive = document.getElementById("rvBillReceive");
+  if(rvBillDate) rvBillDate.value = inv.invDate || "";
+  if(rvBillAmount) rvBillAmount.value = String(roundMoney(inv.total));
+  if(rvBillPrev) rvBillPrev.value = String(rvBillPrevPaid(inv, editing));
+  if(rvBillBalanceEl) rvBillBalanceEl.value = String(balance);
+  if(rvBillReceive) rvBillReceive.value = balance > 0.009 ? String(balance) : "";
+  syncRvBillSearchFromPick();
+}
+
+function syncRvAmountFromGrid(){
+  const total = roundMoney(_rvBillLines.reduce((s,l)=> s + num(l.received), 0));
+  const rvAmount = document.getElementById("rvAmount");
+  const rvBillTotal = document.getElementById("rvBillTotal");
+  if(rvAmount) rvAmount.value = total > 0.009 ? String(total) : "";
+  if(rvBillTotal) rvBillTotal.textContent = money(total);
+}
+
+function renderRvBillGrid(){
+  const tbody = document.getElementById("rvAllocRows");
+  if(!tbody) return;
+  if(!_rvBillLines.length){
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">Type Manual/Comp/Bill no or select Bill No, enter Current Receipt, press Enter</td></tr>`;
+  }else{
+    tbody.innerHTML = _rvBillLines.map((l, i)=> `<tr data-rv-line="${i}" title="Double-click row to remove">
+      <td><b>${esc(l.invNo)}</b></td>
+      <td>${esc(l.invDate)}</td>
+      <td class="num">${money(l.billAmount)}</td>
+      <td><input type="number" min="0" step="0.01" data-rv-received="${i}" data-max="${l.balance}" value="${l.received}"></td>
+    </tr>`).join("");
+  }
+  syncRvAmountFromGrid();
+  fillRvBillPick();
+  updateRvDiscHint();
+  updateRvCustomerSummary();
+}
+
+function addRvBillLine(){
+  const customer = document.getElementById("rvCustomer")?.value || "";
+  if(!customer) return toast("Select customer first");
+  const invId = document.getElementById("rvBillPick")?.value || "";
+  if(!invId && document.getElementById("rvBillSearch")?.value?.trim()){
+    onRvBillSearchCommit();
+  }
+  const invIdFinal = document.getElementById("rvBillPick")?.value || "";
+  if(!invIdFinal) return toast("Select a bill or type Manual / Comp / Bill no");
+  const received = num(document.getElementById("rvBillReceive")?.value);
+  if(received <= 0) return toast("Enter current receipt amount");
+  const inv = invoices.find(x=> x.id === invIdFinal);
+  if(!inv) return toast("Invoice not found");
+  const editing = getRvEditingReceipt();
+  const balance = rvBillBalance(inv, editing);
+  if(received > balance + 0.01) return toast(`Received ${money(received)} exceeds balance ${money(balance)}`);
+  if(_rvBillLines.some(l=> l.invoiceId === invIdFinal)) return toast("Bill already in list");
+  _rvBillLines.push({
+    invoiceId: inv.id,
+    invNo: inv.invNo,
+    invDate: inv.invDate || "",
+    billAmount: roundMoney(inv.total),
+    balance,
+    received: roundMoney(Math.min(received, balance))
+  });
+  renderRvBillGrid();
+  const rvBillReceive = document.getElementById("rvBillReceive");
+  if(rvBillReceive){ rvBillReceive.value = ""; rvBillReceive.focus(); }
+  onRvBillPickChange();
+}
+
+function removeRvBillLine(idx){
+  if(idx < 0 || idx >= _rvBillLines.length) return;
+  _rvBillLines.splice(idx, 1);
+  renderRvBillGrid();
+}
+
+function loadRvBillLinesFromReceipt(r){
+  _rvBillLines = [];
+  if(!r) return;
+  (r.allocations || []).forEach(a=>{
+    const inv = invoices.find(x=> x.id === a.invoiceId);
+    if(!inv) return;
+    const received = roundMoney(num(a.amount));
+    if(received <= 0.009) return;
+    _rvBillLines.push({
+      invoiceId: inv.id,
+      invNo: inv.invNo,
+      invDate: inv.invDate || "",
+      billAmount: roundMoney(inv.total),
+      balance: rvBillBalance(inv, r),
+      received
+    });
+  });
+}
+
+function applyRvDiscountToGrid({ silent = false } = {}){
+  const discTotal = num(document.getElementById("rvDisc")?.value);
+  if(!_rvBillLines.length){
+    if(!silent) toast("Add bill(s) first");
+    return false;
+  }
+  const totalBal = roundMoney(_rvBillLines.reduce((s,l)=> s + l.balance, 0));
+  if(discTotal <= 0.009){
+    _rvBillLines.forEach(l=> { l.received = l.balance; });
+    renderRvBillGrid();
+    updateRvDiscHint();
+    if(!silent) toast("Discount cleared — received reset to full balance");
+    return true;
+  }
+  if(discTotal > totalBal + 0.01){
+    if(!silent) toast(`Discount ${money(discTotal)} cannot exceed bill total ${money(totalBal)}`);
+    return false;
+  }
+  const discShares = distributeProportionally(discTotal, _rvBillLines.map(l=> l.balance));
+  _rvBillLines.forEach((l, i)=>{
+    l.received = roundMoney(Math.max(0, l.balance - (discShares[i] || 0)));
+  });
+  renderRvBillGrid();
+  updateRvDiscHint();
+  if(!silent){
+    const cash = roundMoney(_rvBillLines.reduce((s,l)=> s + l.received, 0));
+    toast(`Cash ${money(cash)} + discount ${money(discTotal)} = ${money(totalBal)} settlement`);
+  }
+  return true;
+}
+
+/** Auto-apply discount before save so cash + discount = bill settlement (no separate Apply click required). */
+function syncRvDiscountBeforeSave(){
+  const discTotal = num(document.getElementById("rvDisc")?.value);
+  if(discTotal <= 0.009 || !_rvBillLines.length) return true;
+  return applyRvDiscountToGrid({ silent: true });
+}
+
+function updateRvDiscHint(){
+  const hint = document.getElementById("rvDiscHint");
+  if(!hint) return;
+  const discTotal = num(document.getElementById("rvDisc")?.value);
+  const cash = roundMoney(_rvBillLines.reduce((s,l)=> s + l.received, 0));
+  const bal = roundMoney(_rvBillLines.reduce((s,l)=> s + l.balance, 0));
+  if(!_rvBillLines.length){
+    hint.textContent = "Add bills at full balance, enter discount, then Apply discount. Cash received will reduce; settlement = cash + discount.";
+    return;
+  }
+  if(discTotal > 0.009){
+    hint.textContent = `Settlement: ${money(cash)} cash + ${money(discTotal)} discount = ${money(roundMoney(cash + discTotal))} (bill total ${money(bal)}) — saves automatically on Save`;
+  }else{
+    hint.textContent = `Bill total ${money(bal)} — enter discount (Apply optional; Save applies it automatically).`;
   }
 }
 
+function wireRvBillUi(){
+  if(document.body._rvBillUiBound) return;
+  document.body._rvBillUiBound = true;
+  document.getElementById("rvAddBillBtn")?.addEventListener("click", addRvBillLine);
+  document.getElementById("rvApplyDiscBtn")?.addEventListener("click", applyRvDiscountToGrid);
+  document.getElementById("rvNewBtn")?.addEventListener("click", ()=> resetReceipt());
+  document.getElementById("rvDisc")?.addEventListener("keydown", e=>{
+    if(e.key === "Enter"){ e.preventDefault(); applyRvDiscountToGrid(); }
+  });
+  document.getElementById("rvMethod")?.addEventListener("change", ()=>{
+    syncRvMethodUi({ setDefaultStatus: true });
+  });
+  document.getElementById("rvBillPick")?.addEventListener("change", onRvBillPickChange);
+  document.getElementById("rvBillSearch")?.addEventListener("keydown", e=>{
+    if(e.key === "Enter"){
+      e.preventDefault();
+      if(onRvBillSearchCommit()) return;
+    }
+  });
+  document.getElementById("rvBillSearch")?.addEventListener("blur", ()=>{
+    const q = document.getElementById("rvBillSearch")?.value?.trim();
+    if(q) onRvBillSearchCommit();
+  });
+  document.getElementById("rvBillReceive")?.addEventListener("keydown", e=>{
+    if(e.key === "Enter"){ e.preventDefault(); addRvBillLine(); }
+  });
+  const tbody = document.getElementById("rvAllocRows");
+  tbody?.addEventListener("input", e=>{
+    if(!e.target.matches("input[data-rv-received]")) return;
+    const i = num(e.target.dataset.rvReceived);
+    const max = num(e.target.dataset.max);
+    const val = roundMoney(Math.min(Math.max(0, num(e.target.value)), max));
+    e.target.value = String(val);
+    if(_rvBillLines[i]) _rvBillLines[i].received = val;
+    syncRvAmountFromGrid();
+    updateRvDiscHint();
+  });
+  tbody?.addEventListener("dblclick", e=>{
+    const tr = e.target.closest("tr[data-rv-line]");
+    if(!tr) return;
+    removeRvBillLine(num(tr.dataset.rvLine));
+    toast("Bill removed from list");
+  });
+}
+
+function readRvAllocationsFromGrid(existing = null){
+  syncRvAmountFromGrid();
+  const discTotal = num(document.getElementById("rvDisc")?.value);
+  const lines = _rvBillLines.map(l=> ({
+    invoiceId: l.invoiceId,
+    amount: roundMoney(l.received),
+    balance: l.balance
+  }));
+  const discShares = discTotal > 0.009
+    ? distributeProportionally(discTotal, lines.map(a=> a.balance))
+    : lines.map(()=> 0);
+  let allocs = lines.map((a, i)=> ({ ...a, discShare: discShares[i] || 0 }));
+  if(discTotal > 0.009){
+    allocs = allocs.filter(a=> a.amount > 0.009 || a.discShare > 0.009);
+  }else{
+    allocs = allocs.filter(a=> a.amount > 0.009);
+  }
+  return { allocs, discTotal, allocated: roundMoney(allocs.reduce((s,a)=> s + a.amount, 0)) };
+}
+
 function resetReceipt(){
+  _editingExistingReceipt = false;
+  const rvId = document.getElementById("rvId");
+  if(rvId) rvId.value = "";
+  setReceiptCustomerLocked(false);
+  setReceiptModalSub("");
+  const saveBtn = document.getElementById("saveReceiptBtn");
+  if(saveBtn) saveBtn.textContent = "Save";
   const rvNo = document.getElementById("rvNo");
   const rvDate = document.getElementById("rvDate");
   const rvAmount = document.getElementById("rvAmount");
@@ -3354,65 +6979,70 @@ function resetReceipt(){
   if(rvPdcDate) rvPdcDate.value = "";
   if(rvChqDate) rvChqDate.value = "";
   if(rvDisc) rvDisc.value = 0;
-  if(rvMethod) rvMethod.value = "Cash";
-  if(rvStatus) rvStatus.value = "Posted";
   if(rvCustomer) customerOptions(rvCustomer, "");
+  if(rvMethod) rvMethod.value = "Cash";
   syncRvMethodUi({ setDefaultStatus: true });
-  const allocRows = document.getElementById("rvAllocRows");
-  const allocHead = document.getElementById("rvAllocHead");
-  if(allocRows) allocRows.innerHTML = `<tr><td colspan="6" class="empty">Select a customer to load invoices</td></tr>`;
-  if(allocHead) allocHead.textContent = "Select customer first";
+  const rvCollectedBy = document.getElementById("rvCollectedBy");
+  if(rvCollectedBy) rvCollectedBy.value = who();
+  syncReceiptSubAccountField("");
+  _rvBillLines = [];
+  renderRvBillGrid();
+  fillRvBillPick();
+  updateRvCustomerSummary();
 }
 
-function fillRvAlloc(){
-  const rvCustomer = document.getElementById("rvCustomer");
+function editReceipt(id){
+  if(!requireModule("receipts")) return;
+  const r = receipts.find(x=> x.id === id);
+  if(!r) return toast("Receipt not found");
+  const st = r.status || "Posted";
+  if(st === "Voided" || st === "Cancelled" || st === "Bounced") return toast("Cannot edit voided / bounced receipt");
+  _editingExistingReceipt = true;
+  const rvId = document.getElementById("rvId");
+  const rvNo = document.getElementById("rvNo");
+  const rvDate = document.getElementById("rvDate");
   const rvAmount = document.getElementById("rvAmount");
-  const rvAllocHead = document.getElementById("rvAllocHead");
-  const rvAllocRows = document.getElementById("rvAllocRows");
-  if(!rvCustomer || !rvAllocRows) return;
-  const name = rvCustomer.value;
-  const amt = num(rvAmount?.value);
-  if(!name){
-    rvAllocHead.textContent = "Select customer first";
-    rvAllocRows.innerHTML = `<tr><td colspan="6" class="empty">Select a customer to load invoices</td></tr>`;
-    return;
-  }
-  const open = invoices
-    .filter(i=> i.customer === name && i.status !== "Draft" && invBalance(i) > 0.009)
-    .sort((a,b)=> String(a.dueDate||a.invDate).localeCompare(String(b.dueDate||b.invDate)));
-  rvAllocHead.textContent = open.length
-    ? `${open.length} open invoice(s) · Receipt ${money(amt)}`
-    : `No open invoices · Receipt ${money(amt)}`;
-  if(!open.length){
-    rvAllocRows.innerHTML = `<tr><td colspan="6" class="empty">No open invoices for this customer — post invoice first, or leave unallocated</td></tr>`;
-    return;
-  }
-  let left = amt;
-  rvAllocRows.innerHTML = open.map(i=>{
-    const bal = invBalance(i);
-    let suggest = 0;
-    if(left > 0.009){
-      suggest = Math.min(left, bal);
-      left -= suggest;
-    }
-    return `<tr data-inv-no="${esc(i.invNo)}">
-      <td><b>${esc(i.invNo)}</b>${i.manualNo ? `<br><span class="inv-meta">Manual ${esc(i.manualNo)}</span>` : ""}${i.computerNo ? `<br><span class="inv-meta">Comp ${esc(i.computerNo)}</span>` : ""}</td>
-      <td>${esc(i.invDate)}</td>
-      <td>${esc(i.dueDate)}</td>
-      <td>${money(bal)}</td>
-      <td><input type="number" min="0" step="0.01" data-inv="${esc(i.id)}" data-max="${bal}" value="${suggest || 0}"></td>
-      <td>${badge(invStatus(i))}</td>
-    </tr>`;
-  }).join("");
+  const rvRef = document.getElementById("rvRef");
+  const rvChq = document.getElementById("rvChq");
+  const rvBank = document.getElementById("rvBank");
+  const rvCustomer = document.getElementById("rvCustomer");
+  const rvMethod = document.getElementById("rvMethod");
+  const rvPdcDate = document.getElementById("rvPdcDate");
+  const rvDisc = document.getElementById("rvDisc");
+  const rvChqDate = document.getElementById("rvChqDate");
+  if(rvId) rvId.value = r.id;
+  if(rvNo) rvNo.value = r.rvNo || "";
+  if(rvDate) rvDate.value = r.date || today();
+  if(rvAmount) rvAmount.value = r.amount ?? "";
+  if(rvRef) rvRef.value = r.ref || "";
+  if(rvChq) rvChq.value = r.chequeNo || "";
+  if(rvBank) rvBank.value = r.bank || "";
+  if(rvChqDate) rvChqDate.value = r.chequeDate || "";
+  if(rvPdcDate) rvPdcDate.value = r.pdcDate || "";
+  if(rvDisc) rvDisc.value = r.discount || 0;
+  if(rvMethod) rvMethod.value = r.method || "Cash";
+  if(rvCustomer) customerOptions(rvCustomer, r.customer || "");
+  syncReceiptSubAccountField(r.subAccount || "");
+  const rvCollectedBy = document.getElementById("rvCollectedBy");
+  if(rvCollectedBy) rvCollectedBy.value = r.collectedBy || r.createdBy || who();
+  setReceiptCustomerLocked(true);
+  syncRvMethodUi();
+  loadRvBillLinesFromReceipt(r);
+  renderRvBillGrid();
+  fillRvBillPick();
+  updateRvCustomerSummary();
+  setReceiptModalSub(`${r.rvNo} - ${st}`);
+  const saveBtn = document.getElementById("saveReceiptBtn");
+  if(saveBtn) saveBtn.textContent = "Save";
+  openFormModal("receiptModal", { skipPrepare: true });
 }
 
 async function saveReceipt(){
   if(!requireModule("receipts")) return;
-  if(_receiptSaving) return toast("Save already in progress…");
+  if(_receiptSaving) return toast("Save already in progress-");
   const rvCustomer = document.getElementById("rvCustomer");
   const rvAmount = document.getElementById("rvAmount");
   const rvMethod = document.getElementById("rvMethod");
-  const rvStatus = document.getElementById("rvStatus");
   const rvNo = document.getElementById("rvNo");
   const rvDate = document.getElementById("rvDate");
   const rvRef = document.getElementById("rvRef");
@@ -3422,48 +7052,36 @@ async function saveReceipt(){
   const rvPdcDate = document.getElementById("rvPdcDate");
   const rvDisc = document.getElementById("rvDisc");
   const customer = rvCustomer.value;
-  let amount = num(rvAmount.value);
+  const method = rvMethod.value;
   if(!customer) return toast("Select customer first");
-  if(amount <= 0) return toast("Enter receipt amount");
-  const rvHadNo = !!rvNo.value.trim();
-  let rvNoTrim = rvNo.value.trim();
-  const rvSerial = uniqueSerial(receipts, "rvNo", rvNoTrim, shop.rvPrefix || "RV-");
-  if(rvSerial.bumped){
+  if(!syncRvDiscountBeforeSave()) return;
+  const rvIdEl = document.getElementById("rvId");
+  const existing = rvIdEl?.value ? receipts.find(x=> x.id === rvIdEl.value) : null;
+  const { allocs, discTotal, allocated } = readRvAllocationsFromGrid(existing);
+  let amount = roundMoney(allocated);
+  if(amount <= 0 && discTotal <= 0.009) return toast("Add at least one bill with received amount or discount");
+  if(rvAmount) rvAmount.value = amount > 0.009 ? String(amount) : "";
+  if(existing && customer !== existing.customer){
+    return toast("Cannot change customer - void this receipt and create a new one.");
+  }
+  if(existing && method !== (existing.method || "Cash")){
+    return toast("Cannot change payment method - void and create a new receipt.");
+  }
+  let rvNoTrim = existing ? String(existing.rvNo || "").trim() : rvNo.value.trim();
+  if(!existing){
+    const rvHadNo = !!rvNoTrim;
+    const rvSerial = await allocateDocSerial("receipt", shop.rvPrefix || "RV-", {
+      list: receipts, field: "rvNo", draftValue: rvNoTrim, preferCounter: true
+    });
     rvNoTrim = rvSerial.value;
     if(rvNo) rvNo.value = rvNoTrim;
-    if(rvHadNo) toast("Receipt No. already used — posting as " + rvNoTrim);
-  }
-  let allocs = [...document.querySelectorAll("#rvAllocRows input[data-inv]")].map(inp=>({
-    invoiceId: inp.dataset.inv, amount: Math.min(num(inp.value), num(inp.dataset.max))
-  })).filter(a=> a.amount > 0);
-  let allocated = roundMoney(allocs.reduce((s,a)=> s + a.amount, 0));
-  let discTotal = num(rvDisc?.value);
-  // Amount = cash/cheque face only. Discount is a separate ledger credit + invoice.credited.
-  // If user puts full bill in Amount AND Discount (Amount ≈ Allocate), ledger would show fake advance.
-  if(discTotal > 0.009 && allocated > 0.009 && Math.abs(amount - allocated) <= 0.01){
-    const netCash = roundMoney(amount - discTotal);
-    if(netCash > 0.009){
-      const ok = confirm(
-        `Discount ${money(discTotal)} detected.\n\n` +
-        `AMOUNT must be cash received only.\n` +
-        `Fix now? Amount ${money(amount)} → ${money(netCash)}, and allocations will match cash.\n\n` +
-        `OK = auto-fix (recommended)\nCancel = stop so you can edit`
-      );
-      if(!ok) return;
-      amount = netCash;
-      if(rvAmount) rvAmount.value = String(netCash);
-      let left = netCash;
-      allocs = allocs.map(a=>{
-        const take = roundMoney(Math.min(a.amount, left));
-        left = roundMoney(left - take);
-        return { ...a, amount: take };
-      }).filter(a=> a.amount > 0.009);
-      allocated = roundMoney(allocs.reduce((s,a)=> s + a.amount, 0));
-    }
-  }
-  if(allocated > amount + 0.01) return toast("Allocation exceeds receipt amount");
-  // Guard: taking more cash than customer currently owes → advance (must confirm)
-  const dueNow = roundMoney(customerOutstanding(customer));
+    if(rvSerial.bumped && rvHadNo) toast("Receipt No. assigned — posting as " + rvNoTrim);
+  }else if(rvNo) rvNo.value = rvNoTrim;
+  let discSharesPreview = allocs.map(a=> roundMoney(num(a.discShare)));
+  // Amount = sum of Received Amt in grid (cash only). Discount is separate write-off.
+  // Guard: taking more cash than customer currently owes ? advance (must confirm)
+  let dueNow = roundMoney(customerOutstanding(customer));
+  if(existing) dueNow = roundMoney(Math.max(0, dueNow - num(existing.amount)));
   const dueSafe = Math.max(0, dueNow);
   if(amount > dueSafe + 0.01){
     const extra = roundMoney(amount - dueSafe);
@@ -3473,45 +7091,114 @@ async function saveReceipt(){
       `Receipt amount: ${money(amount)}\n` +
       `Extra: ${money(extra)}\n\n` +
       `Are you sure?\n` +
-      `• OK (Yes) = post anyway — extra will be CUSTOMER ADVANCE\n` +
-      `• Cancel (No) = do not save — fix the amount first`
+      `- OK (Yes) = post anyway - extra will be CUSTOMER ADVANCE\n` +
+      `- Cancel (No) = do not save - fix the amount first`
     );
     if(!okAdvance) return;
   }
-  const method = rvMethod.value;
   const isCheque = method.includes("Cheque");
+  if(isCheque && !(rvChq?.value || "").trim()) return toast(`Enter cheque number for ${method}`);
+  if(method === "PDC Cheque" && !(rvPdcDate?.value || "").trim()) return toast("Enter PDC date");
   if(isCheque && (rvChq?.value || "").trim() && !memberCan(member, "cheques")){
     return toast("Cheque module permission is required to post a cheque receipt.");
   }
-  const status = isCheque ? (rvStatus?.value || "Pending") : (rvStatus?.value || "Posted");
-  // Cash/bank: apply only when Posted. Cheque/PDC: apply only when Cleared.
-  // Never apply Cancelled / Bounced / Pending / Deposited to invoice.paid
+  const prevStatus = existing?.status || "";
+  const status = existing
+    ? (prevStatus === "Cleared" ? "Cleared" : (isCheque ? "Pending" : "Posted"))
+    : (isCheque ? "Pending" : "Posted");
+  // Cash/bank: apply only when Posted. Cheque/PDC: apply only when Cleared (via Cheque / PDC page).
   const applyNow = isCheque ? (status === "Cleared") : (status === "Posted");
+  if(applyNow && !allocs.length && (amount > 0.009 || discTotal > 0.009)){
+    return toast("Add bill(s) with received amount in the grid.");
+  }
+  if(discTotal > 0.009 && !allocs.length){
+    return toast("Add bill(s) before applying discount.");
+  }
+  for(let i = 0; i < allocs.length; i++){
+    const inv = invoices.find(x=> x.id === allocs[i].invoiceId);
+    if(!inv) continue;
+    const prevCash = (existing?.allocations || []).find(a=> a.invoiceId === inv.id)?.amount || 0;
+    const owed = roundMoney(invBalance(inv) + num(prevCash));
+    const clearing = roundMoney(allocs[i].amount + (discSharesPreview[i] || 0));
+    if(clearing > owed + 0.02){
+      return toast(`Invoice ${inv.invNo}: cash ${money(allocs[i].amount)} + discount ${money(discSharesPreview[i] || 0)} exceeds outstanding ${money(owed)}. Reduce Allocate or Discount.`);
+    }
+  }
   if(applyNow && allocated < amount - 0.01){
     const left = roundMoney(amount - allocated);
     if(!confirm(`Unallocated ${money(left)} will stay as customer advance on the ledger (not on invoice paid). Continue?`)) return;
   }
+  const collectedByVal = existing?.collectedBy || document.getElementById("rvCollectedBy")?.value?.trim() || who();
+  let subAccount = (document.getElementById("rvSubAccount")?.value || "").trim();
+  if(!subAccount){
+    subAccount = inferSubAccountFromAllocs(allocs, customer);
+    const rvSubEl = document.getElementById("rvSubAccount");
+    if(subAccount && rvSubEl){
+      syncReceiptSubAccountField(subAccount);
+      rvSubEl.value = subAccount;
+    }
+  }
   const data = {
     rvNo: rvNoTrim, date: rvDate.value, customer, method,
-    amount, allocated: applyNow ? allocated : 0, unallocated: applyNow ? amount - allocated : amount,
-    ref: rvRef.value.trim(),
-    chequeNo: isCheque ? rvChq.value.trim() : "",
-    bank: isCheque ? rvBank.value.trim() : "",
+    amount, allocated: applyNow ? allocated : 0, unallocated: applyNow ? roundMoney(amount - allocated) : amount,
+    ref: ucText(rvRef?.value),
+    chequeNo: isCheque ? ucText(rvChq?.value) : "",
+    bank: isCheque ? ucText(rvBank?.value) : "",
     chequeDate: isCheque ? rvChqDate.value : "",
     pdcDate: method === "PDC Cheque" ? (rvPdcDate?.value || "") : "",
     discount: discTotal,
-    allocations: allocs, status, createdAt: Date.now(), createdBy: who(), applied: applyNow
+    collectedBy: collectedByVal,
+    subAccount,
+    allocations: allocs, status, applied: applyNow,
+    updatedAt: Date.now(), updatedBy: who()
   };
   try{
     _receiptSaving = true;
     const write = (async ()=>{
+      if(existing){
+        const batch = writeBatch(db);
+        const wasApplied = !!(existing.applied || receiptAffectsBalance(existing));
+        if(wasApplied){
+          await reverseReceiptFromInvoices(existing, existing.status || "Posted", batch);
+        }
+        const pendingData = {
+          ...data,
+          applied: false,
+          allocated: 0,
+          unallocated: amount,
+          allocations: allocs
+        };
+        batch.update(doc(db, "receipts", existing.id), pendingData);
+        Object.assign(existing, pendingData, { amount, discount: discTotal, method });
+        if(applyNow){
+          await applyReceiptToInvoices(existing, batch);
+        }
+        const linkedChq = cheques.find(c=>
+          (c.receiptId && c.receiptId === existing.id) || (c.receiptNo && c.receiptNo === existing.rvNo)
+        );
+        if(linkedChq){
+          batch.update(doc(db, "cheques", linkedChq.id), {
+            chequeNo: data.chequeNo, customer, bank: data.bank,
+            chequeDate: data.chequeDate || rvDate.value,
+            pdcDate: data.pdcDate || linkedChq.pdcDate || "",
+            amount, subAccount: data.subAccount || "",
+            updatedAt: Date.now()
+          });
+        }
+        await batch.commit();
+        invalidateInvMoneyCache();
+        await logActivity({
+          action:"edit", staffName: who(), module:"Receipt", record: data.rvNo, customer,
+          summary: "Updated receipt " + data.rvNo, newValue: money(amount)
+        });
+        return { id: existing.id, ...existing };
+      }
       const recRef = doc(col("receipts"));
       const batch = writeBatch(db);
-      batch.set(recRef, data);
+      const createData = { ...data, createdAt: Date.now(), createdBy: who() };
+      batch.set(recRef, createData);
       if(applyNow){
-        const discShares = (allocs.length && discTotal > 0)
-          ? distributeProportionally(discTotal, allocs.map(a=> a.amount))
-          : allocs.map(()=> 0);
+        const discShares = receiptAllocDiscShares({ discount: discTotal, allocations: allocs }, allocs);
         for(let i = 0; i < allocs.length; i++){
           const a = allocs[i];
           const inv = invoices.find(x=> x.id === a.invoiceId);
@@ -3526,38 +7213,36 @@ async function saveReceipt(){
         }
       }
       if(isCheque && rvChq.value.trim()){
-        let chqStatus = "Pending";
-        if(status === "Cleared") chqStatus = "Cleared";
-        else if(status === "Bounced") chqStatus = "Bounced";
-        else if(status === "Cancelled") chqStatus = "Cancelled";
-        else if(status === "Deposited") chqStatus = "Deposited";
         batch.set(doc(col("cheques")), {
-          chequeNo: rvChq.value.trim(), customer, bank: rvBank.value.trim(),
+          chequeNo: ucText(rvChq.value), customer, bank: ucText(rvBank.value),
           chequeDate: rvChqDate.value || rvDate.value, pdcDate: rvPdcDate?.value || rvChqDate.value,
-          amount, status: chqStatus,
+          amount, status: "Pending",
+          subAccount: data.subAccount || "",
           receiptId: recRef.id, receiptNo: data.rvNo, createdAt: Date.now()
         });
       }
       if(applyNow && discTotal > 0){
         batch.set(doc(col("discounts")), {
           date: rvDate.value, customer, type:"Payment", ref: data.rvNo, method:"Fixed",
-          amount: discTotal, reason: "Receipt discount", approvedBy: who(), createdAt: Date.now()
+          amount: discTotal, reason: "Receipt discount", approvedBy: who(), createdAt: Date.now(),
+          subAccount: data.subAccount || ""
         });
       }
       await batch.commit();
-      await logActivity({ action:"add", staffName: who(), module:"Receipt", record: data.rvNo, customer, summary: "Receipt " + data.rvNo, newValue: money(amount) });
-      return { id: recRef.id, ...data };
+      invalidateInvMoneyCache();
+      await logActivity({ action:"add", staffName: who(), module:"Receipt", record: createData.rvNo, customer, summary: "Receipt " + createData.rvNo, newValue: money(amount) });
+      return { id: recRef.id, ...createData };
     })();
     commitWrite(
       write.then(saved => {
-        closeModal("receiptModal");
-        if(saved?.id && confirm(`Receipt ${saved.rvNo} posted.\n\nPrint / share this receipt now?`)){
-          exportReceiptPdf(saved).catch(err => toast(String(err?.message || err)));
-        }
+        maybePrintReceiptAfterSave(saved);
+        leaveFormAfterSave("receiptModal");
         return saved;
       }),
-      { okMsg: "Receipt posted" }
-    ).catch(()=>{}).finally(()=>{ _receiptSaving = false; });
+      { okMsg: existing ? "Receipt saved" : "Receipt posted" }
+    ).catch(()=>{
+      /* keep entered data for retry */
+    }).finally(()=>{ _receiptSaving = false; });
   }catch(e){
     _receiptSaving = false;
     toast(friendlyFirestoreError(e));
@@ -3568,7 +7253,7 @@ function fillAllocSelect(){
   const allocReceipt = document.getElementById("allocReceipt");
   if(!allocReceipt) return;
   const list = receipts.filter(r=> num(r.unallocated) > 0.009 && receiptAffectsBalance(r));
-  allocReceipt.innerHTML = list.map(r=> `<option value="${esc(r.id)}">${esc(r.rvNo)} — ${money(r.unallocated)}</option>`).join("");
+  allocReceipt.innerHTML = list.map(r=> `<option value="${esc(r.id)}">${esc(r.rvNo)} - ${money(r.unallocated)}</option>`).join("");
   fillAllocRows();
 }
 
@@ -3594,7 +7279,7 @@ function fillAllocRows(){
 
 async function saveAllocation(){
   if(!requireModule("allocation")) return;
-  if(_allocSaving) return toast("Save already in progress…");
+  if(_allocSaving) return toast("Save already in progress-");
   const allocReceipt = document.getElementById("allocReceipt");
   const r = receipts.find(x=> x.id === allocReceipt?.value);
   if(!r) return toast("Select a receipt");
@@ -3637,7 +7322,7 @@ function fillCnAllocSelect(preferId){
     .sort((a,b)=> String(b.date||"").localeCompare(String(a.date||"")));
   const keep = preferId || sel.value || "";
   sel.innerHTML = list.length
-    ? list.map(n=> `<option value="${esc(n.id)}">${esc(n.cnNo)} — ${money(cnOpenCredit(n))} open · ${esc(n.customer)}</option>`).join("")
+    ? list.map(n=> `<option value="${esc(n.id)}">${esc(n.cnNo)} - ${money(cnOpenCredit(n))} open - ${esc(n.customer)}</option>`).join("")
     : `<option value="">No open credit notes</option>`;
   if(keep && [...sel.options].some(o=> o.value === keep)) sel.value = keep;
   fillCnAllocRows();
@@ -3681,7 +7366,7 @@ function fillCnAllocRows(){
 
 async function saveCnAllocation(){
   if(!requireModule("allocation")) return;
-  if(_cnAllocSaving) return toast("Save already in progress…");
+  if(_cnAllocSaving) return toast("Save already in progress-");
   const sel = document.getElementById("allocCn");
   const n = creditNotes.find(x=> x.id === sel?.value);
   if(!n) return toast("Select a credit note");
@@ -3737,79 +7422,369 @@ async function saveCnAllocation(){
   finally { _cnAllocSaving = false; }
 }
 
-function ledgerLines(name){
+function ledgerLines(name, subFilter = ""){
   const lines = [];
-  invoices.filter(i=> i.customer===name && i.status !== "Draft").forEach(i=> lines.push({ date:i.invDate, ref:i.invNo, desc:"Credit Invoice", debit:num(i.total), credit:0 }));
-  receipts.filter(r=> r.customer===name && receiptAffectsBalance(r)).forEach(r=> lines.push({ date:r.date, ref:r.rvNo, desc:"Receipt "+(r.method||""), debit:0, credit:num(r.amount) }));
-  creditNotes.filter(n=> n.customer===name && noteIsLive(n)).forEach(n=> lines.push({ date:n.date, ref:n.cnNo, desc:"Credit Note", debit:0, credit:num(n.amount) }));
-  // Invoice-linked debit notes already increase invoice.total — only list unlinked DNs here
-  unlinkedDebitNotes(name).forEach(n=> lines.push({ date:n.date, ref:n.dnNo, desc:"Debit Note", debit:num(n.amount), credit:0 }));
-  discounts.filter(d=> d.customer===name).forEach(d=> lines.push({ date:d.date, ref:d.ref||"", desc:"Discount", debit:0, credit:num(d.amount) }));
-  cheques.filter(c=> c.customer===name && c.status==="Cleared" && !findChequeReceipt(c)).forEach(c=>
-    lines.push({ date:c.pdcDate||c.chequeDate, ref:c.chequeNo, desc:"Cheque cleared", debit:0, credit:num(c.amount) })
+  const sub = String(subFilter || "").trim();
+  invoices.filter(i=> i.customer===name && i.status !== "Draft" && docMatchesSubAccount(i, sub)).forEach(i=>{
+    const man = String(i.manualNo || "").trim();
+    const pc = String(i.computerNo || "").trim();
+    lines.push({
+      kind: "invoice",
+      date: i.invDate,
+      ref: i.invNo,
+      desc: "Credit Invoice",
+      debit: num(i.total),
+      credit: 0,
+      subAccount: String(i.subAccount || "").trim(),
+      manualNo: man,
+      computerNo: pc,
+      dueDate: i.dueDate || "",
+      invoiceId: i.id,
+      openBal: invBalance(i)
+    });
+  });
+  receipts.filter(r=> r.customer===name && receiptAffectsBalance(r) && receiptMatchesSubFilter(r, sub)).forEach(r=>{
+    const method = String(r.method || "").trim();
+    lines.push({
+      kind: "receipt",
+      date: r.date,
+      ref: r.rvNo,
+      desc: `Receipt ${method}`,
+      debit: 0,
+      credit: num(r.amount),
+      subAccount: String(r.subAccount || "").trim()
+    });
+  });
+  creditNotes.filter(n=> n.customer===name && noteIsLive(n) && noteMatchesSubFilter(n, sub)).forEach(n=>
+    lines.push({
+      kind: "cn",
+      date: n.date,
+      ref: n.cnNo,
+      desc: "Credit Note",
+      debit: 0,
+      credit: num(n.amount),
+      subAccount: String(n.subAccount || "").trim()
+    })
+  );
+  unlinkedDebitNotes(name).filter(n=> noteMatchesSubFilter(n, sub)).forEach(n=>
+    lines.push({
+      kind: "dn",
+      date: n.date,
+      ref: n.dnNo,
+      desc: "Debit Note",
+      debit: num(n.amount),
+      credit: 0,
+      subAccount: String(n.subAccount || "").trim()
+    })
+  );
+  discounts.filter(d=>{
+    if(d.customer !== name) return false;
+    if(docMatchesSubAccount(d, sub)) return true;
+    if(!sub) return true;
+    if(d.type === "Payment" && d.ref){
+      const r = receipts.find(x=> x.rvNo === d.ref && x.customer === name);
+      return !!(r && receiptMatchesSubFilter(r, sub));
+    }
+    return false;
+  }).forEach(d=>{
+    let desc = "Discount";
+    if(d.type === "Payment" && d.ref) desc = `Payment discount (${d.ref})`;
+    else if(d.type === "Invoice" && d.ref) desc = `Invoice discount (${d.ref})`;
+    else if(d.reason) desc = String(d.reason);
+    lines.push({
+      kind: "discount",
+      date: d.date,
+      ref: d.ref || "",
+      desc,
+      debit: 0,
+      credit: num(d.amount),
+      subAccount: String(d.subAccount || "").trim()
+    });
+  });
+  cheques.filter(c=> c.customer===name && c.status==="Cleared" && !findChequeReceipt(c) && docMatchesSubAccount(c, sub)).forEach(c=>
+    lines.push({
+      kind: "cheque",
+      date: c.pdcDate || c.chequeDate,
+      ref: c.chequeNo,
+      desc: "Cheque cleared",
+      debit: 0,
+      credit: num(c.amount),
+      subAccount: String(c.subAccount || "").trim()
+    })
   );
   return lines.sort((a,b)=> String(a.date).localeCompare(String(b.date)));
 }
 
 function fillLedger(){
+  syncLedgerPeriodUi();
   const name = document.getElementById("ledgerCustomer").value;
-  const from = document.getElementById("ledgerFrom")?.value || "";
-  const to = document.getElementById("ledgerTo")?.value || "";
+  const sub = document.getElementById("ledgerSubAccount")?.value || "";
+  const bounds = readLedgerPeriodBounds();
+  const from = bounds.from || "";
+  const to = bounds.to || "";
   const body = document.getElementById("ledgerRows");
-  if(!name){ document.getElementById("ledgerTitle").textContent = "Select a customer"; document.getElementById("ledgerClose").textContent = "—"; body.innerHTML = ""; return; }
-  const all = ledgerLines(name);
+  if(!name){ document.getElementById("ledgerTitle").textContent = "Select a customer"; document.getElementById("ledgerClose").textContent = "-"; body.innerHTML = ""; return; }
+  const all = ledgerLines(name, sub);
   let bal = from ? all.filter(l=> l.date < from).reduce((s,l)=> s + l.debit - l.credit, 0) : 0;
   const rows = [];
   if(from && bal){
-    rows.push(`<tr><td>${esc(from)}</td><td>OPENING</td><td>Opening Balance</td><td>${bal>0?money(bal):"—"}</td><td>${bal<0?money(-bal):"—"}</td><td>${money(bal)}</td></tr>`);
+    rows.push(`<tr><td>${esc(from)}</td><td>OPENING</td><td>Opening Balance</td><td></td><td>${ledgerCell(bal > 0 ? bal : 0)}</td><td>${ledgerCell(bal < 0 ? -bal : 0)}</td><td>${money(bal)}</td></tr>`);
   }
   all.filter(l=> (!from || l.date >= from) && (!to || l.date <= to)).forEach(l=>{
     bal += l.debit - l.credit;
-    rows.push(`<tr><td>${esc(l.date)}</td><td>${esc(l.ref)}</td><td>${esc(l.desc)}</td><td>${l.debit?money(l.debit):"—"}</td><td>${l.credit?money(l.credit):"—"}</td><td>${money(bal)}</td></tr>`);
+    const subCell = l.subAccount ? esc(l.subAccount) : "";
+    rows.push(`<tr><td>${esc(l.date)}</td><td>${stmtRefHtml(l)}</td><td>${esc(l.desc)}</td><td>${subCell}</td><td>${ledgerCell(l.debit)}</td><td>${ledgerCell(l.credit)}</td><td>${money(bal)}</td></tr>`);
   });
-  document.getElementById("ledgerTitle").textContent = name;
-  // Closing must match filtered running balance (last row). Lifetime outstanding only when no date filter.
-  document.getElementById("ledgerClose").textContent = (from || to)
-    ? ("Closing (period): " + money(bal))
+  const title = sub ? `${name} — ${sub}` : name;
+  const periodBit = bounds.mode === "monthly" ? ` · ${customerPeriodLabel(bounds)}` : (from || to ? ` · ${customerPeriodLabel(bounds)}` : "");
+  document.getElementById("ledgerTitle").textContent = name ? title + periodBit : "Select a customer";
+  // Closing must match filtered running balance (last row). Lifetime outstanding only when no date/sub filter.
+  document.getElementById("ledgerClose").textContent = (from || to || sub)
+    ? ("Closing (filter): " + money(bal))
     : ("Closing: " + money(customerOutstanding(name)));
-  body.innerHTML = rows.join("") || `<tr><td colspan="6" class="empty">No movements</td></tr>`;
+  body.innerHTML = rows.join("") || `<tr><td colspan="7" class="empty">No movements</td></tr>`;
+}
+
+function stmtShowPeriodTxns(){
+  return !!document.getElementById("stmtShowPeriodTxns")?.checked;
+}
+
+function clearStatementPage(){
+  const sel = document.getElementById("stmtCustomer");
+  if(sel){
+    sel.value = "";
+    syncCustomerComboInput(sel);
+  }
+  syncStmtSubAccountField("");
+  const txnCb = document.getElementById("stmtShowPeriodTxns");
+  if(txnCb) txnCb.checked = false;
+  const titleEl = document.getElementById("stmtTitle");
+  if(titleEl) titleEl.textContent = "Select a customer";
+  const closeEl = document.getElementById("stmtClose");
+  if(closeEl) closeEl.textContent = "-";
+  const sumEl = document.getElementById("stmtSummary");
+  if(sumEl){ sumEl.hidden = true; sumEl.innerHTML = ""; }
+  const body = document.getElementById("stmtRows");
+  if(body) body.innerHTML = "";
+  const party = document.getElementById("stmtPartyCard");
+  if(party){ party.hidden = true; party.innerHTML = ""; }
 }
 
 function fillStatement(){
+  syncStmtPeriodUi();
   const sel = document.getElementById("stmtCustomer");
-  const asOf = document.getElementById("stmtAsOf")?.value || today();
-  const from = document.getElementById("stmtFrom")?.value || "";
-  if(document.getElementById("stmtAsOf") && !document.getElementById("stmtAsOf").value) document.getElementById("stmtAsOf").value = today();
-  const name = sel.value || customers[0]?.name || "";
-  if(sel.value !== name && name) sel.value = name;
-  document.getElementById("stmtTitle").textContent = name ? `${name} — as of ${asOf}` : "—";
+  const bounds = readStmtPeriodBounds();
+  const asOf = bounds.asOf || today();
+  const from = bounds.from || "";
+  const sub = document.getElementById("stmtSubAccount")?.value || "";
+  const odFrom = num(document.getElementById("stmtOdFrom")?.value);
+  const name = sel?.value || "";
+  syncStmtSubAccountField(sub);
+  const titleBit = sub ? `${name} — ${sub}` : name;
+  const periodBit = customerPeriodLabel(bounds, "stmt");
+  document.getElementById("stmtTitle").textContent = name ? `${titleBit} — ${periodBit}` : "Select a customer";
   const closeEl = document.getElementById("stmtClose");
+  const sumEl = document.getElementById("stmtSummary");
   const body = document.getElementById("stmtRows");
+  const party = document.getElementById("stmtPartyCard");
   if(!name){
-    if(closeEl) closeEl.textContent = "—";
+    if(closeEl) closeEl.textContent = "-";
+    if(sumEl){ sumEl.hidden = true; sumEl.innerHTML = ""; }
     body.innerHTML = "";
+    if(party){ party.hidden = true; party.innerHTML = ""; }
     return;
   }
-  const built = buildStatementRows(name, asOf, from);
-  if(closeEl) closeEl.textContent = "Closing Balance: " + money(built.closing);
-  body.innerHTML = built.htmlRows.join("") || `<tr><td colspan="6" class="empty">Empty</td></tr>`;
+  const built = buildStatementRows(name, asOf, from, sub, { odFrom });
+  if(closeEl){
+    closeEl.textContent = (bounds.mode === "custom" && !from)
+      ? `All dates up to ${asOf} — set FROM for period total`
+      : `As of ${asOf}`;
+  }
+  if(sumEl){
+    sumEl.hidden = false;
+    sumEl.innerHTML = renderStatementSummaryHtml(built, bounds, sub, { showPeriodTxns: stmtShowPeriodTxns() });
+  }
+  body.innerHTML = built.htmlRows.join("") || `<tr><td colspan="8" class="empty">Empty</td></tr>`;
+  if(party){
+    party.hidden = false;
+    party.innerHTML = statementPartyCardHtml(name, sub);
+  }
 }
 
-function buildStatementRows(name, asOf, from){
-  const all = ledgerLines(name).filter(l=> l.date <= asOf);
-  let bal = from ? all.filter(l=> l.date < from).reduce((s,l)=> s + l.debit - l.credit, 0) : 0;
+function statementPartyCardHtml(name, subFilter = ""){
+  const c = customers.find(x=> x.name === name);
+  const bits = [];
+  bits.push(`<div class="stmt-party-name">${esc(name)}${subFilter ? ` <span class="muted">· ${esc(subFilter)}</span>` : ""}</div>`);
+  if(c?.code) bits.push(`<div class="stmt-party-meta"><b>Code</b> ${esc(c.code)}</div>`);
+  if(c?.contact) bits.push(`<div class="stmt-party-meta"><b>Contact</b> ${esc(c.contact)}</div>`);
+  if(c?.mobile) bits.push(`<div class="stmt-party-meta"><b>Mobile</b> ${esc(c.mobile)}</div>`);
+  if(c?.trn) bits.push(`<div class="stmt-party-meta"><b>TRN</b> ${esc(c.trn)}</div>`);
+  if(c?.email) bits.push(`<div class="stmt-party-meta"><b>Email</b> ${esc(c.email)}</div>`);
+  if(c?.addr) bits.push(`<div class="stmt-party-meta" style="grid-column:1/-1"><b>Address</b> ${esc(c.addr)}</div>`);
+  return bits.join("");
+}
+
+function stmtRefHtml(l){
+  const extras = [];
+  if(l.computerNo) extras.push(`PC: ${esc(l.computerNo)}`);
+  if(l.manualNo) extras.push(`Manual: ${esc(l.manualNo)}`);
+  const extra = extras.length
+    ? `<span class="stmt-ref-extra">${extras.join(" · ")}</span>`
+    : "";
+  return `${esc(l.ref || "")}${extra}`;
+}
+
+function stmtRefText(l){
+  const extras = [];
+  if(l.computerNo) extras.push("PC: " + l.computerNo);
+  if(l.manualNo) extras.push("Manual: " + l.manualNo);
+  if(!extras.length) return l.ref || "";
+  return `${l.ref || ""}\n${extras.join(" · ")}`;
+}
+
+function renderStatementPeriodBreakdownHtml(built){
+  const lines = built.periodLines || [];
+  if(!lines.length) return "";
+  const rows = lines.map(l=>{
+    const amt = num(l.debit) > 0 ? num(l.debit) : num(l.credit);
+    const refBits = [l.ref || "", l.manualNo ? `Manual: ${l.manualNo}` : "", l.computerNo ? `PC: ${l.computerNo}` : ""].filter(Boolean);
+    const subBit = l.subAccount ? `<span class="stmt-txn-sub">${esc(l.subAccount)}</span>` : "";
+    return `<div class="stmt-txn-box"><div class="stmt-txn-box-main">${esc(l.date)} · ${esc(refBits.join(" · "))} · ${esc(l.desc)}${subBit ? " · " : ""}${subBit}</div><div class="stmt-txn-box-amt"><b>${money(amt)}</b></div></div>`;
+  });
+  return `<div class="stmt-summary-box stmt-summary-box--txns"><div class="stmt-summary-box-title">Transactions in this period</div><div class="stmt-txn-list">${rows.join("")}</div></div>`;
+}
+
+function renderStatementSubBoxesHtml(built, subFilter){
+  if(subFilter || !built.bySub || !Object.keys(built.bySub).length) return "";
+  const rows = Object.entries(built.bySub).sort((a,b)=> a[0].localeCompare(b[0])).map(([subName, x])=>
+    `<div class="stmt-sub-box"><div class="stmt-sub-box-name">${esc(subName)}</div>` +
+    `<div>In ${money(x.debit)} · Out ${money(x.credit)} · <b>Net ${money(x.net)}</b></div></div>`
+  );
+  return `<div class="stmt-summary-box stmt-summary-box--subs"><div class="stmt-summary-box-title">Sub-account summary</div>${rows.join("")}</div>`;
+}
+
+function renderStatementClosingBoxHtml(built, bounds){
+  return `<div class="stmt-summary-box stmt-summary-box--closing"><span>Closing balance (as of ${esc(bounds.asOf)}):</span> <b>${money(built.closing)}</b></div>`;
+}
+
+function stmtSummaryNetLabel(bounds){
+  if(bounds.mode === "monthly") return "Net this period";
+  if(!bounds.from) return "Net up to AS OF";
+  return "Net this period";
+}
+
+function renderStatementSummaryHtml(built, bounds, subFilter, { showPeriodTxns = false } = {}){
+  const periodLabel = customerPeriodLabel(bounds, "stmt");
+  const netLabel = stmtSummaryNetLabel(bounds);
+  const periodBits = [
+    `<div class="stmt-summary-row"><span class="stmt-summary-sub">Period</span> <b>${esc(periodLabel)}</b></div>`
+  ];
+  if(bounds.mode === "custom" && !bounds.from){
+    periodBits.push(`<div class="stmt-summary-row stmt-summary-sub">FROM date not set — all transactions up to ${esc(bounds.asOf)} are included.</div>`);
+  }
+  periodBits.push(
+    `<div class="stmt-summary-row"><span>Invoices / charges:</span> <b>${money(built.periodDebit)}</b>` +
+    `<span> · Received / credits:</span> <b>${money(built.periodCredit)}</b>` +
+    `<span> · ${netLabel}:</span> <b>${money(built.periodNet)}</b></div>`
+  );
+  const parts = [
+    `<div class="stmt-summary-box stmt-summary-box--period"><div class="stmt-summary-box-title">Period summary</div>${periodBits.join("")}</div>`
+  ];
+  if(showPeriodTxns) parts.push(renderStatementPeriodBreakdownHtml(built));
+  parts.push(renderStatementSubBoxesHtml(built, subFilter));
+  parts.push(renderStatementClosingBoxHtml(built, bounds));
+  return parts.join("");
+}
+
+function buildStatementRows(name, asOf, from, subFilter = "", opts = {}){
+  const odFrom = opts.odFrom == null ? 30 : num(opts.odFrom);
+  const all = ledgerLines(name, subFilter).filter(l=> l.date <= asOf);
+  const opening = from ? all.filter(l=> l.date < from).reduce((s,l)=> s + l.debit - l.credit, 0) : 0;
+  let bal = opening;
+  let periodDebit = 0;
+  let periodCredit = 0;
+  const bySub = {};
+  const periodLines = [];
   const htmlRows = [];
   const dataRows = [];
-  if(from && bal){
-    htmlRows.push(`<tr><td>${esc(from)}</td><td>OPENING</td><td>Opening Balance</td><td>${bal>0?money(bal):"—"}</td><td>${bal<0?money(-bal):"—"}</td><td>${money(bal)}</td></tr>`);
-    dataRows.push([from, "OPENING", "Opening Balance", bal > 0 ? bal : "", bal < 0 ? -bal : "", bal]);
+  const lineMeta = [];
+  if(from && opening){
+    htmlRows.push(`<tr><td>${esc(from)}</td><td>OPENING</td><td>Opening Balance</td><td></td><td>${ledgerCell(opening > 0 ? opening : 0)}</td><td>${ledgerCell(opening < 0 ? -opening : 0)}</td><td>${money(opening)}</td><td></td></tr>`);
+    dataRows.push([from, "OPENING", "Opening Balance", "", opening > 0 ? opening : "", opening < 0 ? -opening : "", opening, ""]);
+    lineMeta.push({ odDays: 0, bucket: null });
   }
-  all.filter(l=> !from || l.date >= from).forEach(l=>{
-    bal += l.debit - l.credit;
-    htmlRows.push(`<tr><td>${esc(l.date)}</td><td>${esc(l.ref)}</td><td>${esc(l.desc)}</td><td>${l.debit?money(l.debit):"—"}</td><td>${l.credit?money(l.credit):"—"}</td><td>${money(bal)}</td></tr>`);
-    dataRows.push([l.date, l.ref, l.desc, l.debit || "", l.credit || "", bal]);
+  const inRange = all.filter(l=> !from || l.date >= from);
+  inRange.forEach(l=>{
+    const d = num(l.debit);
+    const c = num(l.credit);
+    periodDebit += d;
+    periodCredit += c;
+    periodLines.push({
+      kind: l.kind,
+      date: l.date,
+      ref: l.ref || "",
+      desc: l.desc || "",
+      debit: d,
+      credit: c,
+      net: d - c,
+      subAccount: String(l.subAccount || "").trim(),
+      manualNo: l.manualNo || "",
+      computerNo: l.computerNo || ""
+    });
+    if(!subFilter){
+      const sk = String(l.subAccount || "").trim() || "Main (no sub)";
+      if(!bySub[sk]) bySub[sk] = { debit: 0, credit: 0, net: 0 };
+      bySub[sk].debit += d;
+      bySub[sk].credit += c;
+      bySub[sk].net += d - c;
+    }
+    bal += d - c;
+    let odDays = 0;
+    let bucket = null;
+    if(l.kind === "invoice" && num(l.openBal) > 0.009 && l.dueDate){
+      odDays = daysPastDueAsOf(l.dueDate, asOf);
+      if(odFrom > 0 && odDays >= odFrom){
+        bucket = overdueBucketFromDays(odDays);
+      }else if(odFrom > 0 && odDays > 0 && odDays < odFrom){
+        // Still show days text lightly, but no color until threshold
+        bucket = null;
+      }
+    }
+    const odClass = overdueRowClass(bucket, "stmt");
+    const odCell = odDays > 0
+      ? `<span class="stmt-od-days">${odDays}d</span>`
+      : "";
+    const subCell = l.subAccount ? esc(l.subAccount) : "";
+    htmlRows.push(
+      `<tr class="${odClass}">` +
+      `<td>${esc(l.date)}</td><td>${stmtRefHtml(l)}</td><td>${esc(l.desc)}</td><td>${subCell}</td>` +
+      `<td>${ledgerCell(l.debit)}</td><td>${ledgerCell(l.credit)}</td><td>${money(bal)}</td><td>${odCell}</td></tr>`
+    );
+    dataRows.push([
+      l.date,
+      stmtRefText(l),
+      l.desc,
+      l.subAccount || "",
+      l.debit || "",
+      l.credit || "",
+      bal,
+      odDays > 0 ? `${odDays}d` : ""
+    ]);
+    lineMeta.push({ odDays, bucket });
   });
-  return { closing: bal, htmlRows, dataRows };
+  return {
+    closing: bal,
+    opening,
+    periodDebit,
+    periodCredit,
+    periodNet: periodDebit - periodCredit,
+    bySub,
+    periodLines,
+    inRangeCount: inRange.length,
+    htmlRows,
+    dataRows,
+    lineMeta
+  };
 }
 
 function renderNotes(tbodyId, list, noField){
@@ -3821,7 +7796,7 @@ function renderNotes(tbodyId, list, noField){
   el.innerHTML = list.length ? list.map(n=>{
     const open = isCn ? cnOpenCredit(n) : 0;
     const live = noteIsLive(n);
-    let actions = "—";
+    let actions = "-";
     if(live){
       const bits = [];
       if(isCn && open > 0.009){
@@ -3859,12 +7834,65 @@ function fillNoteInvoices(sel, customer, selected){
   if(!sel) return;
   const list = invoicesForCustomer(customer, "");
   const keep = selected != null ? selected : (sel.value || "");
-  sel.innerHTML = `<option value="">—</option>` + list.map(i=>
+  sel.innerHTML = `<option value="">-</option>` + list.map(i=>
     `<option value="${esc(i.invNo)}">${esc(i.invNo)} (${money(invBalance(i))} due)</option>`
   ).join("");
   if(keep && [...sel.options].some(o=> o.value === keep)) sel.value = keep;
   else sel.value = "";
   syncInvoiceComboInput(sel);
+}
+
+function fillCnReturnWarehouses(){
+  const sel = document.getElementById("cnReturnWarehouse");
+  if(!sel) return;
+  const rows = getWarehouses().filter(w=> w.status !== "inactive");
+  if(!rows.length){
+    sel.innerHTML = `<option value="Main">Main</option>`;
+    return;
+  }
+  sel.innerHTML = rows.map(w=> `<option value="${esc(w.id)}">${esc(w.code)} - ${esc(w.name)}</option>`).join("");
+}
+
+function renderCnReturnRows(inv){
+  const section = document.getElementById("cnReturnSection");
+  const tbody = document.getElementById("cnReturnRows");
+  if(!section || !tbody) return;
+  const lines = stockableInvoiceItems(inv?.items || []).filter(line=> catalogMatchedLines([line]).length);
+  if(!inv || !lines.length){
+    section.hidden = true;
+    tbody.innerHTML = "";
+    return;
+  }
+  section.hidden = false;
+  fillCnReturnWarehouses();
+  tbody.innerHTML = lines.map((line, idx)=> `<tr>
+    <td>${esc(line.name)}</td>
+    <td>${esc(line.code)}</td>
+    <td>${esc(line.qty)}</td>
+    <td><input type="number" class="cn-return-qty" data-cn-ret-idx="${idx}" min="0" max="${esc(line.qty)}" step="0.01" value="0" style="width:100%;min-height:40px"></td>
+  </tr>`).join("");
+  tbody._cnReturnLines = lines;
+}
+
+function readCnReturnItems(){
+  const tbody = document.getElementById("cnReturnRows");
+  const lines = tbody?._cnReturnLines || [];
+  const items = [];
+  lines.forEach((line, idx)=>{
+    const inp = tbody?.querySelector(`[data-cn-ret-idx="${idx}"]`);
+    const rq = num(inp?.value);
+    if(rq > 0) items.push({ ...line, qty: rq });
+  });
+  return items;
+}
+
+async function applyCreditReturnStockLocal(items, direction, warehouseId, docRef){
+  if(!items?.length) return;
+  try{
+    await applyCreditReturnStockDelta(items, warehouseId ?? "Main", direction, docRef);
+  }catch(e){
+    throw new Error(inventoryErrorText(e?.message || e));
+  }
 }
 
 function resetCn(){
@@ -3884,6 +7912,9 @@ function resetCn(){
   if(cnStatus) cnStatus.value = "Posted";
   if(cnCustomer) customerOptions(cnCustomer, "");
   if(cnInvoice) fillNoteInvoices(cnInvoice, "");
+  syncNoteSubAccountField("cn", "");
+  fillCnReturnWarehouses();
+  renderCnReturnRows(null);
 }
 
 function resetDn(){
@@ -3905,6 +7936,7 @@ function resetDn(){
   if(dnStatus) dnStatus.value = "Posted";
   if(dnCustomer) customerOptions(dnCustomer, "");
   if(dnInvoice) fillNoteInvoices(dnInvoice, "");
+  syncNoteSubAccountField("dn", "");
 }
 
 async function saveCn(){
@@ -3927,27 +7959,38 @@ async function saveCn(){
   if(invNo && status !== "Draft" && !invoices.find(i=> i.invNo === invNo && i.customer === customer)){
     if(!confirm(`Invoice ${invNo} was not found for ${customer}.\n\nPost as UNLINKED credit (sits on the customer ledger until allocated)?`)) return;
   }
-  const cnSerial = uniqueSerial(creditNotes, "cnNo", cnTrimOrig, "CN-");
+  const cnSerial = await allocateDocSerial("credit_note", "CN-", {
+    list: creditNotes, field: "cnNo", draftValue: cnTrimOrig, preferCounter: true
+  });
   const cnTrim = cnSerial.value;
-  if(cnSerial.bumped){
-    if(cnNo) cnNo.value = cnTrim;
-    toast("Credit Note No. already used — posting as " + cnTrim);
-  }
+  if(cnNo) cnNo.value = cnTrim;
+  if(cnSerial.bumped) toast("Credit Note No. assigned — posting as " + cnTrim);
   try{
+    const returnItems = status !== "Draft" ? readCnReturnItems() : [];
+    const returnWh = document.getElementById("cnReturnWarehouse")?.value || "Main";
+    const stockMoved = returnItems.length > 0 && catalogMatchedLines(returnItems).length > 0;
+    if(stockMoved){
+      await applyCreditReturnStockLocal(returnItems, 1, returnWh, cnTrim);
+    }
     const write = (async ()=>{
       const inv = invNo ? invoices.find(i=> i.invNo === invNo && i.customer === customer) : null;
       const linked = status !== "Draft" && !!inv;
       const allocations = linked
         ? [{ invoiceId: inv.id, invoiceNo: inv.invNo, amount }]
         : [];
+      let subAccount = (document.getElementById("cnSubAccount")?.value || "").trim();
+      if(!subAccount) subAccount = String(inv?.subAccount || "").trim();
       const batch = writeBatch(db);
       const cnRef = doc(col("creditNotes"));
       batch.set(cnRef, {
         cnNo: cnTrim, date: cnDate?.value || today(), customer, invoice: invNo,
         reason: (cnReason?.value || "").trim(), amount, status,
+        subAccount,
         allocations,
         allocated: linked ? amount : 0,
         unallocated: linked ? 0 : (status === "Draft" ? 0 : amount),
+        returnItems: stockMoved ? returnItems : [],
+        stockLocation: stockMoved ? returnWh : "",
         createdAt: Date.now(), createdBy: who()
       });
       if(linked){
@@ -3955,11 +7998,19 @@ async function saveCn(){
         batch.update(doc(db,"invoices", inv.id), patch);
         Object.assign(inv, patch);
       }
-      await batch.commit();
+      try{
+        await batch.commit();
+      }catch(docErr){
+        if(stockMoved) await applyCreditReturnStockLocal(returnItems, -1, returnWh, cnTrim);
+        throw docErr;
+      }
       await logActivity({ action:"add", staffName: who(), module:"Credit Note", record: cnTrim, customer, summary: "CN " + cnTrim, newValue: money(amount) });
     })();
-    commitWrite(write.then(()=> closeModal("cnModal")), { okMsg: "Credit note posted" });
-  }catch(e){ toast(friendlyFirestoreError(e)); }
+    const stockNote = stockMoved ? " - stock returned" : "";
+    commitWrite(write.then(()=>{
+      leaveFormAfterSave("cnModal");
+    }), { okMsg: "Credit note posted" + stockNote }).catch(()=>{});
+  }catch(e){ toast(e?.message || friendlyFirestoreError(e)); }
 }
 
 async function saveDn(){
@@ -3983,14 +8034,17 @@ async function saveDn(){
   if(invNo && noteIsLive({ status }) && !invoices.find(i=> i.invNo === invNo && i.customer === customer)){
     if(!confirm(`Invoice ${invNo} was not found for ${customer}.\n\nPost the debit note WITHOUT raising any invoice total?`)) return;
   }
-  const dnSerial = uniqueSerial(debitNotes, "dnNo", dnTrimOrig, "DN-");
+  const dnSerial = await allocateDocSerial("debit_note", "DN-", {
+    list: debitNotes, field: "dnNo", draftValue: dnTrimOrig, preferCounter: true
+  });
   const dnTrim = dnSerial.value;
-  if(dnSerial.bumped){
-    if(dnNo) dnNo.value = dnTrim;
-    toast("Debit Note No. already used — posting as " + dnTrim);
-  }
+  if(dnNo) dnNo.value = dnTrim;
+  if(dnSerial.bumped) toast("Debit Note No. assigned — posting as " + dnTrim);
   try{
     const write = (async ()=>{
+      const inv = invNo ? invoices.find(i=> i.invNo === invNo && i.customer === customer) : null;
+      let subAccount = (document.getElementById("dnSubAccount")?.value || "").trim();
+      if(!subAccount) subAccount = String(inv?.subAccount || "").trim();
       const batch = writeBatch(db);
       const dnDocRef = doc(col("debitNotes"));
       batch.set(dnDocRef, {
@@ -3998,22 +8052,22 @@ async function saveDn(){
         invoice: invNo,
         ref: (dnRef?.value || "").trim(),
         reason: (dnReason?.value || "").trim(), amount, status,
+        subAccount,
         createdAt: Date.now(), createdBy: who()
       });
-      // Linked + Posted → raise invoice.total so dashboard/aging/invBalance stay in sync
-      if(noteIsLive({ status }) && invNo){
-        const inv = invoices.find(i=> i.invNo === invNo && i.customer === customer);
-        if(inv){
+      // Linked + Posted ? raise invoice.total so dashboard/aging/invBalance stay in sync
+      if(noteIsLive({ status }) && inv){
           const nextTotal = roundMoney(num(inv.total) + amount);
           const patch = { total: nextTotal, updatedAt: Date.now(), updatedBy: who() };
           batch.update(doc(db, "invoices", inv.id), patch);
           Object.assign(inv, patch);
-        }
       }
       await batch.commit();
       await logActivity({ action:"add", staffName: who(), module:"Debit Note", record: dnTrim, customer, summary: "DN " + dnTrim, newValue: money(amount) });
     })();
-    commitWrite(write.then(()=> closeModal("dnModal")), { okMsg: "Debit note posted" });
+    commitWrite(write.then(()=>{
+      leaveFormAfterSave("dnModal");
+    }), { okMsg: "Debit note posted" }).catch(()=>{});
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
@@ -4024,8 +8078,16 @@ async function voidCreditNote(id){
   if(!noteIsLive(n)) return toast("Already voided / not active");
   const msg = `Void credit note ${n.cnNo} (${money(n.amount)})?\nCustomer: ${n.customer}\n\nThis reverses invoice credits and removes it from the ledger.`;
   if(!confirm(msg)) return;
+  const returnItems = Array.isArray(n.returnItems) ? n.returnItems.filter(r=> num(r.qty) > 0) : [];
+  const returnWh = n.stockLocation || "Main";
+  let stockReversed = false;
   try{
     const write = (async ()=>{
+      if(returnItems.length){
+        await validateStockForLines(returnItems, returnWh, -1);
+        await applyCreditReturnStockLocal(returnItems, -1, returnWh, n.cnNo);
+        stockReversed = true;
+      }
       let targets = Array.isArray(n.allocations) ? n.allocations.filter(a=> num(a.amount) > 0) : [];
       if(!targets.length && String(n.invoice || "").trim()){
         const inv = invoices.find(i=> i.invNo === n.invoice && i.customer === n.customer);
@@ -4054,14 +8116,20 @@ async function voidCreditNote(id){
       };
       batch.update(doc(db, "creditNotes", n.id), patchCn);
       Object.assign(n, patchCn);
-      await batch.commit();
+      try{
+        await batch.commit();
+      }catch(docErr){
+        if(stockReversed) await applyCreditReturnStockLocal(returnItems, 1, returnWh, n.cnNo);
+        throw docErr;
+      }
       await logActivity({
         action: "void", staffName: who(), module: "Credit Note",
         record: n.cnNo, customer: n.customer, summary: "Voided CN " + n.cnNo, oldValue: money(n.amount)
       });
     })();
-    commitWrite(write, { okMsg: "Credit note voided" });
-  }catch(e){ toast(friendlyFirestoreError(e)); }
+    const stockNote = returnItems.length ? " - stock reversed" : "";
+    commitWrite(write, { okMsg: "Credit note voided" + stockNote });
+  }catch(e){ toast(e?.message || friendlyFirestoreError(e)); }
 }
 
 async function voidDebitNote(id){
@@ -4075,7 +8143,7 @@ async function voidDebitNote(id){
     const nextTotal = roundMoney(num(inv.total) - num(n.amount));
     const floor = roundMoney(num(inv.paid) + num(inv.credited));
     if(nextTotal + 0.009 < floor){
-      return toast(`Cannot void — invoice ${inv.invNo} paid/credited (${money(floor)}) exceeds total after void (${money(nextTotal)}). Reverse payments first.`);
+      return toast(`Cannot void - invoice ${inv.invNo} paid/credited (${money(floor)}) exceeds total after void (${money(nextTotal)}). Reverse payments first.`);
     }
   }
   if(!confirm(`Void debit note ${n.dnNo} (${money(n.amount)})?\nCustomer: ${n.customer}`)) return;
@@ -4147,7 +8215,10 @@ async function voidReceipt(id){
 }
 
 function renderCheques(){
-  document.getElementById("chequeRows").innerHTML = cheques.length ? cheques.map(c=> `<tr>
+  const rows = [...cheques].sort((a,b)=>
+    String(b.chequeDate || b.pdcDate || "").localeCompare(String(a.chequeDate || a.pdcDate || ""))
+  );
+  document.getElementById("chequeRows").innerHTML = rows.length ? rows.map(c=> `<tr>
     <td>${esc(c.chequeNo)}</td><td>${esc(c.customer)}</td><td>${esc(c.bank)}</td>
     <td>${esc(c.chequeDate)}</td><td>${esc(c.pdcDate)}</td><td>${money(c.amount)}</td><td>${badge(c.status||"Pending")}</td>
     <td><button class="btn small" type="button" data-edit-chq="${c.id}">Open</button></td>
@@ -4197,54 +8268,12 @@ function editCheque(id){
   if(chqPdc) chqPdc.value = c.pdcDate||"";
   if(chqAmt) chqAmt.value = c.amount||0;
   if(chqStatus) chqStatus.value = c.status||"Pending";
-  openFormModal("chequeModal");
+  openFormModal("chequeModal", { skipPrepare: true });
 }
 
 async function recalculateInvoiceBalances(){
   if(!isOwnerRole()) throw new Error("Only owner");
-  const paidMap = {};
-  const creditedMap = {};
-
-  receipts.filter(r=> r.applied && receiptAffectsBalance(r)).forEach(r=>{
-    const allocs = r.allocations || [];
-    if(!allocs.length) return;
-    const disc = num(r.discount);
-    const shares = disc > 0 ? distributeProportionally(disc, allocs.map(a=> num(a.amount))) : allocs.map(()=> 0);
-    allocs.forEach((a, i)=>{
-      if(!a.invoiceId) return;
-      paidMap[a.invoiceId] = roundMoney((paidMap[a.invoiceId] || 0) + num(a.amount));
-      creditedMap[a.invoiceId] = roundMoney((creditedMap[a.invoiceId] || 0) + (shares[i] || 0));
-    });
-  });
-
-  // Standalone cleared cheques applied directly to an invoice (no receipt)
-  cheques.filter(c=> c.status === "Cleared" && c.appliedToInvoice && c.invoice).forEach(c=>{
-    const inv = invoices.find(i=> i.invNo === c.invoice && i.customer === c.customer);
-    if(!inv) return;
-    paidMap[inv.id] = roundMoney((paidMap[inv.id] || 0) + num(c.appliedAmount || c.amount));
-  });
-
-  creditNotes.filter(n=> noteIsLive(n)).forEach(n=>{
-    const parts = Array.isArray(n.allocations) && n.allocations.length
-      ? n.allocations
-      : (String(n.invoice || "").trim()
-          ? [{ invoiceNo: n.invoice, amount: num(n.amount) }]
-          : []);
-    parts.forEach(a=>{
-      const inv = invoices.find(i=>
-        (a.invoiceId && i.id === a.invoiceId) ||
-        (a.invoiceNo && i.invNo === a.invoiceNo && i.customer === n.customer)
-      );
-      if(!inv) return;
-      creditedMap[inv.id] = roundMoney((creditedMap[inv.id] || 0) + num(a.amount));
-    });
-  });
-
-  discounts.filter(d=> d.type === "Invoice" && d.ref).forEach(d=>{
-    const inv = invoices.find(i=> i.invNo === d.ref && i.customer === d.customer);
-    if(!inv) return;
-    creditedMap[inv.id] = roundMoney((creditedMap[inv.id] || 0) + num(d.amount));
-  });
+  const { paidMap, creditedMap } = buildInvoicePaidCreditedMaps();
 
   let fixed = 0;
   const details = [];
@@ -4264,8 +8293,9 @@ async function recalculateInvoiceBalances(){
     await updateDoc(doc(db, "invoices", inv.id), { paid, credited, paidDate, updatedAt: Date.now() });
     Object.assign(inv, { paid, credited, paidDate });
     fixed++;
-    details.push(`${inv.invNo}: paid ${oldPaid}→${paid}, credited ${oldCredited}→${credited}`);
+    details.push(`${inv.invNo}: paid ${oldPaid}?${paid}, credited ${oldCredited}?${credited}`);
   }
+  invalidateInvMoneyCache();
   return { checked: targets.length, fixed, details };
 }
 
@@ -4275,7 +8305,7 @@ async function recalculateInvoiceBalances(){
 async function applyReceiptToInvoices(r, externalBatch = null){
   const st = r?.status || "";
   if(st === "Cancelled" || st === "Voided" || st === "Bounced"){
-    throw new Error("Receipt " + (r.rvNo || "") + " was voided/cancelled — cannot apply again");
+    throw new Error("Receipt " + (r.rvNo || "") + " was voided/cancelled - cannot apply again");
   }
   if(r.applied){
     throw new Error("Receipt " + (r.rvNo || "") + " already applied");
@@ -4283,9 +8313,7 @@ async function applyReceiptToInvoices(r, externalBatch = null){
   const batch = externalBatch || writeBatch(db);
   const allocs = r.allocations || [];
   const discTotal = num(r.discount);
-  const discShares = (allocs.length && discTotal > 0)
-    ? distributeProportionally(discTotal, allocs.map(a=> num(a.amount)))
-    : allocs.map(()=> 0);
+  const discShares = receiptAllocDiscShares(r, allocs);
   for(let i = 0; i < allocs.length; i++){
     const a = allocs[i];
     const inv = invoices.find(x=> x.id === a.invoiceId);
@@ -4315,7 +8343,7 @@ async function applyReceiptToInvoices(r, externalBatch = null){
     }
   }
   const allocSum = allocs.reduce((s,a)=> s + num(a.amount), 0);
-  // Keep original non-cheque status as Posted; cheque/PDC clear → Cleared
+  // Keep original non-cheque status as Posted; cheque/PDC clear ? Cleared
   const nextStatus = String(r.method || "").includes("Cheque") ? "Cleared" : (r.status === "Posted" ? "Posted" : "Cleared");
   batch.update(doc(db,"receipts", r.id), {
     applied: true, allocated: allocSum, unallocated: Math.max(0, num(r.amount) - allocSum), status: nextStatus
@@ -4328,9 +8356,7 @@ async function reverseReceiptFromInvoices(r, nextStatus = "Bounced", externalBat
   const batch = externalBatch || writeBatch(db);
   const allocs = r.allocations || [];
   const discTotal = num(r.discount);
-  const discShares = (allocs.length && discTotal > 0)
-    ? distributeProportionally(discTotal, allocs.map(a=> num(a.amount)))
-    : allocs.map(()=> 0);
+  const discShares = receiptAllocDiscShares(r, allocs);
   for(let i = 0; i < allocs.length; i++){
     const a = allocs[i];
     const inv = invoices.find(x=> x.id === a.invoiceId);
@@ -4377,14 +8403,31 @@ async function saveCheque(){
   if(!chqNo || !chqNo.value.trim()) return toast("Cheque no required");
   if(!chqCustomer?.value) return toast("Select customer");
   const chqTrim = chqNo.value.trim();
-  const dupChq = cheques.find(c=> c.id !== (chqId?.value||"") && String(c.chequeNo||"").trim().toLowerCase() === chqTrim.toLowerCase());
-  if(dupChq && !confirm(`This Cheque No. is already used (${dupChq.chequeNo}, ${dupChq.customer}, ${money(dupChq.amount)}, ${dupChq.chequeDate||"—"}). Continue anyway?`)) return;
+  const chqDateStr = String(chqDate?.value || "").slice(0, 10);
+  const chqCust = chqCustomer.value;
+  const dupChq = cheques.find(c=>{
+    if(c.id === (chqId?.value || "")) return false;
+    if(String(c.chequeNo || "").trim().toLowerCase() !== chqTrim.toLowerCase()) return false;
+    if(String(c.customer || "").trim().toLowerCase() !== String(chqCust).trim().toLowerCase()) return false;
+    if(chqDateStr && String(c.chequeDate || "").slice(0, 10) !== chqDateStr) return false;
+    return true;
+  });
+  if(dupChq){
+    return toast(
+      `Duplicate blocked — same Cheque No., customer and date already saved` +
+      ` (${dupChq.chequeNo}, ${dupChq.customer}, ${dupChq.chequeDate || "-"}).`
+    );
+  }
   const prev = cheques.find(x=> x.id === chqId?.value);
+  const invForSub = (chqInvoice?.value || "")
+    ? invoices.find(i=> i.invNo === chqInvoice.value && i.customer === chqCust)
+    : null;
   const data = {
-    chequeNo: chqTrim, customer: chqCustomer.value, invoice: chqInvoice?.value || "",
-    bank: (chqBank?.value || "").trim(),
+    chequeNo: ucText(chqTrim), customer: chqCustomer.value, invoice: chqInvoice?.value || "",
+    bank: ucText(chqBank?.value),
     chequeDate: chqDate?.value || "", pdcDate: chqPdc?.value || "", amount: num(chqAmt?.value),
     status: chqStatus?.value || "Pending",
+    subAccount: String(invForSub?.subAccount || prev?.subAccount || "").trim(),
     appliedToInvoice: !!(prev && prev.appliedToInvoice),
     updatedAt: Date.now()
   };
@@ -4400,7 +8443,7 @@ async function saveCheque(){
   try{
     const write = (async ()=>{
       const r = linkedReceipt;
-      // One batch for the whole transition — invoice paid and cheque status must
+      // One batch for the whole transition - invoice paid and cheque status must
       // never disagree if a write fails halfway.
       const batch = writeBatch(db);
 
@@ -4409,7 +8452,7 @@ async function saveCheque(){
         if(r){
           const rst = r.status || "";
           if(rst === "Cancelled" || rst === "Voided" || rst === "Bounced"){
-            throw new Error("Linked receipt " + (r.rvNo || "") + " was voided — cannot clear this cheque. Create a new receipt.");
+            throw new Error("Linked receipt " + (r.rvNo || "") + " was voided - cannot clear this cheque. Create a new receipt.");
           }
           if(!r.applied){
             await applyReceiptToInvoices(r, batch);
@@ -4451,7 +8494,9 @@ async function saveCheque(){
       await batch.commit();
       await logActivity({ action:"edit", staffName: who(), module:"Cheque", record: data.chequeNo, oldValue: prev?.status||"", newValue: data.status, summary: "Cheque " + data.chequeNo });
     })();
-    commitWrite(write.then(()=> closeModal("chequeModal")), { okMsg: "Cheque saved" });
+    commitWrite(write.then(()=>{
+      leaveFormAfterSave("chequeModal");
+    }), { okMsg: "Cheque saved" }).catch(()=>{});
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
@@ -4564,7 +8609,7 @@ async function saveDisc(){
   if(type === "Invoice"){
     if(!ref) return toast("Invoice type requires Reference = invoice number");
     const inv = invoices.find(i=> i.invNo === ref && i.customer === discCustomer.value);
-    if(!inv) return toast("Invoice not found for this customer — check Reference");
+    if(!inv) return toast("Invoice not found for this customer - check Reference");
     if(inv.status === "Draft") return toast("Cannot discount a draft invoice");
   }else if(type === "Payment"){
     const ok = confirm(
@@ -4576,10 +8621,19 @@ async function saveDisc(){
   }
   try{
     const write = (async ()=>{
+      let subAccount = "";
+      if(type === "Invoice" && ref){
+        const inv = invoices.find(i=> i.invNo === ref && i.customer === discCustomer.value);
+        subAccount = String(inv?.subAccount || "").trim();
+      }else if(type === "Payment" && ref){
+        const r = receipts.find(x=> x.rvNo === ref && x.customer === discCustomer.value);
+        subAccount = String(r?.subAccount || "").trim();
+      }
       const batch = writeBatch(db);
       batch.set(doc(col("discounts")), {
         date: discDate?.value || today(), customer: discCustomer.value, type, ref,
         method: discMethod?.value || "Fixed", amount, reason: (discReason?.value || "").trim(),
+        subAccount,
         approvedBy: who(), createdAt: Date.now()
       });
       if(type === "Invoice" && ref){
@@ -4597,12 +8651,14 @@ async function saveDisc(){
         summary: `${type} discount`, newValue: money(amount)
       });
     })();
-    commitWrite(write.then(()=> closeModal("discModal")), { okMsg: "Discount saved" });
+    commitWrite(write.then(()=>{
+      leaveFormAfterSave("discModal");
+    }), { okMsg: "Discount saved" }).catch(()=>{});
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
 
 function fillWhatsapp(){
-  const name = document.getElementById("waCustomer").value || customers[0]?.name;
+  const name = document.getElementById("waCustomer").value || "";
   const c = customers.find(x=> x.name === name);
   const due = customerOutstanding(name||"");
   const od = customerOverdue(name||"");
@@ -4632,6 +8688,7 @@ function showSettingsView(view){
   const hub = document.getElementById("settingsHub");
   const subs = {
     company: document.getElementById("settingsCompany"),
+    branches: document.getElementById("settingsBranches"),
     license: document.getElementById("settingsLicense"),
     help: document.getElementById("settingsHelp"),
     invoice: document.getElementById("settingsInvoice"),
@@ -4649,6 +8706,76 @@ function showSettingsView(view){
     syncInvoiceModeSettingsUi();
   }
   if(view === "backup") renderBackupPage();
+  if(view === "branches") renderBranchSettingsRows();
+}
+
+function resetBranchForm(){
+  const idEl = document.getElementById("branchEditId");
+  if(idEl) idEl.value = "";
+  const code = document.getElementById("branchCode");
+  const name = document.getElementById("branchName");
+  const addr = document.getElementById("branchAddr");
+  const phone = document.getElementById("branchPhone");
+  const status = document.getElementById("branchStatus");
+  if(code) code.value = "";
+  if(name) name.value = "";
+  if(addr) addr.value = "";
+  if(phone) phone.value = "";
+  if(status) status.value = "active";
+}
+
+function renderBranchSettingsRows(){
+  const tbody = document.getElementById("branchRows");
+  if(!tbody) return;
+  const rows = getBranches();
+  tbody.innerHTML = rows.length
+    ? rows.map(b=> `<tr>
+        <td>${esc(b.code)}</td><td>${esc(b.name)}</td><td>${esc(b.phone||"")}</td>
+        <td>${badge(b.status === "inactive" ? "Inactive" : "Active")}</td>
+        <td>${b.isDefault ? "?" : ""}</td>
+        <td>${isOwnerRole() ? `<button type="button" class="btn small" data-edit-branch="${esc(b.id)}">Edit</button>` : ""}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="6" class="empty">No branches - default will be created on login</td></tr>`;
+  tbody.querySelectorAll("[data-edit-branch]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const id = btn.dataset.editBranch;
+      const b = rows.find(r=> r.id === id);
+      if(!b) return;
+      document.getElementById("branchEditId").value = id;
+      document.getElementById("branchCode").value = b.code || "";
+      document.getElementById("branchName").value = b.name || "";
+      document.getElementById("branchAddr").value = b.addr || "";
+      document.getElementById("branchPhone").value = b.phone || "";
+      document.getElementById("branchStatus").value = b.status === "inactive" ? "inactive" : "active";
+      document.getElementById("branchFormGrid")?.removeAttribute("hidden");
+    });
+  });
+}
+
+async function saveBranchForm(){
+  if(!isOwnerRole()) return toast("Only owner can manage branches");
+  try{
+    const id = document.getElementById("branchEditId")?.value || "";
+    await saveBranch(db, id, {
+      code: document.getElementById("branchCode")?.value,
+      name: document.getElementById("branchName")?.value,
+      addr: document.getElementById("branchAddr")?.value,
+      phone: document.getElementById("branchPhone")?.value,
+      status: document.getElementById("branchStatus")?.value
+    });
+    document.getElementById("branchFormGrid")?.setAttribute("hidden", "");
+    resetBranchForm();
+    toast("Branch saved");
+    await logActivity({
+      action: id ? "edit" : "add",
+      staffName: who(),
+      module: "foundation",
+      record: document.getElementById("branchCode")?.value || "",
+      summary: id ? "Branch updated" : "Branch added"
+    });
+  }catch(e){
+    toast(e?.message === "BRANCH_REQUIRED" ? "Branch code and name required" : friendlyFirestoreError(e));
+  }
 }
 
 function fillSettings(){
@@ -4657,10 +8784,18 @@ function fillSettings(){
   setPhone.value = shop.phone||"";
   setAddr.value = shop.addr||"";
   if(setTrn) setTrn.value = shop.trn||"";
+  const setTradeLicense = document.getElementById("setTradeLicense");
+  const setEmirate = document.getElementById("setEmirate");
+  const setOperatingMode = document.getElementById("setOperatingMode");
+  const setPiPrefix = document.getElementById("setPiPrefix");
+  if(setTradeLicense) setTradeLicense.value = shop.tradeLicense || "";
+  if(setEmirate) setEmirate.value = shop.emirate || "";
+  if(setOperatingMode) setOperatingMode.value = getOperatingMode(shop);
   setCurrency.value = shop.currency || "AED";
   setCreditDays.value = shop.creditDays || 30;
   setInvPrefix.value = shop.invPrefix || "INV-";
   setRvPrefix.value = shop.rvPrefix || "RV-";
+  if(setPiPrefix) setPiPrefix.value = shop.piPrefix || "PI-";
   setVat.value = shop.vatRate ?? 5;
 }
 
@@ -4675,18 +8810,18 @@ async function refreshLicenseSettingsBox(){
 
     if(access.mode === "license"){
       const p = access.payload || {};
-      box.innerHTML = `<b>Licensed</b> — ${esc(p.customerName||"")}${p.shopName ? " · " + esc(p.shopName) : ""}<br>
-        Plan: ${esc(p.plan)} · Status: ACTIVE<br>
+      box.innerHTML = `<b>Licensed</b> - ${esc(p.customerName||"")}${p.shopName ? " - " + esc(p.shopName) : ""}<br>
+        Plan: ${esc(p.plan)} - Status: ACTIVE<br>
         Expires: ${esc(p.expiresAt || "Lifetime")}`;
       return;
     }
     if(access.mode === "trial"){
-      box.innerHTML = `<b>Free trial</b> — ${esc(String(access.daysRemaining))} day(s) left<br>
+      box.innerHTML = `<b>Free trial</b> - ${esc(String(access.daysRemaining))} day(s) left<br>
         Trial ends: ${esc((access.trialEndsAt||"").slice(0,10))}<br>
-        <span class="muted">Activate a license anytime below (one PC → one key).</span>`;
+        <span class="muted">Activate a license anytime below (one PC ? one key).</span>`;
       return;
     }
-    box.innerHTML = `<b>Trial ended</b> — activate a license to continue.<br>
+    box.innerHTML = `<b>Trial ended</b> - activate a license to continue.<br>
       <span class="muted">${esc(licenseErrorText(access.reason || "TRIAL_EXPIRED"))}</span>`;
   }catch(e){
     box.textContent = e.message || "License status unavailable";
@@ -4695,18 +8830,28 @@ async function refreshLicenseSettingsBox(){
 
 async function saveSettings(){
   if(!isOwnerRole()) return toast("Only owner can change settings");
+  const setOperatingMode = document.getElementById("setOperatingMode");
+  const setTradeLicense = document.getElementById("setTradeLicense");
+  const setEmirate = document.getElementById("setEmirate");
+  const setPiPrefix = document.getElementById("setPiPrefix");
   const data = {
     name: setName.value.trim(), phone: setPhone.value.trim(), addr: setAddr.value.trim(),
     trn: (setTrn?.value||"").trim(),
+    tradeLicense: (setTradeLicense?.value || "").trim(),
+    emirate: (setEmirate?.value || "").trim(),
+    operatingMode: setOperatingMode?.value === OPERATING_MODE.TOTAL ? OPERATING_MODE.TOTAL : OPERATING_MODE.FULL,
     currency: sanitizeCurrency(setCurrency.value), creditDays: num(setCreditDays.value),
     invPrefix: setInvPrefix.value.trim() || "INV-", rvPrefix: setRvPrefix.value.trim() || "RV-",
+    piPrefix: (setPiPrefix?.value || "").trim() || "PI-",
     vatRate: num(setVat.value)
   };
   try{
     await setDoc(doc(db,"shop","info"), data, { merge: true });
     const snap = await getDoc(doc(db,"shop","info"));
     shop = snap.data() || shop;
+    setFoundationShop(shop);
     syncTopShopName();
+    applyNavPermissions();
     toast("Settings saved");
   }catch(e){ toast(friendlyFirestoreError(e)); }
 }
@@ -4732,16 +8877,16 @@ async function renderTeam(){
         : "";
       return `<article class="users-team-card">
         <div class="users-team-main">
-          <b class="users-team-name">${esc(m.displayName || "—")}</b>
+          <b class="users-team-name">${esc(m.displayName || "-")}</b>
           <span class="muted users-team-email">${esc(m.email || "")}</span>
-          <div class="users-team-meta">${badge(m.role)} ${badge(m.status)}</div>
+          <div class="users-team-meta">${badge(roleLabel(m.role))} ${badge(m.status)}</div>
         </div>
         ${actions}
       </article>`;
     }).join("");
     html += `</div>`;
     if(invites.length){
-      html += `<p style="margin-top:12px"><b>Pending invites</b></p>` + invites.map(i=> `<div class="toolbar users-invite-row"><span>${esc(i.displayName)} · ${esc(i.email)}</span>${isOwnerRole()?`<button class="btn small" type="button" data-cancel="${i.id}">Cancel</button>`:""}</div>`).join("");
+      html += `<p style="margin-top:12px"><b>Pending invites</b></p>` + invites.map(i=> `<div class="toolbar users-invite-row"><span>${esc(i.displayName)} - ${esc(i.email)}</span>${isOwnerRole()?`<button class="btn small" type="button" data-cancel="${i.id}">Cancel</button>`:""}</div>`).join("");
     }
     el.innerHTML = html;
     el.querySelectorAll("[data-cancel]").forEach(b=> b.onclick = async ()=>{ await cancelInvite(b.dataset.cancel); renderTeam(); });
@@ -4814,7 +8959,7 @@ async function doInvite(){
       drawInviteQr(code);
     }
     inviteEmail.value = ""; inviteName.value = "";
-    toast("Invite saved — share the invite code / QR with staff");
+    toast("Invite saved - share the invite code / QR with staff");
     renderTeam();
   }catch(e){ toast(authErrorText(e.code || e.message, "en")); }
 }
@@ -4829,7 +8974,7 @@ function drawInviteQr(text){
     ctx.fillStyle = "#667085";
     ctx.font = "12px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("Loading QR…", canvas.width / 2, canvas.height / 2);
+    ctx.fillText("Loading QR-", canvas.width / 2, canvas.height / 2);
   }
   const run = ()=>{
     try{
@@ -4841,7 +8986,7 @@ function drawInviteQr(text){
               ctx.fillStyle = "#fff";
               ctx.fillRect(0, 0, canvas.width, canvas.height);
               ctx.fillStyle = "#d92d20";
-              ctx.fillText("QR failed — copy code", canvas.width / 2, canvas.height / 2);
+              ctx.fillText("QR failed - copy code", canvas.width / 2, canvas.height / 2);
             }
           }
         });
@@ -4857,7 +9002,7 @@ function drawInviteQr(text){
       ctx.fillStyle = "#fff";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = "#d92d20";
-      ctx.fillText("QR offline — copy code", canvas.width / 2, canvas.height / 2);
+      ctx.fillText("QR offline - copy code", canvas.width / 2, canvas.height / 2);
     }
   };
   document.head.appendChild(s);
@@ -4910,7 +9055,7 @@ async function archiveExportCsv(){
     ]
   );
   window._archiveReady = { before, ...archiveCandidates(before) };
-  toast(deliveryToast(result, "CSV downloaded — now you can delete"));
+  toast(deliveryToast(result, "CSV downloaded - now you can delete"));
 }
 
 async function archiveDeleteOld(){
@@ -4961,34 +9106,70 @@ async function exportAudit(){
   const rows = window._auditRows || [];
   if(!rows.length) return toast("No audit rows");
   const result = await downloadCsv("s4-audit.csv",
-    ["Date/Time","User","Module","Action","Record","Old Value","New Value","Reason"],
+    ["Date/Time","User","Branch","Module","Action","Record","Old Value","New Value","Reason"],
     rows.map(r=>{
       const f = formatActivityRow(r, "en");
-      return [f.when, f.who, r.module||"", r.action||"", r.record||r.invoiceId||"", r.oldValue||"", r.newValue||"", r.reason||f.what];
+      return [f.when, f.who, r.branchCode || r.branchName || "", r.module||"", r.action||"", r.record||r.invoiceId||"", r.oldValue||"", r.newValue||"", r.reason||f.what];
     })
   );
   toast(deliveryToast(result, "Audit CSV downloaded"));
 }
 
-function statementTableHtml(name, asOf, from){
-  const built = buildStatementRows(name, asOf, from || "");
-  const range = from ? `From ${esc(from)} · ` : "";
-  return `<p class="muted">${esc(shop.name||"")} · ${range}As of ${esc(asOf)} · Closing ${money(built.closing)}</p>` +
-    tableFromRows(["Date","Reference","Description","Debit","Credit","Balance"], built.dataRows);
+function statementTableHtml(name, asOf, from, subFilter = "", summaryHtml = "", builtOverride = null){
+  const odFrom = num(document.getElementById("stmtOdFrom")?.value);
+  const built = builtOverride || buildStatementRows(name, asOf, from || "", subFilter, { odFrom });
+  const range = from ? `From ${esc(from)} - ` : "";
+  const subBit = subFilter ? ` — ${esc(subFilter)}` : "";
+  const c = customers.find(x=> x.name === name);
+  const partyBits = [
+    c?.code ? `Code: ${esc(c.code)}` : "",
+    c?.contact ? `Contact: ${esc(c.contact)}` : "",
+    c?.mobile ? `Mobile: ${esc(c.mobile)}` : "",
+    c?.trn ? `TRN: ${esc(c.trn)}` : "",
+    c?.email ? `Email: ${esc(c.email)}` : "",
+    c?.addr ? `Address: ${esc(c.addr)}` : ""
+  ].filter(Boolean);
+  const partyBlock = `
+    <div style="margin:12px 0 16px;padding:14px 16px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc">
+      <div style="font-size:16px;font-weight:700;margin-bottom:8px">${esc(name)}${subBit}</div>
+      <div style="font-size:12px;color:#475569;line-height:1.55">${partyBits.join(" · ") || "Customer account statement"}</div>
+      <div style="margin-top:10px;font-size:12px;font-weight:600">${esc(shop.name||"")} — ${range}As of ${esc(asOf)}</div>
+    </div>`;
+  const tableHtml = tableFromRows(
+    ["Date","Reference","Description","Sub-account","Debit","Credit","Balance","Overdue"],
+    built.dataRows
+  );
+  const footerSummary = summaryHtml
+    ? `<div style="margin-top:16px;padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;font-size:12px;line-height:1.55">${summaryHtml}</div>`
+    : `<div style="margin-top:16px;padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;font-size:12px;font-weight:600">Closing balance (as of ${esc(asOf)}): ${money(built.closing)}</div>`;
+  return partyBlock + tableHtml + footerSummary;
 }
 
 async function exportStatementPdf(download){
   const name = document.getElementById("stmtCustomer").value;
-  const asOf = document.getElementById("stmtAsOf")?.value || today();
-  const from = document.getElementById("stmtFrom")?.value || "";
+  const bounds = readStmtPeriodBounds();
+  const asOf = bounds.asOf || today();
+  const from = bounds.from || "";
+  const sub = document.getElementById("stmtSubAccount")?.value || "";
+  const odFrom = num(document.getElementById("stmtOdFrom")?.value);
   if(!name) return toast("Select customer");
+  const built = buildStatementRows(name, asOf, from, sub, { odFrom });
   fillStatement();
-  const title = `Statement — ${name}`;
-  const body = statementTableHtml(name, asOf, from);
-  const built = buildStatementRows(name, asOf, from);
+  const showTxns = stmtShowPeriodTxns();
+  const summaryHtml = renderStatementSummaryHtml(built, bounds, sub, { showPeriodTxns: showTxns });
+  const title = sub ? `Statement - ${name} - ${sub}` : `Statement - ${name}`;
+  const body = statementTableHtml(name, asOf, from, sub, summaryHtml, built);
+  const customer = customers.find(x=> x.name === name) || { name };
+  const periodLabel = customerPeriodLabel(bounds, "stmt");
+  const pdfOpts = {
+    shop, name, asOf, from, subFilter: sub, customer,
+    lines: built.dataRows, lineMeta: built.lineMeta, closing: built.closing, odFrom,
+    periodNet: built.periodNet, periodDebit: built.periodDebit, periodCredit: built.periodCredit,
+    bySub: built.bySub, periodLines: built.periodLines, periodLabel, showPeriodTxns: showTxns
+  };
   if(download){
     try{
-      const result = await downloadStatementPdf({ shop, name, asOf, from, lines: built.dataRows, closing: built.closing });
+      const result = await downloadStatementPdf(pdfOpts);
       toast(deliveryToast(result, "PDF downloaded"));
     }catch(err){
       console.warn("Statement PDF failed", err);
@@ -4996,11 +9177,10 @@ async function exportStatementPdf(download){
     }
     return;
   }
-  // Android WebView has no print dialog — share a real PDF instead
   if(isAndroidNative()){
     try{
-      const result = await downloadStatementPdf({ shop, name, asOf, from, lines: built.dataRows, closing: built.closing });
-      toast(deliveryToast(result, "PDF ready — open it to print"));
+      const result = await downloadStatementPdf(pdfOpts);
+      toast(deliveryToast(result, "PDF ready - open it to print"));
       return;
     }catch(err){
       console.warn("Statement Android print-PDF failed", err);
@@ -5008,11 +9188,11 @@ async function exportStatementPdf(download){
   }
   try{
     const printed = await printHtmlDocument(title, body);
-    if(!printed) toast("File ready — open it to print or share");
+    if(!printed) toast("File ready - open it to print or share");
   }catch(err){
     console.warn("Statement print failed", err);
     await downloadHtmlDocument(`statement-${name.replace(/\s+/g,"_")}.html`, title, body);
-    toast("Print blocked — file ready instead");
+    toast("Print blocked - file ready instead");
   }
 }
 
@@ -5031,7 +9211,8 @@ async function exportLatestInvoicePdf(){
 async function exportReceiptPdf(r){
   if(!r) return toast("No receipt");
   try{
-    const result = await downloadReceiptPdf(r, shop);
+    const billRows = receiptBillRowsForPrint(r);
+    const result = await downloadReceiptPdf(r, shop, { billRows });
     toast(deliveryToast(result, "PDF downloaded"));
   }catch(err){
     console.warn("Receipt PDF failed", err);
@@ -5064,37 +9245,60 @@ async function downloadWaPdf(){
   }
 }
 
+function ledgerExportRows(name, sub, from, to){
+  const all = ledgerLines(name, sub);
+  let bal = from ? all.filter(l=> l.date < from).reduce((s,l)=> s + l.debit - l.credit, 0) : 0;
+  const rows = [];
+  if(from && bal){
+    rows.push([from, "OPENING", "Opening Balance", "", bal > 0 ? bal : "", bal < 0 ? -bal : "", bal]);
+  }
+  all.filter(l=> (!from || l.date >= from) && (!to || l.date <= to)).forEach(l=>{
+    bal += l.debit - l.credit;
+    rows.push([
+      l.date,
+      stmtRefText(l),
+      l.desc,
+      l.subAccount || "",
+      l.debit || "",
+      l.credit || "",
+      bal
+    ]);
+  });
+  return rows;
+}
+
 async function exportLedger(kind){
   const name = document.getElementById("ledgerCustomer").value;
   if(!name) return toast("Select customer");
-  const from = document.getElementById("ledgerFrom")?.value || "";
-  const to = document.getElementById("ledgerTo")?.value || "";
-  const lines = ledgerLines(name).filter(l=> (!from || l.date >= from) && (!to || l.date <= to));
-  let bal = 0;
-  const rows = lines.map(l=>{
-    bal += l.debit - l.credit;
-    return [l.date, l.ref, l.desc, l.debit||"", l.credit||"", bal];
-  });
+  const bounds = readLedgerPeriodBounds();
+  const from = bounds.from || "";
+  const to = bounds.to || "";
+  const sub = document.getElementById("ledgerSubAccount")?.value || "";
+  const rows = ledgerExportRows(name, sub, from, to);
+  const headers = ["Date","Reference","Description","Sub-account","Debit","Credit","Balance"];
+  const fileLabel = (sub ? `${name}-${sub}` : name).replace(/\s+/g,"_");
+  const periodLabel = customerPeriodLabel(bounds);
+  const title = sub ? `Ledger - ${name} - ${sub}` : `Ledger - ${name}`;
   if(kind === "csv"){
-    const result = await downloadCsv(`ledger-${name.replace(/\s+/g,"_")}.csv`, ["Date","Reference","Description","Debit","Credit","Balance"], rows);
+    const result = await downloadCsv(`ledger-${fileLabel}.csv`, headers, rows);
     toast(deliveryToast(result, "Ledger CSV downloaded"));
   }else{
     try{
-      const range = [from ? "From " + from : "", to ? "To " + to : ""].filter(Boolean).join(" · ");
+      const range = [periodLabel, sub ? "Sub " + sub : ""].filter(Boolean).join(" - ");
       const result = await downloadTablePdf({
         shop,
-        title: `Ledger — ${name}`,
+        title,
         subtitle: range,
-        headers: ["Date","Reference","Description","Debit","Credit","Balance"],
+        headers,
         rows: rows.map(r => r.map(c => c === "" || c == null ? "" : String(c))),
-        filename: `ledger-${name}`
+        filename: `ledger-${fileLabel}`
       });
       toast(deliveryToast(result, "Ledger PDF downloaded"));
     }catch(err){
       console.warn("Ledger PDF failed", err);
-      const body = tableFromRows(["Date","Reference","Description","Debit","Credit","Balance"], rows);
-      await downloadHtmlDocument(`ledger-${name.replace(/\s+/g,"_")}.html`, `Ledger — ${name}`, body);
-      toast("PDF failed — HTML file ready instead");
+      const body = tableFromRows(headers, rows);
+      await downloadHtmlDocument(`ledger-${fileLabel}.html`, title, body);
+      toast("PDF failed - HTML file ready instead");
     }
   }
 }
@@ -5102,7 +9306,7 @@ async function exportLedger(kind){
 async function exportAging(kind){
   const map = {};
   invoices.forEach(i=>{
-    const name = i.customer || "—";
+    const name = i.customer || "-";
     if(!map[name]) map[name] = { current:0, d30:0, d60:0, d90:0, d90p:0 };
     const k = agingBucket(i);
     if(k) map[name][k] += invBalance(i);
@@ -5130,7 +9334,7 @@ async function exportAging(kind){
       console.warn("Aging PDF failed", err);
       const body = tableFromRows(["Customer","Current","1-30","31-60","61-90","90+","Total"], rows);
       await downloadHtmlDocument("aging.html", "Receivable Aging", body);
-      toast("PDF failed — HTML file ready instead");
+      toast("PDF failed - HTML file ready instead");
     }
   }
 }
@@ -5139,9 +9343,43 @@ function runGlobalSearch(q){
   if(!q) return;
   const ql = q.toLowerCase();
   const hits = [];
+  const seenInv = new Set();
+  const pushInvoice = (i, detailExtra)=>{
+    if(seenInv.has(i.id)) return;
+    seenInv.add(i.id);
+    hits.push({
+      type: "Invoice",
+      ref: i.invNo,
+      detail: [i.customer, i.subAccount, detailExtra].filter(Boolean).join(" · "),
+      page: "invoices",
+      go: ()=>{ showPage("invoices"); editInvoice(i.id); }
+    });
+  };
   invoices.forEach(i=>{
-    if(`${i.invNo} ${i.customer} ${i.vehicle} ${i.lpo} ${i.manualNo||""} ${i.computerNo||""}`.toLowerCase().includes(ql))
-      hits.push({ type:"Invoice", ref:i.invNo, detail:i.customer, page:"invoices", go:()=>{ showPage("invoices"); invoiceSearch.value=q; renderInvoices(); }});
+    if(`${i.invNo} ${i.customer} ${i.subAccount||""} ${i.vehicle} ${i.lpo} ${i.manualNo||""} ${i.computerNo||""}`.toLowerCase().includes(ql))
+      pushInvoice(i);
+  });
+  // Sub-account name (e.g. Jamal / Naser) → all invoices under that sub
+  customers.forEach(c=>{
+    customerSubAccounts(c.name).forEach(sub=>{
+      if(!sub.name.toLowerCase().includes(ql)) return;
+      hits.push({
+        type: "Sub-account",
+        ref: sub.name,
+        detail: c.name,
+        page: "statements",
+        go: ()=>{
+          showPage("statements");
+          const sel = document.getElementById("stmtCustomer");
+          if(sel) sel.value = c.name;
+          syncStmtSubAccountField(sub.name);
+          fillStatement();
+        }
+      });
+      invoices.filter(i=>
+        i.customer === c.name && String(i.subAccount || "").trim().toLowerCase() === sub.name.toLowerCase()
+      ).forEach(i=> pushInvoice(i, "Sub: " + sub.name));
+    });
   });
   customers.forEach(c=>{
     if(`${c.code} ${c.name} ${c.mobile} ${c.trn} ${c.contact}`.toLowerCase().includes(ql))
@@ -5149,11 +9387,11 @@ function runGlobalSearch(q){
   });
   vehicles.forEach(v=>{
     if(`${v.plate} ${v.vin} ${v.make} ${v.model} ${v.customer} ${v.engine}`.toLowerCase().includes(ql))
-      hits.push({ type:"Vehicle", ref:v.plate, detail:`${v.make} ${v.model} · ${v.vin||""}`, page:"vehicles", go:()=>{ showPage("vehicles"); const s=document.getElementById("vehicleSearch"); if(s){ s.value=v.plate||q; renderVehicles(); } }});
+      hits.push({ type:"Vehicle", ref:v.plate, detail:`${v.make} ${v.model} - ${v.vin||""}`, page:"vehicles", go:()=>{ showPage("vehicles"); const s=document.getElementById("vehicleSearch"); if(s){ s.value=v.plate||q; renderVehicles(); } }});
   });
   products.forEach(p=>{
     if(`${p.name} ${p.code} ${p.category}`.toLowerCase().includes(ql))
-      hits.push({ type:"Product", ref:p.code||p.name, detail:p.name, page:"product-catalog", go:()=>{ showPage("product-catalog"); const s=document.getElementById("productSearch"); if(s){ s.value=q; renderProducts(); } }});
+      hits.push({ type:"Product", ref:p.code||p.name, detail:p.name, page:"product-catalog", go:()=>{ showPage("product-catalog"); }});
   });
   services.forEach(s=>{
     if(`${s.name} ${s.category}`.toLowerCase().includes(ql))
@@ -5164,16 +9402,16 @@ function runGlobalSearch(q){
       hits.push({ type:"Cheque", ref:c.chequeNo, detail:c.customer, page:"cheques", go:()=> showPage("cheques") });
   });
   receipts.forEach(r=>{
-    if(`${r.rvNo} ${r.customer} ${r.chequeNo} ${r.ref}`.toLowerCase().includes(ql))
-      hits.push({ type:"Receipt", ref:r.rvNo, detail:r.customer, page:"receipts", go:()=>{ showPage("receipts"); if(receiptSearch){ receiptSearch.value=q; renderReceipts(); }}});
+    if(`${r.rvNo} ${r.customer} ${r.subAccount||""} ${r.chequeNo} ${r.ref}`.toLowerCase().includes(ql))
+      hits.push({ type:"Receipt", ref:r.rvNo, detail:[r.customer, r.subAccount].filter(Boolean).join(" · "), page:"receipts", go:()=>{ showPage("receipts"); if(receiptSearch){ receiptSearch.value=q; renderReceipts(); }}});
   });
   const box = document.getElementById("searchResults");
   const overlay = document.getElementById("searchOverlay");
   if(!hits.length){
-    box.innerHTML = `<p class="empty">No matches for “${esc(q)}”</p>`;
+    box.innerHTML = `<p class="empty">No matches for -${esc(q)}-</p>`;
   }else{
     box.innerHTML = `<table class="table"><thead><tr><th>Type</th><th>Reference</th><th>Detail</th></tr></thead><tbody>` +
-      hits.slice(0,40).map((h,i)=> `<tr data-hit="${i}" style="cursor:pointer"><td>${esc(h.type)}</td><td>${esc(h.ref)}</td><td>${esc(h.detail)}</td></tr>`).join("") +
+      hits.slice(0,60).map((h,i)=> `<tr data-hit="${i}" style="cursor:pointer"><td>${esc(h.type)}</td><td>${esc(h.ref)}</td><td>${esc(h.detail)}</td></tr>`).join("") +
       `</tbody></table>`;
     box.querySelectorAll("[data-hit]").forEach(tr=>{
       tr.onclick = ()=>{ overlay.hidden = true; hits[Number(tr.dataset.hit)].go(); };
@@ -5183,34 +9421,18 @@ function runGlobalSearch(q){
 }
 
 function refreshNotifications(){
-  const items = [];
-  if(window._s4ExpiryBanner){
-    items.push({
-      title: window._s4ExpiryBanner.title,
-      detail: window._s4ExpiryBanner.detail,
-      page: "settings"
-    });
-  }
-  const overdue = invoices.filter(i=> invStatus(i) === "Overdue");
-  if(overdue.length) items.push({ title:`${overdue.length} overdue invoice(s)`, detail: money(overdue.reduce((s,i)=>s+invBalance(i),0)), page:"aging" });
-  const pendingChq = cheques.filter(c=> c.status === "Pending" || c.status === "Deposited");
-  if(pendingChq.length) items.push({ title:`${pendingChq.length} pending cheque(s)`, detail: money(pendingChq.reduce((s,c)=>s+num(c.amount),0)), page:"cheques" });
-  const unalloc = receipts.filter(r=> num(r.unallocated) > 0.009 && receiptAffectsBalance(r));
-  if(unalloc.length) items.push({ title:`${unalloc.length} unallocated receipt(s)`, detail: money(unalloc.reduce((s,r)=>s+num(r.unallocated),0)), page:"allocation" });
-  const hold = customers.filter(c=> c.status === "Hold" || c.status === "Blocked");
-  if(hold.length) items.push({ title:`${hold.length} customer(s) on hold/blocked`, detail:"", page:"customers" });
-  const countEl = document.getElementById("notifCount");
+  const items = buildNotificationItems();
+  const unread = unreadNotificationCount(items);
+  setNotifBadge(unread);
   const list = document.getElementById("notifList");
-  if(countEl){
-    countEl.textContent = String(items.length);
-    countEl.hidden = items.length === 0;
-  }
   if(list){
     list.innerHTML = items.length
       ? items.map(it=> `<div class="notif-item" data-page="${it.page}"><b>${esc(it.title)}</b><span class="muted">${esc(it.detail)}</span></div>`).join("")
       : `<div class="notif-item muted">No alerts</div>`;
     list.querySelectorAll("[data-page]").forEach(el=>{
       el.onclick = ()=>{
+        acknowledgeNotifications(items);
+        setNotifBadge(0);
         document.getElementById("notifPanel").hidden = true;
         if(el.dataset.page === "settings"){
           showPage("settings");
@@ -5218,6 +9440,7 @@ function refreshNotifications(){
         }else{
           showPage(el.dataset.page);
         }
+        refreshNotifications();
       };
     });
   }
@@ -5229,8 +9452,8 @@ function renderBackupPage(){
   const cards = document.getElementById("backupCards");
   if(cards){
     cards.innerHTML = [
-      ["LAST BACKUP", last ? new Date(last.at).toLocaleString() : "—", last ? last.status : "None yet"],
-      ["BACKUP SIZE", last ? formatBytes(last.size) : "—", last?.name || ""],
+      ["LAST BACKUP", last ? new Date(last.at).toLocaleString() : "-", last ? last.status : "None yet"],
+      ["BACKUP SIZE", last ? formatBytes(last.size) : "-", last?.name || ""],
       ["RETENTION", "40 local entries", "Drive folder keeps files"]
     ].map(([a,b,c])=> `<div class="card"><div class="metric-label">${a}</div><div class="metric" style="font-size:17px">${esc(b)}</div><div class="metric-note">${esc(c)}</div></div>`).join("");
   }
@@ -5239,7 +9462,7 @@ function renderBackupPage(){
     rows.innerHTML = hist.length ? hist.map(h=> `<tr>
       <td>${esc(new Date(h.at).toLocaleString())}</td><td>${esc(h.type)}</td><td>${esc(formatBytes(h.size))}</td>
       <td>${badge(h.status||"Successful")}</td>
-      <td>${h.driveId?`<button class="btn small" type="button" data-dl="${h.driveId}">Open list</button>`:"—"}</td>
+      <td>${h.driveId?`<button class="btn small" type="button" data-dl="${h.driveId}">Open list</button>`:"-"}</td>
     </tr>`).join("") : `<tr><td colspan="5" class="empty">No local backup history yet</td></tr>`;
     rows.querySelectorAll("[data-dl]").forEach(b=> b.onclick = ()=> refreshDriveBackupList());
   }
@@ -5261,7 +9484,7 @@ async function refreshDriveBackupList(){
     const list = await listBackups();
     el.innerHTML = `<p class="muted" style="margin:12px 0 8px">Drive folder files</p>` +
       (list.length ? `<table class="table"><thead><tr><th>Name</th><th>Date</th><th>Size</th></tr></thead><tbody>` +
-        list.map(f=> `<tr><td>${esc(f.name)}</td><td>${esc(f.createdTime?new Date(f.createdTime).toLocaleString():"—")}</td><td>${esc(formatBytes(f.size))}</td></tr>`).join("") +
+        list.map(f=> `<tr><td>${esc(f.name)}</td><td>${esc(f.createdTime?new Date(f.createdTime).toLocaleString():"-")}</td><td>${esc(formatBytes(f.size))}</td></tr>`).join("") +
         `</tbody></table>` : `<p class="muted">No backups on Drive</p>`);
   }catch(e){ toast(e.message); }
 }
