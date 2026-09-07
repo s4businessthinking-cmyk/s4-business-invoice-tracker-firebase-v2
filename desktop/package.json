@@ -1,6 +1,6 @@
 {
   "name": "s4-invoice-tracker-desktop",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "S4-BUSINESS Invoice Tracker — Windows desktop shell",
   "main": "main.js",
   "author": "S4-BUSINESS",

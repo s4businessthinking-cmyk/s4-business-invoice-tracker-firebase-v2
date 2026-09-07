@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>S4 Workshop ERP</title>
-<link rel="stylesheet" href="tracker.css?v=177">
+<link rel="stylesheet" href="tracker.css?v=178">
 <link rel="icon" href="icons/favicon.ico" sizes="any">
 <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
 <link rel="icon" href="icons/icon-512.png" type="image/png" sizes="512x512">
@@ -84,11 +84,11 @@
 </script>
 
 <div id="authOverlay"><div id="authCard">
-<button type="button" class="auth-theme-btn" data-theme-toggle aria-label="Toggle brightness" title="Dark mode"><span class="theme-toggle-ico">??</span></button>
+<button type="button" class="auth-theme-btn" data-theme-toggle aria-label="Toggle brightness" title="Dark mode"><span class="theme-toggle-ico">&#127769;</span></button>
 <img class="auth-logo" src="branding/logo-full.png" alt="S4 Business Managements Servers">
 <p id="authSubtitle"></p>
 <div id="configFields">
-<p id="configHint">Paste this shop-s Firebase Web config.<br>Firebase Console ? Project Settings ? Your apps ? Web</p>
+<p id="configHint">Paste this shop's Firebase Web config.<br>Firebase Console &rarr; Project Settings &rarr; Your apps &rarr; Web</p>
 <textarea id="configPaste" placeholder='{ apiKey: "...", authDomain: "...", projectId: "...", appId: "..." }'></textarea>
 <button type="button" id="configSaveBtn">Connect Firebase</button>
 <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);text-align:left">
@@ -107,12 +107,12 @@
 <div class="pw-wrap"><input id="setupPassword" type="password" placeholder="Password"><button type="button" class="pw-toggle" data-pw="setupPassword" aria-label="Show password">Show</button></div>
 <div class="pw-wrap"><input id="setupPassword2" type="password" placeholder="Confirm password"><button type="button" class="pw-toggle" data-pw="setupPassword2" aria-label="Show password">Show</button></div>
 <button type="button" id="setupBtn">Create Account</button>
-<button type="button" id="showLoginFromSetupBtn" class="auth-link">? Back to Login</button>
+<button type="button" id="showLoginFromSetupBtn" class="auth-link">&#8592; Back to Login</button>
 </div>
 <div id="verifyFields" style="display:none;text-align:center;padding:8px 0;">
 <div id="verifyMsg" style="font-size:0.9rem;margin-bottom:14px;"></div>
 <button type="button" id="resendVerifyBtn" class="auth-link">Resend verification email</button>
-<button type="button" id="verifyBackBtn" class="auth-link">? Back to Login</button>
+<button type="button" id="verifyBackBtn" class="auth-link">&#8592; Back to Login</button>
 </div>
 <div id="loginFields">
 <input id="loginEmail" type="email" placeholder="Email">
@@ -128,7 +128,7 @@
 <div class="pw-wrap"><input id="staffPassword" type="password" placeholder="Password"><button type="button" class="pw-toggle" data-pw="staffPassword" aria-label="Show password">Show</button></div>
 <div class="pw-wrap"><input id="staffPassword2" type="password" placeholder="Confirm password"><button type="button" class="pw-toggle" data-pw="staffPassword2" aria-label="Show password">Show</button></div>
 <button type="button" id="staffSignupBtn">Create Account</button>
-<button type="button" id="showLoginBtn" class="auth-link">? Login</button>
+<button type="button" id="showLoginBtn" class="auth-link">&#8592; Login</button>
 </div>
 <div id="authMsg"></div></div></div>
 
@@ -153,8 +153,8 @@
 <main class="main">
 <header class="topbar">
   <div class="top-left">
-    <button class="mobile-back" id="mobileBackBtn" type="button" aria-label="Back" title="Back" hidden>?</button>
-    <button class="mobile-menu" id="menu">?</button>
+    <button class="mobile-back" id="mobileBackBtn" type="button" aria-label="Back" title="Back" hidden>&#8592;</button>
+    <button class="mobile-menu" id="menu">&#9776;</button>
     <div class="top-context">
       <div class="shop-name" id="topShopName" title="">S4 BUSINESS</div>
       <div class="top-meta">
@@ -172,9 +172,9 @@
       <span class="top-user-avatar" id="topUserAvatar">-</span>
       <span class="top-user-name" id="topUserName">-</span>
     </div>
-    <button class="btn small theme-toggle-btn" type="button" data-theme-toggle aria-label="Toggle brightness" title="Dark mode"><span class="theme-toggle-ico">??</span></button>
+    <button class="btn small theme-toggle-btn" type="button" data-theme-toggle aria-label="Toggle brightness" title="Dark mode"><span class="theme-toggle-ico">&#127769;</span></button>
     <div class="notif-wrap">
-      <button class="btn small" id="notifBtn" type="button" title="Notifications">?? <span id="notifCount" class="notif-count" hidden>0</span></button>
+      <button class="btn small" id="notifBtn" type="button" title="Notifications">&#128276; <span id="notifCount" class="notif-count" hidden>0</span></button>
       <div class="notif-panel" id="notifPanel" hidden>
         <div class="notif-head">Alerts</div>
         <div id="notifList" class="notif-list"></div>
@@ -248,7 +248,7 @@
 </section>
 
 <section class="page" id="purchase-invoices">
-<div class="page-head"><div><h1>Purchase</h1><div class="muted">PRQ ? PO ? GRN ? PI ? Return / Payment (AP)</div></div>
+<div class="page-head"><div><h1>Purchase</h1><div class="muted">PRQ &rarr; PO &rarr; GRN &rarr; PI &rarr; Return / Payment (AP)</div></div>
 <div class="actions">
 <button class="btn" type="button" data-open="prqModal">+ Purchase Requisition</button>
 <button class="btn" type="button" data-open="poModal">+ Purchase Order</button>
@@ -316,12 +316,12 @@
 <section class="page" id="allocation">
 <div class="page-head"><div><h1>Allocation</h1><div class="muted">Apply unallocated receipts or credit notes to open invoices</div></div></div>
 
-<div class="panel"><div class="panel-head"><h2>Receipt ? Invoice</h2><button class="btn primary small" type="button" id="saveAllocBtn">Save Receipt Allocation</button></div>
+<div class="panel"><div class="panel-head"><h2>Receipt &rarr; Invoice</h2><button class="btn primary small" type="button" id="saveAllocBtn">Save Receipt Allocation</button></div>
 <div class="panel-body"><div class="form-grid"><div class="field"><label>RECEIPT</label><select id="allocReceipt"></select></div><div class="field"><label>CUSTOMER</label><input id="allocCustomer" readonly></div><div class="field"><label>UNALLOCATED</label><input id="allocUnalloc" readonly></div></div></div>
 <div class="table-wrap"><table class="table"><thead><tr><th>Select</th><th>Invoice</th><th>Invoice Date</th><th>Due Date</th><th>Original</th><th>Outstanding</th><th>Allocate</th><th>Status</th></tr></thead><tbody id="allocRows"></tbody></table></div>
 </div>
 
-<div class="panel" style="margin-top:18px"><div class="panel-head"><h2>Credit Note ? Invoice</h2><button class="btn primary small" type="button" id="saveCnAllocBtn">Save CN Allocation</button></div>
+<div class="panel" style="margin-top:18px"><div class="panel-head"><h2>Credit Note &rarr; Invoice</h2><button class="btn primary small" type="button" id="saveCnAllocBtn">Save CN Allocation</button></div>
 <div class="panel-body"><div class="form-grid"><div class="field"><label>CREDIT NOTE</label><select id="allocCn"></select></div><div class="field"><label>CUSTOMER</label><input id="allocCnCustomer" readonly></div><div class="field"><label>OPEN CREDIT</label><input id="allocCnOpen" readonly></div></div>
 <p class="muted" style="margin:8px 0 0;font-size:13px">Unlinked CN credit sits on the customer ledger until you allocate it here (reduces invoice balance via credited).</p>
 </div>
@@ -343,7 +343,7 @@
 <div class="page-head"><div><h1>Customer Statements</h1><div class="muted">Print, PDF and share customer account statements</div></div><button class="btn primary" type="button" id="genStmtBtn">Generate Statement</button></div>
 <div class="panel"><div class="panel-body"><div class="form-grid stmt-form-grid">
 <div class="field span2"><label>CUSTOMER</label><select id="stmtCustomer"></select></div>
-<div class="field" id="stmtSubAccountField"><label>SUB-ACCOUNT</label><select id="stmtSubAccount"><option value="">ALL</option></select><p class="field-hint muted" id="stmtSubHint" hidden>No sub-accounts on this customer — add in Customer Master</p></div>
+<div class="field" id="stmtSubAccountField"><label>SUB-ACCOUNT</label><select id="stmtSubAccount"><option value="">ALL</option></select><p class="field-hint muted" id="stmtSubHint" hidden>No sub-accounts on this customer ï¿½ add in Customer Master</p></div>
 <div class="field"><label>PERIOD</label><select id="stmtPeriodMode"><option value="custom" selected>Date to date</option><option value="monthly">Monthly</option></select></div>
 <div class="field stmt-period-monthly"><label>MONTH</label><select id="stmtPeriodMonth"><option value="0">January</option><option value="1">February</option><option value="2">March</option><option value="3">April</option><option value="4">May</option><option value="5">June</option><option value="6">July</option><option value="7">August</option><option value="8">September</option><option value="9">October</option><option value="10">November</option><option value="11">December</option></select></div>
 <div class="field stmt-period-monthly"><label>YEAR</label><input id="stmtPeriodYear" type="number" min="2000" max="2100"></div>
@@ -362,9 +362,9 @@
 </select></div>
 </div>
 <div class="stmt-od-legend muted" id="stmtOdLegend" style="margin-top:10px;font-size:12px;display:flex;flex-wrap:wrap;gap:10px 16px">
-<span><i class="stmt-swatch stmt-od-30"></i> 1–30 days</span>
-<span><i class="stmt-swatch stmt-od-60"></i> 31–60 days</span>
-<span><i class="stmt-swatch stmt-od-90"></i> 61–90 days</span>
+<span><i class="stmt-swatch stmt-od-30"></i> 1ï¿½30 days</span>
+<span><i class="stmt-swatch stmt-od-60"></i> 31ï¿½60 days</span>
+<span><i class="stmt-swatch stmt-od-90"></i> 61ï¿½90 days</span>
 <span><i class="stmt-swatch stmt-od-90p"></i> 90+ days</span>
 </div>
 <label class="stmt-txn-toggle span3"><input type="checkbox" id="stmtShowPeriodTxns"> Show <b>Transactions in this period</b> on statement (Print / PDF)</label>
@@ -451,7 +451,7 @@
 </div></div>
 <div class="panel" id="permPanel" hidden>
 <div class="panel-head users-perm-head">
-<button type="button" class="btn small users-perm-back" id="permBackBtn">? Back</button>
+<button type="button" class="btn small users-perm-back" id="permBackBtn">&#8592; Back</button>
 <div class="users-perm-title"><h2>Permissions</h2><div class="muted" id="permStaffName">Staff</div></div>
 <button class="btn primary small" type="button" id="savePermBtn">Save Permissions</button>
 </div>
@@ -468,7 +468,7 @@
 
 <section class="page" id="workshop">
 <div class="page-head">
-<div><h1>Workshop Operations</h1><div class="muted">Job card ? parts issue ? stock OUT</div></div>
+<div><h1>Workshop Operations</h1><div class="muted">Job card &rarr; parts issue &rarr; stock OUT</div></div>
 <div class="actions">
 <button class="btn" type="button" data-open="partsIssueModal" id="openPartsIssueBtn">+ Parts Issue</button>
 <button class="btn primary" type="button" data-open="jobCardModal" id="openJobCardBtn">+ Job Card</button>
@@ -477,7 +477,7 @@
 <div class="panel">
 <div class="panel-body">
 <div class="toolbar">
-<input class="search" id="jobCardSearch" placeholder="Job no, customer, plate, technician, status…">
+<input class="search" id="jobCardSearch" placeholder="Job no, customer, plate, technician, statusï¿½">
 <div class="filters" id="jobCardFilters">
 <button class="btn small active" type="button" data-status="">All</button>
 <button class="btn small" type="button" data-status="Draft">Draft</button>
@@ -494,7 +494,7 @@
 <div class="panel">
 <div class="panel-head"><h2>Parts Issues</h2></div>
 <div class="panel-body">
-<div class="toolbar"><input class="search" id="partsIssueSearch" placeholder="Issue no, job, customer, plate…"></div>
+<div class="toolbar"><input class="search" id="partsIssueSearch" placeholder="Issue no, job, customer, plateï¿½"></div>
 <div class="table-wrap"><table class="table"><thead><tr><th>Issue No</th><th>Date</th><th>Job No</th><th>Customer</th><th>Vehicle</th><th>Qty</th><th>Warehouse</th><th>Status</th></tr></thead><tbody id="partsIssueRows"></tbody></table></div>
 </div>
 </div>
@@ -527,13 +527,13 @@
 <div class="panel-body"><div class="table-wrap"><table class="table"><thead><tr><th>Count No</th><th>Date</th><th>Warehouse</th><th>Lines</th><th>Variances</th><th>By</th></tr></thead><tbody id="invCountRows"></tbody></table></div></div></div>
 <div class="panel"><div class="panel-head"><h2>Inter-Branch Requests</h2></div>
 <div class="panel-body"><div class="table-wrap"><table class="table"><thead><tr><th>Request No</th><th>Date</th><th>Product</th><th>Qty</th><th>From Branch</th><th>To Branch</th><th>Status</th><th></th></tr></thead><tbody id="invBranchReqRows"></tbody></table></div>
-<p class="muted inv-entry-hint" id="ibrListHint" hidden>Add a second branch in Settings ? Branches to request stock between locations.</p>
+<p class="muted inv-entry-hint" id="ibrListHint" hidden>Add a second branch in Settings &rarr; Branches to request stock between locations.</p>
 </div></div>
 </section>
 
 <section class="page" id="accounts">
 <div class="page-head"><div><h1>Accounting</h1><div class="muted">GL, cash/bank, journals, period closing</div></div></div>
-<div class="panel"><div class="panel-body foundation-placeholder"><p><b>Build Order -7 - Accounting</b></p><p class="muted">Posted transactions ? subledger ? journal ? GL.</p></div></div>
+<div class="panel"><div class="panel-body foundation-placeholder"><p><b>Build Order -7 - Accounting</b></p><p class="muted">Posted transactions &rarr; subledger &rarr; journal &rarr; GL.</p></div></div>
 </section>
 
 <section class="page" id="vat">
@@ -561,39 +561,39 @@
 <div class="page-head"><div><h1>Settings</h1><div class="muted">Choose an option below</div></div></div>
 <div class="settings-menu">
 <button type="button" class="settings-menu-card" data-settings-view="company">
-<span class="settings-menu-ico">-</span>
+<span class="settings-menu-ico">&#128188;</span>
 <span class="settings-menu-text"><b>Company &amp; Numbering</b><span class="muted">Legal profile, operating mode, TRN, prefixes, VAT</span></span>
-<span class="settings-menu-arrow">-</span>
+<span class="settings-menu-arrow">&rsaquo;</span>
 </button>
 <button type="button" class="settings-menu-card" data-settings-view="branches">
-<span class="settings-menu-ico">?</span>
+<span class="settings-menu-ico">&#127970;</span>
 <span class="settings-menu-text"><b>Branches</b><span class="muted">Multi-branch codes, addresses, default branch</span></span>
-<span class="settings-menu-arrow">-</span>
+<span class="settings-menu-arrow">&rsaquo;</span>
 </button>
 <button type="button" class="settings-menu-card" data-settings-view="license">
-<span class="settings-menu-ico">?</span>
+<span class="settings-menu-ico">&#128273;</span>
 <span class="settings-menu-text"><b>License &amp; Trial</b><span class="muted">15-day trial, activate license, device fingerprint</span></span>
-<span class="settings-menu-arrow">-</span>
+<span class="settings-menu-arrow">&rsaquo;</span>
 </button>
 <button type="button" class="settings-menu-card" data-settings-view="help">
-<span class="settings-menu-ico">?</span>
+<span class="settings-menu-ico">&#128172;</span>
 <span class="settings-menu-text"><b>Help &amp; Support</b><span class="muted">WhatsApp, Facebook, email, website</span></span>
-<span class="settings-menu-arrow">-</span>
+<span class="settings-menu-arrow">&rsaquo;</span>
 </button>
 <button type="button" class="settings-menu-card" data-settings-view="invoice">
-<span class="settings-menu-ico">?</span>
+<span class="settings-menu-ico">&#128196;</span>
 <span class="settings-menu-text"><b>Invoice Entry</b><span class="muted">Detailed line items or total amount only</span></span>
-<span class="settings-menu-arrow">-</span>
+<span class="settings-menu-arrow">&rsaquo;</span>
 </button>
 <button type="button" class="settings-menu-card" data-settings-view="backup">
-<span class="settings-menu-ico">?</span>
+<span class="settings-menu-ico">&#128190;</span>
 <span class="settings-menu-text"><b>Backup &amp; Recovery</b><span class="muted">Google Drive extra copy of shop data</span></span>
-<span class="settings-menu-arrow">-</span>
+<span class="settings-menu-arrow">&rsaquo;</span>
 </button>
 <button type="button" class="settings-menu-card" data-settings-view="appearance">
-<span class="settings-menu-ico">?</span>
+<span class="settings-menu-ico">&#127912;</span>
 <span class="settings-menu-text"><b>Appearance</b><span class="muted">Light or dark brightness for this PC</span></span>
-<span class="settings-menu-arrow">-</span>
+<span class="settings-menu-arrow">&rsaquo;</span>
 </button>
 </div>
 </div>
@@ -601,7 +601,7 @@
 <div id="settingsCompany" class="settings-sub" hidden>
 <div class="page-head settings-sub-head">
 <div class="settings-sub-title">
-<button type="button" class="btn small settings-back-btn" data-settings-back>? Back</button>
+<button type="button" class="btn small settings-back-btn" data-settings-back>&#8592; Back</button>
 <div><h1>Company &amp; Numbering</h1><div class="muted">Shop profile and document numbering</div></div>
 </div>
 <button class="btn primary" type="button" id="saveSettingsBtn">Save Changes</button>
@@ -623,13 +623,13 @@
 <div class="field"><label>VAT RATE %</label><input id="setVat" type="number" value="5"></div>
 </div>
 <div class="actions" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
-<button class="btn" type="button" id="changeFirebaseConfigBtn">?? Change Firebase Config</button>
+<button class="btn" type="button" id="changeFirebaseConfigBtn">&#9881; Change Firebase Config</button>
 <p class="muted" style="margin:8px 0 0;font-size:12px">Clears this device-s Firebase connection so you can paste a different shop config. You will need to login again.</p>
 </div>
 </div></div>
 <div class="panel"><div class="panel-body">
 <div class="help-support-head">
-<span class="help-support-ico">?</span>
+<span class="help-support-ico">&#128172;</span>
 <div><b>Firebase Storage</b><div class="muted">Spark free plan FYI - not a hard block</div></div>
 </div>
 <p class="muted" style="margin:0 0 10px;font-size:13px;line-height:1.5">Firestore Spark has a <b>1GB total storage</b> cap that does not reset. Blaze (pay-as-you-go) also includes ~1GB free; extra GB has a small charge (~$0.18/GB/month - confirm on the Firebase pricing page).</p>
@@ -640,7 +640,7 @@
 <div id="settingsBranches" class="settings-sub" hidden>
 <div class="page-head settings-sub-head">
 <div class="settings-sub-title">
-<button type="button" class="btn small settings-back-btn" data-settings-back>? Back</button>
+<button type="button" class="btn small settings-back-btn" data-settings-back>&#8592; Back</button>
 <div><h1>Branches</h1><div class="muted">Multi-branch workshop locations</div></div>
 </div>
 <button class="btn primary" type="button" id="addBranchBtn">+ Add Branch</button>
@@ -662,8 +662,8 @@
 <div id="settingsLicense" class="settings-sub" hidden>
 <div class="page-head settings-sub-head">
 <div class="settings-sub-title">
-<button type="button" class="btn small settings-back-btn" data-settings-back>? Back</button>
-<div><h1>License &amp; Trial</h1><div class="muted">One PC ? one license key</div></div>
+<button type="button" class="btn small settings-back-btn" data-settings-back>&#8592; Back</button>
+<div><h1>License &amp; Trial</h1><div class="muted">One PC &rarr; one license key</div></div>
 </div>
 </div>
 <div class="panel"><div class="panel-body">
@@ -685,14 +685,14 @@
 <div id="settingsHelp" class="settings-sub" hidden>
 <div class="page-head settings-sub-head">
 <div class="settings-sub-title">
-<button type="button" class="btn small settings-back-btn" data-settings-back>? Back</button>
+<button type="button" class="btn small settings-back-btn" data-settings-back>&#8592; Back</button>
 <div><h1>Help &amp; Support</h1><div class="muted">Contact S4 Business Thinking</div></div>
 </div>
 </div>
 <div class="panel"><div class="panel-body">
 <div class="help-support">
 <div class="help-support-head">
-<span class="help-support-ico" aria-hidden="true">?</span>
+<span class="help-support-ico" aria-hidden="true">&#128172;</span>
 <div>
 <p class="muted" style="margin:0">Report software problems, bugs, or errors. Send new feature ideas if you need extra options.</p>
 </div>
@@ -723,7 +723,7 @@
 <div id="settingsInvoice" class="settings-sub" hidden>
 <div class="page-head settings-sub-head">
 <div class="settings-sub-title">
-<button type="button" class="btn small settings-back-btn" data-settings-back>? Back</button>
+<button type="button" class="btn small settings-back-btn" data-settings-back>&#8592; Back</button>
 <div><h1>Invoice Entry</h1><div class="muted">Shop-wide mode (Owner sets - all staff get the same)</div></div>
 </div>
 </div>
@@ -746,7 +746,7 @@
 <button type="button" class="theme-option" data-invoice-billing="monthly" id="invoiceBillingMonthlyBtn">
 <span class="theme-preview theme-preview-dark"></span>
 <b>Month &amp; Year</b>
-<span class="muted">January, February… — full-month invoice (TOTAL MODE default)</span>
+<span class="muted">January, Februaryï¿½ ï¿½ full-month invoice (TOTAL MODE default)</span>
 </button>
 <button type="button" class="theme-option" data-invoice-billing="date" id="invoiceBillingDateBtn">
 <span class="theme-preview theme-preview-light"></span>
@@ -760,7 +760,7 @@
 <div id="settingsBackup" class="settings-sub" hidden>
 <div class="page-head settings-sub-head">
 <div class="settings-sub-title">
-<button type="button" class="btn small settings-back-btn" data-settings-back>? Back</button>
+<button type="button" class="btn small settings-back-btn" data-settings-back>&#8592; Back</button>
 <div><h1>Backup &amp; Recovery</h1><div class="muted">Google Drive extra copy (Firebase is the main database)</div></div>
 </div>
 <button class="btn primary" type="button" id="driveBackupBtn">Run Backup</button>
@@ -774,8 +774,8 @@
 </div>
 <div class="actions">
 <button class="btn" type="button" id="driveRestoreBtn">Refresh Drive list</button>
-<button class="btn" type="button" id="localBackupBtn">?? Local file backup</button>
-<button class="btn" type="button" id="localRestoreBtn">?? Restore from local file</button>
+<button class="btn" type="button" id="localBackupBtn">&#128190; Local file backup</button>
+<button class="btn" type="button" id="localRestoreBtn">&#128229; Restore from local file</button>
 <input type="file" id="localRestoreFile" accept="application/json,.json" hidden>
 </div>
 <p class="muted" style="margin:10px 0 0;font-size:12px">Local backup: Documents/S4 Invoice Backups on PC, Downloads on mobile. Drive backup stays separate.</p>
@@ -791,7 +791,7 @@
 <div id="settingsAppearance" class="settings-sub" hidden>
 <div class="page-head settings-sub-head">
 <div class="settings-sub-title">
-<button type="button" class="btn small settings-back-btn" data-settings-back>? Back</button>
+<button type="button" class="btn small settings-back-btn" data-settings-back>&#8592; Back</button>
 <div><h1>Appearance</h1><div class="muted">Choose light or dark brightness</div></div>
 </div>
 </div>
@@ -816,7 +816,7 @@
 </div></main></div><!-- /#app -->
 
 <div class="drawer drawer--pane drawer--erp" id="stockAdjModal"><div class="modal modal--erp">
-<div class="pi-titlebar">OPENING / STOCK ADJUSTMENT<span class="pi-titlebar-sub">Positive = stock IN - Negative = stock OUT</span><button class="close pi-close" type="button" data-close="stockAdjModal" title="Close">-</button></div>
+<div class="pi-titlebar">OPENING / STOCK ADJUSTMENT<span class="pi-titlebar-sub">Positive = stock IN - Negative = stock OUT</span><button class="close pi-close" type="button" data-close="stockAdjModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body">
 <div class="form-grid">
 <div class="field span2"><label>PRODUCT *</label><select id="stkAdjProduct"></select></div>
@@ -830,7 +830,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="stockTransferModal"><div class="modal modal--erp">
-<div class="pi-titlebar">STOCK TRANSFER<span class="pi-titlebar-sub">Move stock between warehouses</span><button class="close pi-close" type="button" data-close="stockTransferModal" title="Close">-</button></div>
+<div class="pi-titlebar">STOCK TRANSFER<span class="pi-titlebar-sub">Move stock between warehouses</span><button class="close pi-close" type="button" data-close="stockTransferModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body">
 <div class="form-grid">
 <div class="field"><label>TRANSFER NO.</label><input id="stkTrNo" readonly></div>
@@ -847,7 +847,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="stockCountModal"><div class="modal modal--erp">
-<div class="pi-titlebar">STOCK COUNT<span class="pi-titlebar-sub">Physical qty vs system - variance posts to ledger</span><button class="close pi-close" type="button" data-close="stockCountModal" title="Close">-</button></div>
+<div class="pi-titlebar">STOCK COUNT<span class="pi-titlebar-sub">Physical qty vs system - variance posts to ledger</span><button class="close pi-close" type="button" data-close="stockCountModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body">
 <div class="form-grid">
 <div class="field"><label>COUNT NO.</label><input id="stkCountNo" readonly></div>
@@ -861,14 +861,14 @@
 <button class="btn small" type="button" id="stkCountAddLineBtn">+ Add product</button>
 </div>
 <div class="table-wrap"><table class="table"><thead><tr><th>Product</th><th>Code</th><th>System Qty</th><th>Physical Qty</th><th>Variance</th><th>Reason</th><th></th></tr></thead><tbody id="stkCountRows"></tbody></table></div>
-<p class="muted inv-entry-hint" id="stkCountHint">Load warehouse stock or add products ? enter physical qty ? Post Count</p>
+<p class="muted inv-entry-hint" id="stkCountHint">Load warehouse stock or add products &rarr; enter physical qty &rarr; Post Count</p>
 </div>
 </div>
 <div class="modal-foot pi-actions"><button class="btn small" type="button" data-close="stockCountModal">Cancel</button><button class="btn primary small" type="button" id="saveStockCountBtn">Post Count</button></div>
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="branchRequestModal"><div class="modal modal--erp">
-<div class="pi-titlebar">INTER-BRANCH QUICK REQUEST<span class="pi-titlebar-sub">Request parts from another branch - approve to post transfer</span><button class="close pi-close" type="button" data-close="branchRequestModal" title="Close">-</button></div>
+<div class="pi-titlebar">INTER-BRANCH QUICK REQUEST<span class="pi-titlebar-sub">Request parts from another branch - approve to post transfer</span><button class="close pi-close" type="button" data-close="branchRequestModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body">
 <div class="form-grid">
 <div class="field"><label>REQUEST NO.</label><input id="ibrReqNo" readonly></div>
@@ -881,13 +881,13 @@
 <div class="field"><label>FROM WAREHOUSE (SUPPLY) *</label><select id="ibrFromWarehouse"></select></div>
 <div class="field"><label>TO WAREHOUSE (THIS) *</label><select id="ibrToWarehouse"></select></div>
 <div class="field span3"><label>REASON / NOTES</label><input id="ibrReason" placeholder="Why this part is needed"></div>
-<p class="muted" id="ibrHint" hidden style="grid-column:1/-1;margin:4px 0 0;font-size:12px">Add a second branch in Settings ? Branches before requesting stock from another location.</p>
+<p class="muted" id="ibrHint" hidden style="grid-column:1/-1;margin:4px 0 0;font-size:12px">Add a second branch in Settings &rarr; Branches before requesting stock from another location.</p>
 </div></div>
 <div class="modal-foot pi-actions"><button class="btn small" type="button" data-close="branchRequestModal">Cancel</button><button class="btn primary small" type="button" id="saveBranchRequestBtn">Create Request</button></div>
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="warehouseModal"><div class="modal modal--erp">
-<div class="pi-titlebar">WAREHOUSE<span class="pi-titlebar-sub">Stock location master</span><button class="close pi-close" type="button" data-close="warehouseModal" title="Close">-</button></div>
+<div class="pi-titlebar">WAREHOUSE<span class="pi-titlebar-sub">Stock location master</span><button class="close pi-close" type="button" data-close="warehouseModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="whId">
 <div class="form-grid">
 <div class="field"><label>CODE *</label><input id="whCode" placeholder="WH-MAIN"></div>
@@ -900,7 +900,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="supplierModal"><div class="modal modal--erp">
-<div class="pi-titlebar">SUPPLIER<span class="pi-titlebar-sub">Vendor master</span><button class="close pi-close" type="button" data-close="supplierModal" title="Close">-</button></div>
+<div class="pi-titlebar">SUPPLIER<span class="pi-titlebar-sub">Vendor master</span><button class="close pi-close" type="button" data-close="supplierModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="supId">
 <div class="form-grid">
 <div class="field"><label>CODE</label><input id="supCode"></div>
@@ -921,7 +921,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="purchaseReturnModal"><div class="modal modal--erp">
-<div class="pi-titlebar">PURCHASE RETURN<span class="pi-titlebar-sub">Return goods to vendor - stock OUT - reduces PI payable</span><button class="close pi-close" type="button" data-close="purchaseReturnModal" title="Close">-</button></div>
+<div class="pi-titlebar">PURCHASE RETURN<span class="pi-titlebar-sub">Return goods to vendor - stock OUT - reduces PI payable</span><button class="close pi-close" type="button" data-close="purchaseReturnModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="prtId">
 <div class="form-grid">
 <div class="field"><label>PRT NO.</label><input id="prtNo" readonly></div>
@@ -957,7 +957,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp rv-legacy-modal" id="vendorPaymentModal"><div class="modal modal--erp modal--tradeasy">
-<div class="pi-titlebar">VENDOR PAYMENT<span class="pi-titlebar-sub" id="vpModalSub">Pay supplier · allocate to purchase invoices</span><button class="close pi-close" type="button" data-close="vendorPaymentModal" title="Close">×</button></div>
+<div class="pi-titlebar">VENDOR PAYMENT<span class="pi-titlebar-sub" id="vpModalSub">Pay supplier ï¿½ allocate to purchase invoices</span><button class="close pi-close" type="button" data-close="vendorPaymentModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body rv-legacy-body"><input type="hidden" id="vpId">
 <input type="hidden" id="vpAmount">
 
@@ -973,8 +973,8 @@
 </div>
 
 <div class="rv-legacy-balances">
-<div class="rv-balance-box rv-balance-pending" id="vpBalancePending">Open PI Bills : —</div>
-<div class="rv-balance-box rv-balance-ledger" id="vpLedgerBalance">Vendor Outstanding: —</div>
+<div class="rv-balance-box rv-balance-pending" id="vpBalancePending">Open PI Bills : ï¿½</div>
+<div class="rv-balance-box rv-balance-ledger" id="vpLedgerBalance">Vendor Outstanding: ï¿½</div>
 </div>
 
 <div class="rv-legacy-entry">
@@ -984,19 +984,19 @@
 <div class="field compact"><label>PI Amount</label><input id="vpPiAmount" readonly></div>
 <div class="field compact"><label>Previous Paid</label><input id="vpPiPrev" readonly></div>
 <div class="field compact"><label>Balance</label><input id="vpPiBalance" readonly></div>
-<div class="field compact"><label>Current Payment</label><input id="vpPiPay" type="number" min="0" step="0.01" placeholder="0.00" title="Partial or full — tap Add PI or press Enter"></div>
+<div class="field compact"><label>Current Payment</label><input id="vpPiPay" type="number" min="0" step="0.01" placeholder="0.00" title="Partial or full ï¿½ tap Add PI or press Enter"></div>
 <div class="field compact rv-add-bill-cell"><label class="rv-add-bill-spacer">&nbsp;</label><button type="button" class="btn small primary" id="vpAddPiBtn">Add PI</button></div>
 </div>
 
 <div class="table-wrap rv-legacy-grid-wrap"><table class="table rv-legacy-grid">
 <thead><tr><th>PI No</th><th>PI Date</th><th>PI Amount</th><th>Paid Amt</th></tr></thead>
-<tbody id="vpAllocRows"><tr><td colspan="4" class="empty">Select PI ? enter amount ? Add PI ? Post Payment</td></tr></tbody>
+<tbody id="vpAllocRows"><tr><td colspan="4" class="empty">Select PI &rarr; enter amount &rarr; Add PI &rarr; Post Payment</td></tr></tbody>
 <tfoot><tr class="rv-bill-total-row"><td colspan="3" class="right"><b>TOTAL</b></td><td class="num"><b id="vpBillTotal">0.00</b></td></tr></tfoot>
 </table></div>
 
 <div class="field compact" style="margin:8px 18px 0;max-width:220px">
 <label>Vendor advance (extra)</label>
-<input id="vpAdvance" type="number" min="0" step="0.01" value="0" title="Extra cash not allocated to any PI — stays as vendor advance">
+<input id="vpAdvance" type="number" min="0" step="0.01" value="0" title="Extra cash not allocated to any PI ï¿½ stays as vendor advance">
 </div>
 <p class="muted" id="vpAdvanceHint" style="margin:6px 18px 0;font-size:11px">Allocate to PI bills above. Optional advance is unallocated credit for next payment.</p>
 
@@ -1035,7 +1035,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp drawer--rv-find" id="vpFindModal"><div class="modal modal--erp">
-<div class="pi-titlebar pi-search-top">FIND VENDOR PAYMENT<button class="close pi-close" type="button" data-close="vpFindModal" title="Close">×</button></div>
+<div class="pi-titlebar pi-search-top">FIND VENDOR PAYMENT<button class="close pi-close" type="button" data-close="vpFindModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body rv-find-body erp-legacy-body">
 <div class="field compact"><label>Search</label><input id="vpFindQuery" type="text" placeholder="VP no, vendor, cheque, narration..." autocomplete="off"></div>
 <div class="table-wrap rv-find-grid"><table class="table"><thead><tr><th>VP No</th><th>Date</th><th>Vendor</th><th>Amount</th><th>Status</th></tr></thead><tbody id="vpFindRows"><tr><td colspan="5" class="empty">Type to search payments</td></tr></tbody></table></div>
@@ -1045,7 +1045,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp drawer--tradeasy" id="jobCardModal"><div class="modal modal--erp modal--tradeasy">
-<div class="pi-titlebar">JOB CARD<span class="pi-titlebar-sub" id="jcModalSub">New job card</span><button class="close pi-close" type="button" data-close="jobCardModal" title="Close">×</button></div>
+<div class="pi-titlebar">JOB CARD<span class="pi-titlebar-sub" id="jcModalSub">New job card</span><button class="close pi-close" type="button" data-close="jobCardModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body jc-legacy-body">
 <input type="hidden" id="jcId">
 <div class="inv-legacy-topbar">
@@ -1058,8 +1058,8 @@
 <div class="inv-legacy-fields">
 <div class="field compact inv-field-customer"><label>Customer *</label>
 <div class="cust-combo" data-combo="jcCustomer">
-<input type="text" class="cust-combo-input" id="jcCustomerInput" placeholder="Type name to search or pick ?" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">?</button>
+<input type="text" class="cust-combo-input" id="jcCustomerInput" placeholder="Type name to search or pick" autocomplete="off" role="combobox" aria-autocomplete="list">
+<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">&#9662;</button>
 <ul class="cust-combo-list" hidden role="listbox"></ul>
 <select id="jcCustomer" class="cust-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
@@ -1083,10 +1083,10 @@
 </div>
 <div class="inv-legacy-lines">
 <div class="inv-legacy-panel-title">Parts &amp; Labour</div>
-<p class="muted inv-entry-hint">Choose <b>Part</b> or <b>Labour</b> ? enter item ? <b>Add</b>. Double-click a line to edit.</p>
+<p class="muted inv-entry-hint">Choose <b>Part</b> or <b>Labour</b> &rarr; enter item &rarr; <b>Add</b>. Double-click a line to edit.</p>
 <div class="jc-entry-row inv-legacy-fields">
 <div class="field compact"><label>Type</label><select id="jcEntryType"><option value="part">Part</option><option value="labour">Labour</option></select></div>
-<div class="field compact span2"><label>Item / Service</label><input id="jcEntryName" placeholder="Type product name…" autocomplete="off"></div>
+<div class="field compact span2"><label>Item / Service</label><input id="jcEntryName" placeholder="Type product nameï¿½" autocomplete="off"></div>
 <div class="field compact"><label>Code</label><input id="jcEntryCode" placeholder="Code" autocomplete="off"></div>
 <div class="field compact"><label>Qty</label><input id="jcEntryQty" type="number" value="1" min="0" step="1"></div>
 <div class="field compact"><label>Rate</label><input id="jcEntryRate" type="number" value="0" min="0" step="0.01"></div>
@@ -1117,7 +1117,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp drawer--tradeasy" id="partsIssueModal"><div class="modal modal--erp modal--tradeasy">
-<div class="pi-titlebar">PARTS ISSUE<span class="pi-titlebar-sub">Job parts ? stock OUT</span><button class="close pi-close" type="button" data-close="partsIssueModal" title="Close">×</button></div>
+<div class="pi-titlebar">PARTS ISSUE<span class="pi-titlebar-sub">Job parts ? stock OUT</span><button class="close pi-close" type="button" data-close="partsIssueModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body">
 <div class="form-grid">
 <div class="field"><label>ISSUE NO.</label><input id="jpiNo" readonly></div>
@@ -1138,7 +1138,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp drawer--tradeasy" id="prqModal"><div class="modal modal--erp modal--tradeasy">
-<div class="pi-titlebar">PURCHASE REQUISITION<span class="pi-titlebar-sub">Internal request - approve before PO</span><button class="close pi-close" type="button" data-close="prqModal" title="Close">-</button></div>
+<div class="pi-titlebar">PURCHASE REQUISITION<span class="pi-titlebar-sub">Internal request - approve before PO</span><button class="close pi-close" type="button" data-close="prqModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="prqId">
 <div class="form-grid">
 <div class="field"><label>PRQ NO.</label><input id="prqNo" readonly></div>
@@ -1173,7 +1173,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp drawer--tradeasy" id="poModal"><div class="modal modal--erp modal--tradeasy">
-<div class="pi-titlebar">PURCHASE ORDER<span class="pi-titlebar-sub">Vendor commitment - approve before GRN</span><button class="close pi-close" type="button" data-close="poModal" title="Close">-</button></div>
+<div class="pi-titlebar">PURCHASE ORDER<span class="pi-titlebar-sub">Vendor commitment - approve before GRN</span><button class="close pi-close" type="button" data-close="poModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="poId">
 <div class="form-grid">
 <div class="field"><label>PO NO.</label><input id="poNo" readonly></div>
@@ -1210,7 +1210,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp drawer--tradeasy" id="grnModal"><div class="modal modal--erp modal--tradeasy">
-<div class="pi-titlebar">GOODS RECEIPT (GRN)<span class="pi-titlebar-sub">Physical receipt - posts stock IN (no payable)</span><button class="close pi-close" type="button" data-close="grnModal" title="Close">-</button></div>
+<div class="pi-titlebar">GOODS RECEIPT (GRN)<span class="pi-titlebar-sub">Physical receipt - posts stock IN (no payable)</span><button class="close pi-close" type="button" data-close="grnModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="grnId">
 <div class="form-grid">
 <div class="field"><label>GRN NO.</label><input id="grnNo" readonly></div>
@@ -1246,7 +1246,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp drawer--tradeasy" id="purchaseModal"><div class="modal modal--erp modal--tradeasy">
-<div class="pi-titlebar">PURCHASE INVOICE<button class="close pi-close" type="button" data-close="purchaseModal" title="Close">×</button></div>
+<div class="pi-titlebar">PURCHASE INVOICE<button class="close pi-close" type="button" data-close="purchaseModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="piId"><input type="hidden" id="piDue">
 <div class="pi-meta-top">
 <div class="field pi-f-pno"><label>P. No.</label><input id="piNo" readonly></div>
@@ -1260,8 +1260,8 @@
 <div class="field pi-f-invdate"><label>Invoice Date</label><input id="piSupInvDate" type="date"></div>
 <div class="field pi-f-vendor"><label>Vendor <span class="pi-hint">F8 - Vendor Purchase History</span></label>
 <div class="cust-combo" data-combo="piSupplier">
-<input type="text" class="cust-combo-input" id="piSupplierInput" placeholder="Search vendor ?" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open supplier list">?</button>
+<input type="text" class="cust-combo-input" id="piSupplierInput" placeholder="Search vendor" autocomplete="off" role="combobox" aria-autocomplete="list">
+<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open supplier list">&#9662;</button>
 <ul class="cust-combo-list" hidden role="listbox"></ul>
 <select id="piSupplier" class="cust-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div></div>
@@ -1348,7 +1348,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp drawer--pi-history" id="piHistoryModal"><div class="modal modal--erp modal--pi-history">
-<div class="pi-titlebar pi-history-titlebar" id="piHistoryTitle">PURCHASE HISTORY<button class="close pi-close" type="button" data-close="piHistoryModal" title="Close">-</button></div>
+<div class="pi-titlebar pi-history-titlebar" id="piHistoryTitle">PURCHASE HISTORY<button class="close pi-close" type="button" data-close="piHistoryModal" title="Close">&times;</button></div>
 <div class="modal-body pi-history-body erp-legacy-body">
 <div class="table-wrap pi-history-wrap">
 <table class="invoice-items pi-history-table">
@@ -1407,7 +1407,7 @@
 </div>
 
 <div class="drawer drawer--pane drawer--erp drawer--pi-select" id="piSelectProductModal"><div class="modal modal--erp modal--pi-select">
-<div class="pi-titlebar pi-select-titlebar">SELECT PRODUCT<button class="close pi-close" type="button" data-close="piSelectProductModal" title="Close">-</button></div>
+<div class="pi-titlebar pi-select-titlebar">SELECT PRODUCT<button class="close pi-close" type="button" data-close="piSelectProductModal" title="Close">&times;</button></div>
 <div class="modal-body pi-select-body erp-legacy-body">
 <table class="pi-select-table">
 <thead>
@@ -1437,7 +1437,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="customerModal"><div class="modal modal--erp">
-<div class="pi-titlebar">CUSTOMER<span class="pi-titlebar-sub" id="customerModalSub">Create / edit</span><button class="close pi-close" type="button" data-close="customerModal" title="Close">-</button></div>
+<div class="pi-titlebar">CUSTOMER<span class="pi-titlebar-sub" id="customerModalSub">Create / edit</span><button class="close pi-close" type="button" data-close="customerModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="cId">
 <div class="form-grid">
 <div class="field"><label>CODE</label><input id="cCode"></div>
@@ -1458,7 +1458,7 @@
 <div class="field span3"><label>NOTES</label><textarea id="cNotes" rows="2"></textarea></div>
 <div class="field span3">
 <label>SUB-ACCOUNTS (optional)</label>
-<p class="muted" style="margin:0 0 6px;font-size:11px">?? ???????/?????????? ???? ????? ????? — ???? Naser, Jamal. Statement ???? ????; ?????? ALL / ??? ???? ???? ????.</p>
+<p class="muted" style="margin:0 0 6px;font-size:11px">Optional sub-ledgers under one customer (e.g. Naser, Jamal). Statements can filter by sub-account or show ALL.</p>
 <div class="field-with-btn" style="margin-bottom:6px">
 <input id="cSubName" placeholder="Sub name (e.g. Naser)" autocomplete="off">
 <button class="btn small" type="button" id="cSubAddBtn">+ Add</button>
@@ -1470,14 +1470,14 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="vehicleModal"><div class="modal modal--erp">
-<div class="pi-titlebar">VEHICLE<span class="pi-titlebar-sub" id="vehicleModalSub">Create / edit</span><button class="close pi-close" type="button" data-close="vehicleModal" title="Close">-</button></div>
+<div class="pi-titlebar">VEHICLE<span class="pi-titlebar-sub" id="vehicleModalSub">Create / edit</span><button class="close pi-close" type="button" data-close="vehicleModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="vId">
 <div class="form-grid">
 <div class="field"><label>PLATE NO. *</label><input id="vPlate" placeholder="Required"></div>
 <div class="field span2"><label>CUSTOMER</label>
 <div class="cust-combo" data-combo="vCustomer">
-<input type="text" class="cust-combo-input" placeholder="Type name to search or pick ?" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">?</button>
+<input type="text" class="cust-combo-input" placeholder="Type name to search or pick" autocomplete="off" role="combobox" aria-autocomplete="list">
+<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">&#9662;</button>
 <ul class="cust-combo-list" hidden role="listbox"></ul>
 <select id="vCustomer" class="cust-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
@@ -1496,7 +1496,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="productModal"><div class="modal modal--erp">
-<div class="pi-titlebar">PRODUCT<span class="pi-titlebar-sub" id="productModalSub">Spare part / stock item</span><button class="close pi-close" type="button" data-close="productModal" title="Close">-</button></div>
+<div class="pi-titlebar">PRODUCT<span class="pi-titlebar-sub" id="productModalSub">Spare part / stock item</span><button class="close pi-close" type="button" data-close="productModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="pId">
 <div class="form-grid">
 <div class="field span2"><label>NAME *</label><input id="pName" placeholder="Required"></div>
@@ -1514,7 +1514,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="serviceModal"><div class="modal modal--erp">
-<div class="pi-titlebar">SERVICE<span class="pi-titlebar-sub" id="serviceModalSub">Labour / workshop job</span><button class="close pi-close" type="button" data-close="serviceModal" title="Close">-</button></div>
+<div class="pi-titlebar">SERVICE<span class="pi-titlebar-sub" id="serviceModalSub">Labour / workshop job</span><button class="close pi-close" type="button" data-close="serviceModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="sId">
 <div class="form-grid">
 <div class="field"><label>SERVICE CODE</label><input id="sCode" placeholder="SRV-001"></div>
@@ -1530,7 +1530,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp drawer--tradeasy" id="invoiceModal"><div class="modal modal--erp modal--tradeasy">
-<div class="pi-titlebar">CREDIT INVOICE<span class="pi-titlebar-sub" id="invModalSub">Invoice builder</span><button class="close pi-close" type="button" data-close="invoiceModal" title="Close">×</button></div>
+<div class="pi-titlebar">CREDIT INVOICE<span class="pi-titlebar-sub" id="invModalSub">Invoice builder</span><button class="close pi-close" type="button" data-close="invoiceModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body inv-legacy-body"><input type="hidden" id="invId"><input type="hidden" id="invJobCardId"><input type="hidden" id="invJobNo">
 
 <div class="inv-legacy-top">
@@ -1544,10 +1544,10 @@
 </div>
 
 <div class="inv-legacy-balances">
-<div class="inv-balance-box"><span class="lbl">Credit Limit</span><span class="val" id="invLim">—</span></div>
-<div class="inv-balance-box inv-balance-due"><span class="lbl">Current Due</span><span class="val" id="invDueNow">—</span></div>
-<div class="inv-balance-box inv-balance-now"><span class="lbl">Current Invoice</span><span class="val" id="invNowTot">—</span></div>
-<div class="inv-balance-box inv-balance-after"><span class="lbl">After Invoice</span><span class="val" id="invAfter">—</span></div>
+<div class="inv-balance-box"><span class="lbl">Credit Limit</span><span class="val" id="invLim">ï¿½</span></div>
+<div class="inv-balance-box inv-balance-due"><span class="lbl">Current Due</span><span class="val" id="invDueNow">ï¿½</span></div>
+<div class="inv-balance-box inv-balance-now"><span class="lbl">Current Invoice</span><span class="val" id="invNowTot">ï¿½</span></div>
+<div class="inv-balance-box inv-balance-after"><span class="lbl">After Invoice</span><span class="val" id="invAfter">ï¿½</span></div>
 </div>
 
 <div class="inv-legacy-panel">
@@ -1561,13 +1561,13 @@
 <div class="field compact"><label>Due Date</label><input id="invDue" type="date"></div>
 <div class="field compact inv-field-customer"><label>Customer</label>
 <div class="cust-combo" data-combo="invCustomer">
-<input type="text" class="cust-combo-input" id="invCustomerInput" placeholder="Type name to search or pick ?" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">?</button>
+<input type="text" class="cust-combo-input" id="invCustomerInput" placeholder="Type name to search or pick" autocomplete="off" role="combobox" aria-autocomplete="list">
+<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">&#9662;</button>
 <ul class="cust-combo-list" hidden role="listbox"></ul>
 <select id="invCustomer" class="cust-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
 </div>
-<div class="field compact" id="invSubAccountField" hidden><label>Sub-account</label><select id="invSubAccount"><option value="">— None —</option></select></div>
+<div class="field compact" id="invSubAccountField" hidden><label>Sub-account</label><select id="invSubAccount"><option value="">ï¿½ None ï¿½</option></select></div>
 <div class="field compact inv-field-terms"><label>Payment Terms</label><input id="invTerms"></div>
 <div class="field compact"><label>Vehicle No.</label>
 <div class="field-with-btn">
@@ -1587,19 +1587,19 @@
 <div id="invDetailedBlock">
 <div class="inv-legacy-lines">
 <div class="inv-legacy-panel-title">Line Items</div>
-<p class="muted inv-entry-hint">Type the product ? press <b>Add</b> ? it appears below. To fix a mistake, <b>double-click</b> the line to edit.</p>
+<p class="muted inv-entry-hint">Type the product &rarr; press <b>Add</b> &rarr; it appears below. To fix a mistake, <b>double-click</b> the line to edit.</p>
 <div class="table-wrap inv-legacy-grid-wrap">
 <table class="invoice-items inv-lines-table inv-legacy-grid">
 <thead><tr><th style="width:22%">Item / Product</th><th style="width:12%">Code</th><th>Qty</th><th>Unit Price</th><th>Discount</th><th>VAT %</th><th>Total</th><th></th></tr></thead>
 <tbody class="inv-entry-row">
 <tr>
-<td class="inv-name-cell" data-label="Item / Product"><input id="invEntryName" placeholder="Type to search catalog…" autocomplete="off"></td>
+<td class="inv-name-cell" data-label="Item / Product"><input id="invEntryName" placeholder="Type to search catalogï¿½" autocomplete="off"></td>
 <td data-label="Code"><input id="invEntryCode" placeholder="Code"></td>
 <td data-label="Qty"><input id="invEntryQty" type="number" value="1" min="0" step="1"></td>
 <td data-label="Unit Price"><input id="invEntryPrice" type="number" value="0" min="0" step="0.01"></td>
 <td data-label="Discount"><input id="invEntryDisc" type="number" value="0" min="0" step="0.01"></td>
 <td data-label="VAT %"><input id="invEntryVat" type="number" value="5" min="0" step="0.01"></td>
-<td data-label="Line total"><b id="invEntryPreview">—</b></td>
+<td data-label="Line total"><b id="invEntryPreview">ï¿½</b></td>
 <td class="inv-entry-actions-cell" data-label="Actions">
 <div class="inv-entry-actions">
 <button class="btn primary small" type="button" id="addInvItemBtn">Add</button>
@@ -1635,7 +1635,7 @@
 </div>
 
 <div class="field compact inv-legacy-notes"><label>Notes</label><textarea id="invNotes" rows="2"></textarea></div>
-<p class="muted" id="invWipHint" style="margin:6px 0 0;font-size:11px;display:none">Unfinished invoice saved on this PC — close anytime and continue later.</p>
+<p class="muted" id="invWipHint" style="margin:6px 0 0;font-size:11px;display:none">Unfinished invoice saved on this PC ï¿½ close anytime and continue later.</p>
 </div>
 <div class="modal-foot pi-actions inv-legacy-foot">
 <button class="btn small" type="button" id="invStartFreshBtn">Start fresh</button>
@@ -1647,7 +1647,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp drawer--tradeasy rv-legacy-modal" id="receiptModal"><div class="modal modal--erp modal--tradeasy">
-<div class="pi-titlebar">RECEIPTS AGAINST BILL<span class="pi-titlebar-sub" id="rvModalSub"></span><button class="close pi-close" type="button" data-close="receiptModal" title="Close">×</button></div>
+<div class="pi-titlebar">RECEIPTS AGAINST BILL<span class="pi-titlebar-sub" id="rvModalSub"></span><button class="close pi-close" type="button" data-close="receiptModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body rv-legacy-body"><input type="hidden" id="rvId">
 <input type="hidden" id="rvAmount">
 
@@ -1661,18 +1661,18 @@
 <div class="field compact rv-legacy-customer"><label>Customer</label>
 <div class="cust-combo" data-combo="rvCustomer">
 <input type="text" class="cust-combo-input" id="rvCustomerInput" placeholder="Select customer" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">?</button>
+<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">&#9662;</button>
 <ul class="cust-combo-list" hidden role="listbox"></ul>
 <select id="rvCustomer" class="cust-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
 </div>
-<div class="field compact" id="rvSubAccountField" hidden><label>Sub-account</label><select id="rvSubAccount"><option value="">— None / ALL bills —</option></select></div>
+<div class="field compact" id="rvSubAccountField" hidden><label>Sub-account</label><select id="rvSubAccount"><option value="">ï¿½ None / ALL bills ï¿½</option></select></div>
 <div class="field compact rv-legacy-collected"><label>Collected by</label><input id="rvCollectedBy" readonly></div>
 </div>
 
 <div class="rv-legacy-balances">
-<div class="rv-balance-box rv-balance-pending" id="rvBalancePending">Balance : —</div>
-<div class="rv-balance-box rv-balance-ledger" id="rvLedgerBalance">Current Ledger Balance: —</div>
+<div class="rv-balance-box rv-balance-pending" id="rvBalancePending">Balance : ï¿½</div>
+<div class="rv-balance-box rv-balance-ledger" id="rvLedgerBalance">Current Ledger Balance: ï¿½</div>
 </div>
 
 <div class="rv-legacy-entry">
@@ -1682,13 +1682,13 @@
 <div class="field compact"><label>Bill Amount</label><input id="rvBillAmount" readonly></div>
 <div class="field compact"><label>Previous Receipts</label><input id="rvBillPrev" readonly></div>
 <div class="field compact"><label>Balance</label><input id="rvBillBalance" readonly></div>
-<div class="field compact"><label>Current Receipt</label><input id="rvBillReceive" type="number" min="0" step="0.01" placeholder="0.00" title="Partial or full amount — tap Add bill or press Enter"></div>
+<div class="field compact"><label>Current Receipt</label><input id="rvBillReceive" type="number" min="0" step="0.01" placeholder="0.00" title="Partial or full amount ï¿½ tap Add bill or press Enter"></div>
 <div class="field compact rv-add-bill-cell"><label class="rv-add-bill-spacer">&nbsp;</label><button type="button" class="btn small primary" id="rvAddBillBtn">Add bill</button></div>
 </div>
 
 <div class="table-wrap rv-legacy-grid-wrap"><table class="table rv-legacy-grid">
 <thead><tr><th>Bill No</th><th>Bill Date</th><th>Bill Amount</th><th>Received Amt</th></tr></thead>
-<tbody id="rvAllocRows"><tr><td colspan="4" class="empty">Select bill ? enter amount (partial OK) ? Add bill ? then Save</td></tr></tbody>
+<tbody id="rvAllocRows"><tr><td colspan="4" class="empty">Select bill &rarr; enter amount (partial OK) &rarr; Add bill &rarr; then Save</td></tr></tbody>
 <tfoot><tr class="rv-bill-total-row"><td colspan="3" class="right"><b>TOTAL</b></td><td class="num"><b id="rvBillTotal">0.00</b></td></tr></tfoot>
 </table></div>
 
@@ -1698,7 +1698,7 @@
 <input id="rvDisc" type="number" value="0" min="0" step="0.01" title="Total discount on bills in grid">
 <button class="btn small primary" type="button" id="rvApplyDiscBtn">Apply</button>
 </div></div>
-<p class="muted" id="rvDiscHint">Add bill(s) first. Discount optional — Apply or Save applies it automatically.</p>
+<p class="muted" id="rvDiscHint">Add bill(s) first. Discount optional ï¿½ Apply or Save applies it automatically.</p>
 </div>
 
 <div class="rv-legacy-pay">
@@ -1736,7 +1736,7 @@
 </fieldset>
 </div>
 <p class="muted" id="rvStatusNote" style="margin:0 18px 8px;font-size:11px">Cash posts immediately to bill(s) in the grid.</p>
-<p class="muted cheque-only" id="rvChequeHint" style="display:none;margin:0 18px 8px;font-size:11px">Cheque saves as <b>Pending</b> — invoice paid updates only after you <b>Clear</b> on Cheque / PDC page.</p>
+<p class="muted cheque-only" id="rvChequeHint" style="display:none;margin:0 18px 8px;font-size:11px">Cheque saves as <b>Pending</b> ï¿½ invoice paid updates only after you <b>Clear</b> on Cheque / PDC page.</p>
 
 <div class="field rv-legacy-narration"><label>Narration</label><input id="rvRef" placeholder="Notes"></div>
 <div class="rv-legacy-print-opts">
@@ -1753,7 +1753,7 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp drawer--rv-find" id="rvFindModal"><div class="modal modal--erp">
-<div class="pi-titlebar pi-search-top">FIND RECEIPT<button class="close pi-close" type="button" data-close="rvFindModal" title="Close">×</button></div>
+<div class="pi-titlebar pi-search-top">FIND RECEIPT<button class="close pi-close" type="button" data-close="rvFindModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body rv-find-body erp-legacy-body">
 <div class="field compact"><label>Search</label><input id="rvFindQuery" type="text" placeholder="Receipt no, customer, cheque, narration..." autocomplete="off"></div>
 <div class="table-wrap rv-find-grid"><table class="table"><thead><tr><th>Receipt No</th><th>Date</th><th>Customer</th><th>Amount</th><th>Status</th></tr></thead><tbody id="rvFindRows"><tr><td colspan="5" class="empty">Type to search receipts</td></tr></tbody></table></div>
@@ -1763,24 +1763,24 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="cnModal"><div class="modal modal--erp">
-<div class="pi-titlebar">CREDIT NOTE<span class="pi-titlebar-sub">Returns, adjustments and customer credits</span><button class="close pi-close" type="button" data-close="cnModal" title="Close">-</button></div>
+<div class="pi-titlebar">CREDIT NOTE<span class="pi-titlebar-sub">Returns, adjustments and customer credits</span><button class="close pi-close" type="button" data-close="cnModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="cnId">
 <div class="form-grid">
 <div class="field"><label>CN NO.</label><input id="cnNo" readonly></div>
 <div class="field"><label>DATE</label><input id="cnDate" type="date"></div>
 <div class="field"><label>CUSTOMER</label>
 <div class="cust-combo" data-combo="cnCustomer">
-<input type="text" class="cust-combo-input" placeholder="Type name to search or pick ?" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">?</button>
+<input type="text" class="cust-combo-input" placeholder="Type name to search or pick" autocomplete="off" role="combobox" aria-autocomplete="list">
+<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">&#9662;</button>
 <ul class="cust-combo-list" hidden role="listbox"></ul>
 <select id="cnCustomer" class="cust-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
 </div>
-<div class="field" id="cnSubAccountField" hidden><label>SUB-ACCOUNT</label><select id="cnSubAccount"><option value="">— None —</option></select></div>
+<div class="field" id="cnSubAccountField" hidden><label>SUB-ACCOUNT</label><select id="cnSubAccount"><option value="">ï¿½ None ï¿½</option></select></div>
 <div class="field"><label>INVOICE</label>
 <div class="inv-combo" data-inv-combo="cnInvoice" data-inv-customer="cnCustomer">
-<input type="text" class="inv-combo-input" placeholder="Type invoice no. to search or pick ?" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="inv-combo-btn" tabindex="-1" aria-label="Open invoice list">?</button>
+<input type="text" class="inv-combo-input" placeholder="Type invoice no. to search or pick" autocomplete="off" role="combobox" aria-autocomplete="list">
+<button type="button" class="inv-combo-btn" tabindex="-1" aria-label="Open invoice list">&#9662;</button>
 <ul class="inv-combo-list" hidden role="listbox"></ul>
 <select id="cnInvoice" class="inv-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
@@ -1790,7 +1790,7 @@
 <div class="field span3"><label>REASON</label><input id="cnReason" placeholder="Goods Return / Adjustment"></div>
 </div>
 <div class="inv-entry-box" id="cnReturnSection" hidden>
-<p class="muted inv-entry-hint">Return products from linked invoice ? stock IN (catalog products only)</p>
+<p class="muted inv-entry-hint">Return products from linked invoice &rarr; stock IN (catalog products only)</p>
 <div class="field" style="max-width:280px"><label>RETURN WAREHOUSE</label><select id="cnReturnWarehouse"></select></div>
 <div class="table-wrap"><table class="table"><thead><tr><th>Product</th><th>Code</th><th>Sold Qty</th><th>Return Qty</th></tr></thead><tbody id="cnReturnRows"></tbody></table></div>
 </div></div>
@@ -1798,24 +1798,24 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="dnModal"><div class="modal modal--erp">
-<div class="pi-titlebar">DEBIT NOTE<span class="pi-titlebar-sub">Additional charges and adjustments</span><button class="close pi-close" type="button" data-close="dnModal" title="Close">-</button></div>
+<div class="pi-titlebar">DEBIT NOTE<span class="pi-titlebar-sub">Additional charges and adjustments</span><button class="close pi-close" type="button" data-close="dnModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="dnId">
 <div class="form-grid">
 <div class="field"><label>DN NO.</label><input id="dnNo" readonly></div>
 <div class="field"><label>DATE</label><input id="dnDate" type="date"></div>
 <div class="field"><label>CUSTOMER</label>
 <div class="cust-combo" data-combo="dnCustomer">
-<input type="text" class="cust-combo-input" placeholder="Type name to search or pick ?" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">?</button>
+<input type="text" class="cust-combo-input" placeholder="Type name to search or pick" autocomplete="off" role="combobox" aria-autocomplete="list">
+<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">&#9662;</button>
 <ul class="cust-combo-list" hidden role="listbox"></ul>
 <select id="dnCustomer" class="cust-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
 </div>
-<div class="field" id="dnSubAccountField" hidden><label>SUB-ACCOUNT</label><select id="dnSubAccount"><option value="">— None —</option></select></div>
+<div class="field" id="dnSubAccountField" hidden><label>SUB-ACCOUNT</label><select id="dnSubAccount"><option value="">ï¿½ None ï¿½</option></select></div>
 <div class="field"><label>INVOICE</label>
 <div class="inv-combo" data-inv-combo="dnInvoice" data-inv-customer="dnCustomer">
-<input type="text" class="inv-combo-input" placeholder="Type invoice no. to search or pick ?" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="inv-combo-btn" tabindex="-1" aria-label="Open invoice list">?</button>
+<input type="text" class="inv-combo-input" placeholder="Type invoice no. to search or pick" autocomplete="off" role="combobox" aria-autocomplete="list">
+<button type="button" class="inv-combo-btn" tabindex="-1" aria-label="Open invoice list">&#9662;</button>
 <ul class="inv-combo-list" hidden role="listbox"></ul>
 <select id="dnInvoice" class="inv-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
@@ -1829,14 +1829,14 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="chequeModal"><div class="modal modal--erp">
-<div class="pi-titlebar">CHEQUE / PDC<button class="close pi-close" type="button" data-close="chequeModal" title="Close">-</button></div>
+<div class="pi-titlebar">CHEQUE / PDC<button class="close pi-close" type="button" data-close="chequeModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body"><input type="hidden" id="chqId">
 <div class="form-grid">
 <div class="field"><label>CHEQUE NO.</label><input id="chqNo"></div>
 <div class="field"><label>CUSTOMER</label>
 <div class="cust-combo" data-combo="chqCustomer">
-<input type="text" class="cust-combo-input" placeholder="Type name to search or pick ?" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">?</button>
+<input type="text" class="cust-combo-input" placeholder="Type name to search or pick" autocomplete="off" role="combobox" aria-autocomplete="list">
+<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">&#9662;</button>
 <ul class="cust-combo-list" hidden role="listbox"></ul>
 <select id="chqCustomer" class="cust-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
@@ -1844,7 +1844,7 @@
 <div class="field"><label>INVOICE</label>
 <div class="inv-combo" data-inv-combo="chqInvoice" data-inv-customer="chqCustomer">
 <input type="text" class="inv-combo-input" placeholder="Type invoice no. (optional) ?" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="inv-combo-btn" tabindex="-1" aria-label="Open invoice list">?</button>
+<button type="button" class="inv-combo-btn" tabindex="-1" aria-label="Open invoice list">&#9662;</button>
 <ul class="inv-combo-list" hidden role="listbox"></ul>
 <select id="chqInvoice" class="inv-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
@@ -1859,14 +1859,14 @@
 </div></div>
 
 <div class="drawer drawer--pane drawer--erp" id="discModal"><div class="modal modal--erp">
-<div class="pi-titlebar">DISCOUNT<button class="close pi-close" type="button" data-close="discModal" title="Close">-</button></div>
+<div class="pi-titlebar">DISCOUNT<button class="close pi-close" type="button" data-close="discModal" title="Close">&times;</button></div>
 <div class="modal-body pi-body erp-legacy-body">
 <div class="form-grid">
 <div class="field"><label>DATE</label><input id="discDate" type="date"></div>
 <div class="field"><label>CUSTOMER</label>
 <div class="cust-combo" data-combo="discCustomer">
-<input type="text" class="cust-combo-input" placeholder="Type name to search or pick ?" autocomplete="off" role="combobox" aria-autocomplete="list">
-<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">?</button>
+<input type="text" class="cust-combo-input" placeholder="Type name to search or pick" autocomplete="off" role="combobox" aria-autocomplete="list">
+<button type="button" class="cust-combo-btn" tabindex="-1" aria-label="Open customer list">&#9662;</button>
 <ul class="cust-combo-list" hidden role="listbox"></ul>
 <select id="discCustomer" class="cust-combo-native" tabindex="-1" aria-hidden="true"></select>
 </div>
@@ -1903,7 +1903,7 @@
     <p id="gateLicenseMsg" class="red" style="margin-top:10px;font-size:13px"></p>
     <div class="help-support gate-help-support">
       <div class="help-support-head">
-        <span class="help-support-ico" aria-hidden="true">?</span>
+        <span class="help-support-ico" aria-hidden="true">&#128172;</span>
         <div>
           <b>Help &amp; Support</b>
           <div class="muted">Contact S4 Business Thinking</div>
@@ -1932,6 +1932,6 @@
     </div>
   </div>
 </div>
-<script type="module" src="./boot-entry.js?v=177"></script>
+<script type="module" src="./boot-entry.js?v=178"></script>
 </body>
 </html>

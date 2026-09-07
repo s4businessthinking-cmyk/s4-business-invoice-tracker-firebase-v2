@@ -20,7 +20,7 @@ const forceHide = setTimeout(() => {
   if(auth) auth.style.display = "flex";
 }, 20000);
 
-import("./boot.js?v=177")
+import("./boot.js?v=178")
   .then(() => {
     clearTimeout(failsafe);
     clearTimeout(forceHide);

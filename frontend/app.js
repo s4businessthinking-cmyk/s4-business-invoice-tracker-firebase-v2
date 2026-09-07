@@ -36,11 +36,11 @@ import {
   renderSuppliers, renderPurchaseInvoices, refreshSupplierSelects,
   filterSuppliersForCombo, pickSupplierCombo, getSuppliers, resetSupplier as resetSupplierForm,
   syncPurchaseStockLocations, findProductForLine, formatStockLocation
-} from "./purchase.js?v=177";
+} from "./purchase.js?v=178";
 import {
   initGrn, wireGrnUi, prepareGrnModal, onGoodsReceiptsLoaded, renderGoodsReceipts,
   refreshGrnSupplierSelect, syncGrnStockLocations, getGoodsReceipts, linkGrnToPurchase, unlinkGrnFromPurchase
-} from "./grn.js?v=177";
+} from "./grn.js?v=178";
 import {
   initPo, wirePoUi, preparePoModal, preparePoFromPrq, onPurchaseOrdersLoaded, renderPurchaseOrders,
   refreshPoSupplierSelect
@@ -52,7 +52,7 @@ import {
 import {
   initVendorPayment, wireVendorPaymentUi, prepareVendorPaymentModal,
   onVendorPaymentsLoaded, renderVendorPayments, refreshVpSupplierSelect
-} from "./vendor-payment.js?v=177";
+} from "./vendor-payment.js?v=178";
 import {
   initPurchaseReturn, wirePurchaseReturnUi, preparePurchaseReturnModal,
   onPurchaseReturnsLoaded, renderPurchaseReturns, refreshPrtSupplierSelect, syncPrtStockLocations
@@ -256,12 +256,12 @@ function customerPeriodLabel(bounds, kind = "ledger"){
     const bits = [];
     if(bounds.from) bits.push("From " + bounds.from);
     if(bounds.asOf) bits.push("As of " + bounds.asOf);
-    return bits.join(" — ") || "All dates";
+    return bits.join(" - ") || "All dates";
   }
   const bits = [];
   if(bounds.from) bits.push("From " + bounds.from);
   if(bounds.to) bits.push("To " + bounds.to);
-  return bits.join(" — ") || "All dates";
+  return bits.join(" - ") || "All dates";
 }
 function num(v){ return Number(v) || 0; }
 function esc(s){ return String(s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
@@ -575,6 +575,16 @@ function closeAllDrawers(exceptIds = []){
   });
 }
 
+function hideAllPortaledSuggestLists(){
+  document.querySelectorAll(".cust-combo-list, .inv-combo-list, .catalog-suggest-list").forEach(list=>{
+    list.hidden = true;
+    list.style.display = "";
+  });
+  document.querySelectorAll(".cust-combo-input, .inv-combo-input").forEach(input=>{
+    input.setAttribute("aria-expanded", "false");
+  });
+}
+
 function openModal(id, opts = {}){
   const el = document.getElementById(id);
   if(!el){
@@ -586,6 +596,7 @@ function openModal(id, opts = {}){
     document.documentElement.scrollLeft = 0;
     window.scrollTo({ left: 0, behavior: "auto" });
   }catch(_){}
+  hideAllPortaledSuggestLists();
   const keep = new Set(opts.keepOpen || []);
   // Close every other drawer so the new form is always visible on top.
   getOpenDrawers().forEach(d=>{
@@ -609,10 +620,12 @@ function openModal(id, opts = {}){
 function closeModal(id){
   if(id === "productMasterModal"){
     closeProductMasterDrawer();
+    hideAllPortaledSuggestLists();
     return;
   }
   if(id === "piProductSearchModal"){
     closeProductSearchDrawer();
+    hideAllPortaledSuggestLists();
     return;
   }
   const el = document.getElementById(id);
@@ -620,6 +633,7 @@ function closeModal(id){
   el.classList.remove("open");
   el.style.display = "none";
   el.style.zIndex = "";
+  hideAllPortaledSuggestLists();
 }
 
 const FORM_LIST_PAGE = {
@@ -960,7 +974,7 @@ function nextNo(prefix, list, field){
   return `${prefix}${year}-${String(max+1).padStart(4,"0")}`;
 }
 
-/** Foundation §1 — branch-scoped atomic serial (Firestore counters). Falls back to local nextNo offline. */
+/** Foundation Â§1 - branch-scoped atomic serial (Firestore counters). Falls back to local nextNo offline. */
 async function allocateDocSerial(docKey, prefix, { list = [], field = "", draftValue = "", excludeId = "", preferCounter = false } = {}){
   const draft = String(draftValue || "").trim();
   if(!preferCounter && draft){
@@ -1031,7 +1045,7 @@ function invoiceDueBucket(inv){
   return "d90p";
 }
 
-/** Per-customer aging — capped at ledger outstanding (matches Statement closing). */
+/** Per-customer aging - capped at ledger outstanding (matches Statement closing). */
 function customerAgingBuckets(name){
   const buckets = { current:0, d30:0, d60:0, d90:0, d90p:0 };
   let remaining = roundMoney(customerOutstanding(name));
@@ -1258,7 +1272,7 @@ function customerSubAccounts(customerName){
 }
 
 /** Fill sub-account select. includeAll=true ? Ledger/Statement (blank = ALL). */
-function fillSubAccountSelect(selectEl, customerName, selected, { includeAll = false, noneLabel = "— None —" } = {}){
+function fillSubAccountSelect(selectEl, customerName, selected, { includeAll = false, noneLabel = "- None -" } = {}){
   if(!selectEl) return [];
   const subs = customerSubAccounts(customerName);
   const sel = String(selected || "").trim();
@@ -1286,7 +1300,7 @@ function syncReceiptSubAccountField(selected){
   const sel = document.getElementById("rvSubAccount");
   const wrap = document.getElementById("rvSubAccountField");
   const name = document.getElementById("rvCustomer")?.value || "";
-  const subs = fillSubAccountSelect(sel, name, selected, { noneLabel: "— None / ALL bills —" });
+  const subs = fillSubAccountSelect(sel, name, selected, { noneLabel: "- None / ALL bills -" });
   if(wrap) wrap.hidden = !subs.length;
 }
 
@@ -1294,7 +1308,7 @@ function syncNoteSubAccountField(prefix, customerName, selected){
   const sel = document.getElementById(`${prefix}SubAccount`);
   const wrap = document.getElementById(`${prefix}SubAccountField`);
   if(!sel) return [];
-  const subs = fillSubAccountSelect(sel, customerName, selected, { noneLabel: "— None —" });
+  const subs = fillSubAccountSelect(sel, customerName, selected, { noneLabel: "- None -" });
   if(wrap) wrap.hidden = !subs.length;
   return subs;
 }
@@ -1348,7 +1362,7 @@ function renderCustomerSubRows(){
   }
   tbody.innerHTML = _customerSubAccounts.map((s, idx)=> `<tr>
     <td>${esc(s.name)}</td>
-    <td><button class="btn small danger" type="button" data-rm-csub="${idx}">×</button></td>
+    <td><button class="btn small danger" type="button" data-rm-csub="${idx}">Ã—</button></td>
   </tr>`).join("");
   tbody.querySelectorAll("[data-rm-csub]").forEach(btn=>{
     btn.addEventListener("click", ()=>{
@@ -1471,7 +1485,7 @@ function comboScrollInsideList(target){
   return !!(target && target.closest && target.closest(".cust-combo-list, .inv-combo-list, .catalog-suggest-list"));
 }
 
-/** Shared ?/? highlight for cust-combo, inv-combo, catalog suggest — keep focus on the input. */
+/** Shared up/down highlight for cust-combo, inv-combo, catalog suggest - keep focus on the input. */
 function comboOptionItems(list, attr){
   if(!list) return [];
   return [...list.querySelectorAll(`li[${attr}]`)];
@@ -3475,7 +3489,7 @@ async function saveCustomer(){
       if(used && !confirm(
         `Sub-account "${subName}" is used on existing invoices/receipts.\n` +
         `Remove it from the master anyway?\n\n` +
-        `(Old documents keep the name — filter will still work.)`
+        `(Old documents keep the name - filter will still work.)`
       )) return;
     }
   }
@@ -6042,7 +6056,7 @@ function warehouseFromJob(job){
   return job.warehouseId || "Main";
 }
 
-/** §15 Workshop Sale: Job ? Invoice. Issued parts do not stock-out again. */
+/** Â§15 Workshop Sale: Job ? Invoice. Issued parts do not stock-out again. */
 function openInvoiceFromJob(jobId){
   if(!requireModule("invoices")) return;
   const job = (getJobCards() || []).find(j=> j.id === jobId);
@@ -6106,7 +6120,7 @@ async function saveInvoice(status){
       list: invoices, field: "invNo", draftValue: invNo.value, preferCounter: true
     });
     if(invNo) invNo.value = serial.value;
-    if(serial.bumped && hadNo) toast("Invoice No. assigned — posting as " + serial.value);
+    if(serial.bumped && hadNo) toast("Invoice No. assigned - posting as " + serial.value);
   }
   // Preserve linked debit-note charges when re-saving line items
   const dnLinked = linkedDebitTotalForInvoice(invNo.value, customer);
@@ -6380,9 +6394,9 @@ function buildReceiptPrintBody(r, includeBills = false){
   if(r.ref) narrParts.push(`<span class="lbl">Narration:</span>${esc(r.ref)}`);
   if(r.chequeNo){
     let chq = `<span class="lbl">Cheque:</span>${esc(r.chequeNo)}`;
-    if(r.bank) chq += ` &nbsp;·&nbsp; <span class="lbl">Bank:</span>${esc(r.bank)}`;
-    if(r.chequeDate) chq += ` &nbsp;·&nbsp; <span class="lbl">Chq Date:</span>${esc(r.chequeDate)}`;
-    if(r.pdcDate) chq += ` &nbsp;·&nbsp; <span class="lbl">PDC:</span>${esc(r.pdcDate)}`;
+    if(r.bank) chq += ` &nbsp;Â·&nbsp; <span class="lbl">Bank:</span>${esc(r.bank)}`;
+    if(r.chequeDate) chq += ` &nbsp;Â·&nbsp; <span class="lbl">Chq Date:</span>${esc(r.chequeDate)}`;
+    if(r.pdcDate) chq += ` &nbsp;Â·&nbsp; <span class="lbl">PDC:</span>${esc(r.pdcDate)}`;
     narrParts.push(chq);
   }
   const narrHtml = narrParts.length
@@ -6394,7 +6408,7 @@ function buildReceiptPrintBody(r, includeBills = false){
       <header class="rv-print-head">
         <div>
           <div class="rv-print-co">${esc(shop.name || "S4 Workshop")}</div>
-          ${shopLines.length ? `<div class="rv-print-sub">${esc(shopLines.join(" · "))}</div>` : ""}
+          ${shopLines.length ? `<div class="rv-print-sub">${esc(shopLines.join(" Â· "))}</div>` : ""}
         </div>
         <div class="rv-print-badge">RECEIPT VOUCHER</div>
       </header>
@@ -6455,7 +6469,7 @@ function afterReceiptSaved(saved, wasEdit){
   maybePrintReceiptAfterSave(saved);
   const isCheque = String(saved?.method || "").includes("Cheque");
   if(isCheque && !saved?.applied){
-    toast("Cheque saved as Pending — open Cheque / PDC page and Clear to update invoice paid.");
+    toast("Cheque saved as Pending - open Cheque / PDC page and Clear to update invoice paid.");
   }
   if(!wasEdit && !document.getElementById("rvPrintPreview")?.checked){
     setTimeout(()=>{
@@ -6617,8 +6631,8 @@ function updateRvCustomerSummary(){
   const prevAllocMap = {};
   (editing?.allocations || []).forEach(a=> { prevAllocMap[a.invoiceId] = num(a.amount); });
   if(!customer){
-    if(balEl) balEl.textContent = "Balance : —";
-    if(ledEl) ledEl.textContent = "Current Ledger Balance: —";
+    if(balEl) balEl.textContent = "Balance : -";
+    if(ledEl) ledEl.textContent = "Current Ledger Balance: -";
     return;
   }
   const open = openInvoicesForReceipt(customer, prevAllocMap);
@@ -6761,7 +6775,7 @@ function onRvBillSearchCommit(){
   if(!customer){ toast("Select customer first"); return false; }
   const { inv, matches } = findRvBillBySearch(q);
   if(!inv){
-    if(matches.length > 1) toast(`${matches.length} bills match — pick Bill No from list`);
+    if(matches.length > 1) toast(`${matches.length} bills match - pick Bill No from list`);
     else toast("No open bill matches that number");
     return false;
   }
@@ -6832,7 +6846,7 @@ function renderRvBillGrid(){
   const tbody = document.getElementById("rvAllocRows");
   if(!tbody) return;
   if(!_rvBillLines.length){
-    tbody.innerHTML = `<tr><td colspan="4" class="empty">Select bill ? enter amount (partial OK) ? Add bill ? then Save</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">Select bill -> enter amount (partial OK) -> Add bill -> then Save</td></tr>`;
   }else{
     tbody.innerHTML = _rvBillLines.map((l, i)=> `<tr data-rv-line="${i}" title="Double-click row to remove">
       <td>${rvBillNoCellHtml(l)}</td>
@@ -6910,32 +6924,34 @@ function applyRvDiscountToGrid({ silent = false } = {}){
     if(!silent) toast("Add bill(s) first");
     return false;
   }
+  // Keep user-entered Received amounts. Discount only writes off leftover (balance - cash).
+  const cash = roundMoney(_rvBillLines.reduce((s,l)=> s + num(l.received), 0));
   const totalBal = roundMoney(_rvBillLines.reduce((s,l)=> s + l.balance, 0));
+  const leftover = roundMoney(_rvBillLines.reduce((s,l)=> s + Math.max(0, l.balance - num(l.received)), 0));
   if(discTotal <= 0.009){
-    _rvBillLines.forEach(l=> { l.received = l.balance; });
-    renderRvBillGrid();
     updateRvDiscHint();
-    if(!silent) toast("Discount cleared — received reset to full balance");
+    if(!silent) toast("No discount - cash amounts kept as entered");
     return true;
   }
-  if(discTotal > totalBal + 0.01){
-    if(!silent) toast(`Discount ${money(discTotal)} cannot exceed bill total ${money(totalBal)}`);
+  if(cash + discTotal > totalBal + 0.02){
+    if(!silent) toast(`Cash ${money(cash)} + discount ${money(discTotal)} exceeds bill total ${money(totalBal)}`);
     return false;
   }
-  const discShares = distributeProportionally(discTotal, _rvBillLines.map(l=> l.balance));
-  _rvBillLines.forEach((l, i)=>{
-    l.received = roundMoney(Math.max(0, l.balance - (discShares[i] || 0)));
-  });
-  renderRvBillGrid();
+  if(discTotal > leftover + 0.02){
+    if(!silent) toast(
+      `Discount ${money(discTotal)} exceeds unpaid remainder ${money(leftover)} after cash ${money(cash)}. ` +
+      `Lower cash or discount.`
+    );
+    return false;
+  }
   updateRvDiscHint();
   if(!silent){
-    const cash = roundMoney(_rvBillLines.reduce((s,l)=> s + l.received, 0));
-    toast(`Cash ${money(cash)} + discount ${money(discTotal)} = ${money(totalBal)} settlement`);
+    toast(`OK: ${money(cash)} cash + ${money(discTotal)} discount = ${money(roundMoney(cash + discTotal))} of ${money(totalBal)}`);
   }
   return true;
 }
 
-/** Auto-apply discount before save so cash + discount = bill settlement (no separate Apply click required). */
+/** Validate discount vs cash before save - never rewrite Received amounts. */
 function syncRvDiscountBeforeSave(){
   const discTotal = num(document.getElementById("rvDisc")?.value);
   if(discTotal <= 0.009 || !_rvBillLines.length) return true;
@@ -6948,14 +6964,17 @@ function updateRvDiscHint(){
   const discTotal = num(document.getElementById("rvDisc")?.value);
   const cash = roundMoney(_rvBillLines.reduce((s,l)=> s + l.received, 0));
   const bal = roundMoney(_rvBillLines.reduce((s,l)=> s + l.balance, 0));
+  const leftover = roundMoney(Math.max(0, bal - cash));
   if(!_rvBillLines.length){
-    hint.textContent = "Add bill(s) first. Discount optional — Apply or Save applies it automatically.";
+    hint.textContent = "Add bill(s) first. Enter partial cash if needed. Optional discount writes off leftover only.";
     return;
   }
   if(discTotal > 0.009){
-    hint.textContent = `Settlement: ${money(cash)} cash + ${money(discTotal)} discount = ${money(roundMoney(cash + discTotal))} (bill total ${money(bal)}) — Save applies discount automatically`;
+    hint.textContent =
+      `Cash ${money(cash)} + discount ${money(discTotal)} = ${money(roundMoney(cash + discTotal))} ` +
+      `(bill ${money(bal)}, leftover after cash ${money(leftover)}). Received amounts stay as typed.`;
   }else{
-    hint.textContent = `Bill total ${money(bal)} — partial amount OK before Add bill. Discount optional on Save.`;
+    hint.textContent = `Bill ${money(bal)} - enter partial Received (e.g. 700). Optional discount only on leftover.`;
   }
 }
 
@@ -7012,8 +7031,14 @@ function readRvAllocationsFromGrid(existing = null){
     amount: roundMoney(l.received),
     balance: l.balance
   }));
+  // Discount shares by unpaid leftover after cash (supports partial + small discount).
+  const leftovers = lines.map(a=> Math.max(0, roundMoney(a.balance - a.amount)));
+  const leftoverSum = roundMoney(leftovers.reduce((s,x)=> s + x, 0));
+  const discWeights = leftoverSum > 0.009
+    ? leftovers
+    : lines.map(a=> Math.max(0, a.amount) || Math.max(0, a.balance));
   const discShares = discTotal > 0.009
-    ? distributeProportionally(discTotal, lines.map(a=> a.balance))
+    ? distributeProportionally(discTotal, discWeights)
     : lines.map(()=> 0);
   let allocs = lines.map((a, i)=> ({ ...a, discShare: discShares[i] || 0 }));
   if(discTotal > 0.009){
@@ -7149,7 +7174,7 @@ async function saveReceipt(){
     });
     rvNoTrim = rvSerial.value;
     if(rvNo) rvNo.value = rvNoTrim;
-    if(rvSerial.bumped && rvHadNo) toast("Receipt No. assigned — posting as " + rvNoTrim);
+    if(rvSerial.bumped && rvHadNo) toast("Receipt No. assigned - posting as " + rvNoTrim);
   }else if(rvNo) rvNo.value = rvNoTrim;
   let discSharesPreview = allocs.map(a=> roundMoney(num(a.discShare)));
   // Amount = sum of Received Amt in grid (cash only). Discount is separate write-off.
@@ -7609,8 +7634,8 @@ function fillLedger(){
     const subCell = l.subAccount ? esc(l.subAccount) : "";
     rows.push(`<tr><td>${esc(l.date)}</td><td>${stmtRefHtml(l)}</td><td>${esc(l.desc)}</td><td>${subCell}</td><td>${ledgerCell(l.debit)}</td><td>${ledgerCell(l.credit)}</td><td>${money(bal)}</td></tr>`);
   });
-  const title = sub ? `${name} — ${sub}` : name;
-  const periodBit = bounds.mode === "monthly" ? ` · ${customerPeriodLabel(bounds)}` : (from || to ? ` · ${customerPeriodLabel(bounds)}` : "");
+  const title = sub ? `${name} - ${sub}` : name;
+  const periodBit = bounds.mode === "monthly" ? ` Â· ${customerPeriodLabel(bounds)}` : (from || to ? ` Â· ${customerPeriodLabel(bounds)}` : "");
   document.getElementById("ledgerTitle").textContent = name ? title + periodBit : "Select a customer";
   // Closing must match filtered running balance (last row). Lifetime outstanding only when no date/sub filter.
   document.getElementById("ledgerClose").textContent = (from || to || sub)
@@ -7654,9 +7679,9 @@ function fillStatement(){
   const odFrom = num(document.getElementById("stmtOdFrom")?.value);
   const name = sel?.value || "";
   syncStmtSubAccountField(sub);
-  const titleBit = sub ? `${name} — ${sub}` : name;
+  const titleBit = sub ? `${name} - ${sub}` : name;
   const periodBit = customerPeriodLabel(bounds, "stmt");
-  document.getElementById("stmtTitle").textContent = name ? `${titleBit} — ${periodBit}` : "Select a customer";
+  document.getElementById("stmtTitle").textContent = name ? `${titleBit} - ${periodBit}` : "Select a customer";
   const closeEl = document.getElementById("stmtClose");
   const sumEl = document.getElementById("stmtSummary");
   const body = document.getElementById("stmtRows");
@@ -7671,7 +7696,7 @@ function fillStatement(){
   const built = buildStatementRows(name, asOf, from, sub, { odFrom });
   if(closeEl){
     closeEl.textContent = (bounds.mode === "custom" && !from)
-      ? `All dates up to ${asOf} — set FROM for period total`
+      ? `All dates up to ${asOf} - set FROM for period total`
       : `As of ${asOf}`;
   }
   if(sumEl){
@@ -7688,7 +7713,7 @@ function fillStatement(){
 function statementPartyCardHtml(name, subFilter = ""){
   const c = customers.find(x=> x.name === name);
   const bits = [];
-  bits.push(`<div class="stmt-party-name">${esc(name)}${subFilter ? ` <span class="muted">· ${esc(subFilter)}</span>` : ""}</div>`);
+  bits.push(`<div class="stmt-party-name">${esc(name)}${subFilter ? ` <span class="muted">Â· ${esc(subFilter)}</span>` : ""}</div>`);
   if(c?.code) bits.push(`<div class="stmt-party-meta"><b>Code</b> ${esc(c.code)}</div>`);
   if(c?.contact) bits.push(`<div class="stmt-party-meta"><b>Contact</b> ${esc(c.contact)}</div>`);
   if(c?.mobile) bits.push(`<div class="stmt-party-meta"><b>Mobile</b> ${esc(c.mobile)}</div>`);
@@ -7703,7 +7728,7 @@ function stmtRefHtml(l){
   if(l.computerNo) extras.push(`PC: ${esc(l.computerNo)}`);
   if(l.manualNo) extras.push(`Manual: ${esc(l.manualNo)}`);
   const extra = extras.length
-    ? `<span class="stmt-ref-extra">${extras.join(" · ")}</span>`
+    ? `<span class="stmt-ref-extra">${extras.join(" Â· ")}</span>`
     : "";
   return `${esc(l.ref || "")}${extra}`;
 }
@@ -7713,7 +7738,7 @@ function stmtRefText(l){
   if(l.computerNo) extras.push("PC: " + l.computerNo);
   if(l.manualNo) extras.push("Manual: " + l.manualNo);
   if(!extras.length) return l.ref || "";
-  return `${l.ref || ""}\n${extras.join(" · ")}`;
+  return `${l.ref || ""}\n${extras.join(" Â· ")}`;
 }
 
 function renderStatementPeriodBreakdownHtml(built){
@@ -7723,7 +7748,7 @@ function renderStatementPeriodBreakdownHtml(built){
     const amt = num(l.debit) > 0 ? num(l.debit) : num(l.credit);
     const refBits = [l.ref || "", l.manualNo ? `Manual: ${l.manualNo}` : "", l.computerNo ? `PC: ${l.computerNo}` : ""].filter(Boolean);
     const subBit = l.subAccount ? `<span class="stmt-txn-sub">${esc(l.subAccount)}</span>` : "";
-    return `<div class="stmt-txn-box"><div class="stmt-txn-box-main">${esc(l.date)} · ${esc(refBits.join(" · "))} · ${esc(l.desc)}${subBit ? " · " : ""}${subBit}</div><div class="stmt-txn-box-amt"><b>${money(amt)}</b></div></div>`;
+    return `<div class="stmt-txn-box"><div class="stmt-txn-box-main">${esc(l.date)} Â· ${esc(refBits.join(" Â· "))} Â· ${esc(l.desc)}${subBit ? " Â· " : ""}${subBit}</div><div class="stmt-txn-box-amt"><b>${money(amt)}</b></div></div>`;
   });
   return `<div class="stmt-summary-box stmt-summary-box--txns"><div class="stmt-summary-box-title">Transactions in this period</div><div class="stmt-txn-list">${rows.join("")}</div></div>`;
 }
@@ -7732,7 +7757,7 @@ function renderStatementSubBoxesHtml(built, subFilter){
   if(subFilter || !built.bySub || !Object.keys(built.bySub).length) return "";
   const rows = Object.entries(built.bySub).sort((a,b)=> a[0].localeCompare(b[0])).map(([subName, x])=>
     `<div class="stmt-sub-box"><div class="stmt-sub-box-name">${esc(subName)}</div>` +
-    `<div>In ${money(x.debit)} · Out ${money(x.credit)} · <b>Net ${money(x.net)}</b></div></div>`
+    `<div>In ${money(x.debit)} Â· Out ${money(x.credit)} Â· <b>Net ${money(x.net)}</b></div></div>`
   );
   return `<div class="stmt-summary-box stmt-summary-box--subs"><div class="stmt-summary-box-title">Sub-account summary</div>${rows.join("")}</div>`;
 }
@@ -7754,12 +7779,12 @@ function renderStatementSummaryHtml(built, bounds, subFilter, { showPeriodTxns =
     `<div class="stmt-summary-row"><span class="stmt-summary-sub">Period</span> <b>${esc(periodLabel)}</b></div>`
   ];
   if(bounds.mode === "custom" && !bounds.from){
-    periodBits.push(`<div class="stmt-summary-row stmt-summary-sub">FROM date not set — all transactions up to ${esc(bounds.asOf)} are included.</div>`);
+    periodBits.push(`<div class="stmt-summary-row stmt-summary-sub">FROM date not set - all transactions up to ${esc(bounds.asOf)} are included.</div>`);
   }
   periodBits.push(
     `<div class="stmt-summary-row"><span>Invoices / charges:</span> <b>${money(built.periodDebit)}</b>` +
-    `<span> · Received / credits:</span> <b>${money(built.periodCredit)}</b>` +
-    `<span> · ${netLabel}:</span> <b>${money(built.periodNet)}</b></div>`
+    `<span> Â· Received / credits:</span> <b>${money(built.periodCredit)}</b>` +
+    `<span> Â· ${netLabel}:</span> <b>${money(built.periodNet)}</b></div>`
   );
   const parts = [
     `<div class="stmt-summary-box stmt-summary-box--period"><div class="stmt-summary-box-title">Period summary</div>${periodBits.join("")}</div>`
@@ -8038,7 +8063,7 @@ async function saveCn(){
   });
   const cnTrim = cnSerial.value;
   if(cnNo) cnNo.value = cnTrim;
-  if(cnSerial.bumped) toast("Credit Note No. assigned — posting as " + cnTrim);
+  if(cnSerial.bumped) toast("Credit Note No. assigned - posting as " + cnTrim);
   try{
     const returnItems = status !== "Draft" ? readCnReturnItems() : [];
     const returnWh = document.getElementById("cnReturnWarehouse")?.value || "Main";
@@ -8113,7 +8138,7 @@ async function saveDn(){
   });
   const dnTrim = dnSerial.value;
   if(dnNo) dnNo.value = dnTrim;
-  if(dnSerial.bumped) toast("Debit Note No. assigned — posting as " + dnTrim);
+  if(dnSerial.bumped) toast("Debit Note No. assigned - posting as " + dnTrim);
   try{
     const write = (async ()=>{
       const inv = invNo ? invoices.find(i=> i.invNo === invNo && i.customer === customer) : null;
@@ -8488,7 +8513,7 @@ async function saveCheque(){
   });
   if(dupChq){
     return toast(
-      `Duplicate blocked — same Cheque No., customer and date already saved` +
+      `Duplicate blocked - same Cheque No., customer and date already saved` +
       ` (${dupChq.chequeNo}, ${dupChq.customer}, ${dupChq.chequeDate || "-"}).`
     );
   }
@@ -9193,7 +9218,7 @@ function statementTableHtml(name, asOf, from, subFilter = "", summaryHtml = "", 
   const odFrom = num(document.getElementById("stmtOdFrom")?.value);
   const built = builtOverride || buildStatementRows(name, asOf, from || "", subFilter, { odFrom });
   const range = from ? `From ${esc(from)} - ` : "";
-  const subBit = subFilter ? ` — ${esc(subFilter)}` : "";
+  const subBit = subFilter ? ` - ${esc(subFilter)}` : "";
   const c = customers.find(x=> x.name === name);
   const partyBits = [
     c?.code ? `Code: ${esc(c.code)}` : "",
@@ -9206,8 +9231,8 @@ function statementTableHtml(name, asOf, from, subFilter = "", summaryHtml = "", 
   const partyBlock = `
     <div style="margin:12px 0 16px;padding:14px 16px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc">
       <div style="font-size:16px;font-weight:700;margin-bottom:8px">${esc(name)}${subBit}</div>
-      <div style="font-size:12px;color:#475569;line-height:1.55">${partyBits.join(" · ") || "Customer account statement"}</div>
-      <div style="margin-top:10px;font-size:12px;font-weight:600">${esc(shop.name||"")} — ${range}As of ${esc(asOf)}</div>
+      <div style="font-size:12px;color:#475569;line-height:1.55">${partyBits.join(" Â· ") || "Customer account statement"}</div>
+      <div style="margin-top:10px;font-size:12px;font-weight:600">${esc(shop.name||"")} - ${range}As of ${esc(asOf)}</div>
     </div>`;
   const tableHtml = tableFromRows(
     ["Date","Reference","Description","Sub-account","Debit","Credit","Balance","Overdue"],
@@ -9424,7 +9449,7 @@ function runGlobalSearch(q){
     hits.push({
       type: "Invoice",
       ref: i.invNo,
-      detail: [i.customer, i.subAccount, detailExtra].filter(Boolean).join(" · "),
+      detail: [i.customer, i.subAccount, detailExtra].filter(Boolean).join(" Â· "),
       page: "invoices",
       go: ()=>{ showPage("invoices"); editInvoice(i.id); }
     });
@@ -9477,7 +9502,7 @@ function runGlobalSearch(q){
   });
   receipts.forEach(r=>{
     if(`${r.rvNo} ${r.customer} ${r.subAccount||""} ${r.chequeNo} ${r.ref}`.toLowerCase().includes(ql))
-      hits.push({ type:"Receipt", ref:r.rvNo, detail:[r.customer, r.subAccount].filter(Boolean).join(" · "), page:"receipts", go:()=>{ showPage("receipts"); if(receiptSearch){ receiptSearch.value=q; renderReceipts(); }}});
+      hits.push({ type:"Receipt", ref:r.rvNo, detail:[r.customer, r.subAccount].filter(Boolean).join(" Â· "), page:"receipts", go:()=>{ showPage("receipts"); if(receiptSearch){ receiptSearch.value=q; renderReceipts(); }}});
   });
   const box = document.getElementById("searchResults");
   const overlay = document.getElementById("searchOverlay");

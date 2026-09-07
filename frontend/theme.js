@@ -29,7 +29,7 @@ function syncThemeUi(theme){
     btn.setAttribute("aria-pressed", isDark ? "true" : "false");
     btn.title = isDark ? "Light mode" : "Dark mode";
     const ico = btn.querySelector(".theme-toggle-ico");
-    if(ico) ico.textContent = isDark ? "☀" : "🌙";
+    if(ico) ico.textContent = isDark ? "\u2600" : "\uD83C\uDF19";
   });
 
   document.querySelectorAll("[data-theme-option]").forEach(opt=>{
