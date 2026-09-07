@@ -382,3 +382,14 @@ export async function linkGrnToPurchase(grnId, piId, piNo){
     ...masterMeta()
   });
 }
+
+/** Clear PI link when invoice changes GRN or is voided. */
+export async function unlinkGrnFromPurchase(grnId){
+  if(!grnId || !ctx.db) return;
+  await updateDoc(doc(ctx.db, "goodsReceipts", grnId), {
+    piId: "",
+    piNo: "",
+    invoicedAt: null,
+    ...masterMeta()
+  });
+}

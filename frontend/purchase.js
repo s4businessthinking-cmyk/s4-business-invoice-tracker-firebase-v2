@@ -261,7 +261,14 @@ function handlePiF8(e){
   }
 }
 
-function normalizePiLine(raw){
+function readPiVatOpts(){
+  return {
+    vatAfterAdj: !!document.getElementById("piVatAfterAdj")?.checked,
+    vatOnMrp: !!document.getElementById("piVatOnMrp")?.checked,
+  };
+}
+
+function normalizePiLine(raw, opts = {}){
   const qty = num(raw.qty) || 1;
   const price = num(raw.price);
   const disc = num(raw.disc) || 0;
@@ -272,8 +279,12 @@ function normalizePiLine(raw){
   const mrp = num(raw.mrp);
   const amount = qty * price;
   const net = Math.max(0, amount - disc);
-  const vatAmt = net * vat / 100;
-  return { name, code, qty, unit, price, mrp, disc, vat, amount, net, vatAmt, line: net + vatAmt };
+  const vatOnMrp = !!opts.vatOnMrp;
+  const vatAfterAdj = !!opts.vatAfterAdj;
+  const vatBase = (vatOnMrp && mrp > 0) ? (qty * mrp) : net;
+  // When VAT-after-adjustment is on, lines carry net only; header calc adds VAT later.
+  const vatAmt = vatAfterAdj ? 0 : (vatBase * vat / 100);
+  return { name, code, qty, unit, price, mrp, disc, vat, amount, net, vatAmt, line: net + vatAmt, vatBase };
 }
 
 function readPiEntryDraft(){
@@ -341,7 +352,7 @@ function renderPiItemList(){
     return;
   }
   tbody.innerHTML = _purchaseLineItems.map((it, idx)=>{
-    const x = normalizePiLine(it);
+    const x = normalizePiLine(it, readPiVatOpts());
     return `<tr class="inv-line-row" data-edit-pi-item="${idx}" title="Double-click to edit">
       <td class="inv-name-cell" data-label="Product">${esc(x.name)}</td>
       <td data-label="Code">${esc(x.code)}</td>
@@ -414,11 +425,12 @@ function flushPiDraftLine(){
 }
 
 function calcPurchaseInvoice(){
-  const items = _purchaseLineItems.map(it=> normalizePiLine(it));
+  const opts = readPiVatOpts();
+  const items = _purchaseLineItems.map(it=> normalizePiLine(it, opts));
   const sub = items.reduce((s,i)=> s + i.amount, 0);
   const lineDisc = items.reduce((s,i)=> s + i.disc, 0);
   const netValue = items.reduce((s,i)=> s + i.net, 0);
-  const vat = items.reduce((s,i)=> s + i.vatAmt, 0);
+  const lineVat = items.reduce((s,i)=> s + i.vatAmt, 0);
   const lineGrand = items.reduce((s,i)=> s + i.line, 0);
   const qty = items.reduce((s,i)=> s + num(i.qty), 0);
 
@@ -428,7 +440,29 @@ function calcPurchaseInvoice(){
 
   const adjustments = num(document.getElementById("piAdjustments")?.value);
   const roundOff = num(document.getElementById("piRoundOff")?.value);
-  const grand = roundMoney(lineGrand - hdrDisc + adjustments + roundOff);
+
+  let vat = lineVat;
+  let grand;
+  if(opts.vatAfterAdj){
+    const taxable = roundMoney(Math.max(0, netValue - hdrDisc + adjustments));
+    const vatWeight = items.reduce((s,i)=> s + (i.net * num(i.vat) / 100), 0);
+    const avgRate = netValue > 0.009 ? (vatWeight / netValue) : (shopDefaultVat() / 100);
+    if(opts.vatOnMrp){
+      const mrpVat = items.reduce((s,i)=>{
+        const base = num(i.mrp) > 0 ? num(i.qty) * num(i.mrp) : i.net;
+        return s + base * num(i.vat) / 100;
+      }, 0);
+      const mrpBase = items.reduce((s,i)=> s + (num(i.mrp) > 0 ? num(i.qty) * num(i.mrp) : i.net), 0);
+      vat = mrpBase > 0.009
+        ? roundMoney(taxable * (mrpVat / mrpBase))
+        : roundMoney(taxable * avgRate);
+    }else{
+      vat = roundMoney(taxable * avgRate);
+    }
+    grand = roundMoney(taxable + vat + roundOff);
+  }else{
+    grand = roundMoney(lineGrand - hdrDisc + adjustments + roundOff);
+  }
 
   const setTxt = (id, v)=>{ const el = document.getElementById(id); if(el) el.textContent = money(v); };
   const setNum = (id, v)=>{ const el = document.getElementById(id); if(el) el.textContent = v; };
@@ -437,7 +471,7 @@ function calcPurchaseInvoice(){
   setTxt("piTotDisc", lineDisc);
   setTxt("piTotNet", netValue);
   setTxt("piTotVat", vat);
-  setTxt("piTotGrand", lineGrand);
+  setTxt("piTotGrand", opts.vatAfterAdj ? roundMoney(netValue + vat) : lineGrand);
   setTxt("piGrand", grand);
 
   return { items, sub, disc: lineDisc + hdrDisc, vat, grand, roundOff, hdrDisc, adjustments, lineGrand };
@@ -466,15 +500,59 @@ function refreshPiGrnSelect(supplier, selectedId){
   if(!sel) return;
   const sup = String(supplier ?? document.getElementById("piSupplier")?.value ?? "").trim().toLowerCase();
   const cur = selectedId ?? sel.value ?? "";
-  const rows = (ctx.getGoodsReceipts?.() || []).filter(g=>
-    !g.piId &&
-    String(g.status || "Posted").toLowerCase() !== "cancelled" &&
-    (!sup || String(g.supplier || "").trim().toLowerCase() === sup)
-  ).sort((a,b)=> String(b.date||"").localeCompare(String(a.date||"")));
+  const currentPiId = document.getElementById("piId")?.value || "";
+  const rows = (ctx.getGoodsReceipts?.() || []).filter(g=>{
+    const st = String(g.status || "Posted").toLowerCase();
+    if(st === "cancelled" || st === "voided") return false;
+    if(sup && String(g.supplier || "").trim().toLowerCase() !== sup) return false;
+    // Keep unlinked GRNs, or the GRN already linked to THIS purchase invoice
+    if(!g.piId) return true;
+    if(cur && g.id === cur) return true;
+    if(currentPiId && g.piId === currentPiId) return true;
+    return false;
+  }).sort((a,b)=> String(b.date||"").localeCompare(String(a.date||"")));
   sel.innerHTML = `<option value="">— No GRN (stock on PI) —</option>` + rows.map(g=>
     `<option value="${esc(g.id)}"${g.id === cur ? " selected" : ""}>${esc(g.grnNo)} · ${esc(g.date)} · ${esc(g.totalQty)} pcs</option>`
   ).join("");
   if(cur && [...sel.options].some(o=> o.value === cur)) sel.value = cur;
+}
+
+function loadPiLinesFromGrn(grn, { force = false } = {}){
+  if(!grn) return false;
+  const lines = (grn.items || []).filter(l=> num(l.qty) > 0 || num(l.damagedQty) > 0);
+  if(!lines.length){
+    toast("Selected GRN has no product lines");
+    return false;
+  }
+  if(_purchaseLineItems.length && !force){
+    if(!confirm("Replace current product lines with lines from this GRN?")) return false;
+  }
+  _purchaseLineItems = lines.map(l=>({
+    name: l.name || "",
+    code: l.code || "",
+    qty: num(l.qty) || 0,
+    unit: l.unit || "Pcs",
+    price: num(l.rate ?? l.price),
+    mrp: num(l.mrp),
+    disc: num(l.disc),
+    vat: num(l.vat ?? shopDefaultVat()),
+  }));
+  if(grn.stockLocation) syncPurchaseStockLocations(grn.stockLocation);
+  if(grn.supplier){
+    supplierOptions(document.getElementById("piSupplier"), grn.supplier);
+  }
+  clearPiEntryFields();
+  renderPiItemList();
+  calcPurchaseInvoice();
+  return true;
+}
+
+function onPiGrnRefChange(){
+  const grnId = document.getElementById("piGrnRef")?.value || "";
+  if(!grnId) return;
+  const grn = (ctx.getGoodsReceipts?.() || []).find(g=> g.id === grnId);
+  if(!grn) return;
+  loadPiLinesFromGrn(grn);
 }
 
 function productIdentityValues(p){
@@ -753,10 +831,16 @@ async function applyPurchaseStockDeltaLocal(items, direction, warehouseId){
   }
 }
 
+function isPiPosted(st){
+  return String(st || "").toLowerCase() === "posted";
+}
+
 async function applyPurchaseStockMoves(existing, status, calcItems, stockLocation){
   const prevWh = existing?.stockLocation || "Main";
   const nextWh = stockLocation || "Main";
-  if(existing?.status === "Posted" && status === "Posted"){
+  const prevPosted = isPiPosted(existing?.status);
+  const nextPosted = isPiPosted(status);
+  if(prevPosted && nextPosted){
     await validateStockForLines(existing.items, prevWh, -1);
     await applyPurchaseStockDeltaLocal(existing.items, -1, prevWh);
     try{
@@ -765,9 +849,9 @@ async function applyPurchaseStockMoves(existing, status, calcItems, stockLocatio
       await applyPurchaseStockDeltaLocal(existing.items, 1, prevWh);
       throw e;
     }
-  }else if(existing?.status !== "Posted" && status === "Posted"){
+  }else if(!prevPosted && nextPosted){
     await applyPurchaseStockDeltaLocal(calcItems, 1, nextWh);
-  }else if(existing?.status === "Posted" && status === "Draft"){
+  }else if(prevPosted && !nextPosted){
     await validateStockForLines(existing.items, prevWh, -1);
     await applyPurchaseStockDeltaLocal(existing.items, -1, prevWh);
   }
@@ -776,19 +860,53 @@ async function applyPurchaseStockMoves(existing, status, calcItems, stockLocatio
 async function rollbackPurchaseStockMoves(existing, status, calcItems, stockLocation){
   const prevWh = existing?.stockLocation || "Main";
   const nextWh = stockLocation || "Main";
-  if(existing?.status === "Posted" && status === "Posted"){
+  const prevPosted = isPiPosted(existing?.status);
+  const nextPosted = isPiPosted(status);
+  if(prevPosted && nextPosted){
     await applyPurchaseStockDeltaLocal(calcItems, -1, nextWh);
     await applyPurchaseStockDeltaLocal(existing.items, 1, prevWh);
-  }else if(existing?.status !== "Posted" && status === "Posted"){
+  }else if(!prevPosted && nextPosted){
     await applyPurchaseStockDeltaLocal(calcItems, -1, nextWh);
-  }else if(existing?.status === "Posted" && status === "Draft"){
+  }else if(prevPosted && !nextPosted){
     await applyPurchaseStockDeltaLocal(existing.items, 1, prevWh);
   }
 }
 
-function purchaseStockWillMove(existing, status, calcItems){
-  if(status !== "Posted" && existing?.status !== "Posted") return false;
+function purchaseStockWillMove(existing, status, calcItems, skipStock){
+  if(skipStock) return false;
+  if(!isPiPosted(status) && !isPiPosted(existing?.status)) return false;
   return catalogMatchedLines(calcItems).length > 0 || catalogMatchedLines(existing?.items).length > 0;
+}
+
+/** PI stock only when Posted AND not linked to GRN (GRN already moved stock). */
+async function reconcilePiStock({ existing, status, calcItems, stockLocation, prevGrnId, nextGrnId }){
+  const prevPosted = isPiPosted(existing?.status);
+  const nextPosted = isPiPosted(status);
+  const prevPiStock = prevPosted && !prevGrnId;
+  const nextPiStock = nextPosted && !nextGrnId;
+  if(prevPiStock && nextPiStock){
+    await applyPurchaseStockMoves(existing, status, calcItems, stockLocation);
+  }else if(prevPiStock && !nextPiStock){
+    // Was PI-stocked, now Draft or GRN-linked → reverse previous stock
+    await applyPurchaseStockMoves(existing, "Draft", calcItems, stockLocation);
+  }else if(!prevPiStock && nextPiStock){
+    // New post or was GRN-linked / Draft → apply stock from current lines
+    await applyPurchaseStockMoves(prevPosted ? null : existing, "Posted", calcItems, stockLocation);
+  }
+}
+
+async function rollbackPiStock({ existing, status, calcItems, stockLocation, prevGrnId, nextGrnId }){
+  const prevPosted = isPiPosted(existing?.status);
+  const nextPosted = isPiPosted(status);
+  const prevPiStock = prevPosted && !prevGrnId;
+  const nextPiStock = nextPosted && !nextGrnId;
+  if(prevPiStock && nextPiStock){
+    await rollbackPurchaseStockMoves(existing, status, calcItems, stockLocation);
+  }else if(prevPiStock && !nextPiStock){
+    await rollbackPurchaseStockMoves(existing, "Draft", calcItems, stockLocation);
+  }else if(!prevPiStock && nextPiStock){
+    await rollbackPurchaseStockMoves(prevPosted ? null : existing, "Posted", calcItems, stockLocation);
+  }
 }
 
 export function renderSuppliers(){
@@ -955,6 +1073,8 @@ function openNewPurchaseInvoice(){
 function editPurchaseInvoice(id){
   const pi = purchaseInvoices.find(x=> x.id === id);
   if(!pi) return;
+  const st = String(pi.status || "Posted").toLowerCase();
+  if(st === "cancelled" || st === "voided") return toast("Cannot edit a voided purchase invoice");
   document.getElementById("piId").value = pi.id;
   document.getElementById("piNo").value = pi.piNo || "";
   document.getElementById("piRef").value = pi.refNo || "";
@@ -993,16 +1113,70 @@ export function renderPurchaseInvoices(){
   }).sort((a,b)=> String(b.invDate||"").localeCompare(String(a.invDate||"")));
   tbody.innerHTML = rows.length ? rows.map(pi=>{
     const bal = Math.max(0, num(pi.total) - num(pi.paid) - num(pi.credited));
-    const paySt = bal <= 0.009 ? "Paid" : (num(pi.paid) > 0 || num(pi.credited) > 0 ? "Partial" : "Open");
+    const st = String(pi.status || "Posted");
+    const stLow = st.toLowerCase();
+    const paySt = stLow === "cancelled" || stLow === "voided"
+      ? "—"
+      : (bal <= 0.009 ? "Paid" : (num(pi.paid) > 0 || num(pi.credited) > 0 ? "Partial" : "Open"));
+    const canVoid = stLow !== "cancelled" && stLow !== "voided";
     return `<tr>
     <td>${esc(pi.piNo)}</td><td>${esc(pi.invDate)}</td><td>${esc(pi.supplier)}</td>
     <td>${esc(pi.supplierInvNo)}</td><td>${esc(formatStockLocation(pi.stockLocation))}</td>
     <td>${money(pi.total)}</td><td>${money(pi.paid)}</td><td>${money(bal)}</td>
-    <td>${badge(pi.status||"Posted")}</td><td>${esc(paySt)}</td>
-    <td><button class="btn small" type="button" data-edit-pi="${pi.id}">Open</button></td>
+    <td>${badge(st)}</td><td>${esc(paySt)}</td>
+    <td>
+      <button class="btn small" type="button" data-edit-pi="${pi.id}">Open</button>
+      ${canVoid ? `<button class="btn small danger" type="button" data-void-pi="${pi.id}">Void</button>` : ""}
+    </td>
   </tr>`;
   }).join("") : `<tr><td colspan="11" class="empty">No purchase invoices</td></tr>`;
   tbody.querySelectorAll("[data-edit-pi]").forEach(b=> b.onclick = ()=> editPurchaseInvoice(b.dataset.editPi));
+  tbody.querySelectorAll("[data-void-pi]").forEach(b=> b.onclick = ()=> voidPurchaseInvoice(b.dataset.voidPi));
+}
+
+async function voidPurchaseInvoice(id){
+  if(!requireModule("purchase-invoices")) return;
+  const pi = purchaseInvoices.find(x=> x.id === id);
+  if(!pi) return toast("Purchase invoice not found");
+  const st = String(pi.status || "Posted").toLowerCase();
+  if(st === "cancelled" || st === "voided") return toast("Already voided");
+  if(num(pi.paid) > 0.009){
+    return toast("Void Vendor Payment(s) first — this PI has payments applied");
+  }
+  if(num(pi.credited) > 0.009){
+    return toast("Void Purchase Return(s) first — this PI has returns credited");
+  }
+  if(!confirm(`Void purchase ${pi.piNo}? This reverses stock (if stock was on PI) and unlinks GRN.`)) return;
+  try{
+    _purchaseSaving = true;
+    const wasPosted = isPiPosted(st);
+    const hadPiStock = wasPosted && !pi.grnId;
+    if(hadPiStock){
+      await applyPurchaseStockMoves(pi, "Draft", pi.items || [], pi.stockLocation || "Main");
+    }
+    try{
+      await updateDoc(doc(db(), "purchaseInvoices", pi.id), {
+        status: "Cancelled",
+        updatedAt: Date.now(),
+        updatedBy: who(),
+      });
+      if(pi.grnId) await ctx.unlinkGrnFromPurchase?.(pi.grnId);
+    }catch(docErr){
+      if(hadPiStock) await rollbackPurchaseStockMoves(pi, "Draft", pi.items || [], pi.stockLocation || "Main");
+      throw docErr;
+    }
+    Object.assign(pi, { status: "Cancelled" });
+    await logActivity({
+      action: "void", staffName: who(), module: "Purchase Invoice",
+      record: pi.piNo, summary: `Voided · ${pi.supplier}`
+    });
+    toast("Purchase invoice voided");
+    renderPurchaseInvoices();
+  }catch(e){
+    toast(friendlyFirestoreError(e));
+  }finally{
+    _purchaseSaving = false;
+  }
 }
 
 async function savePurchaseInvoice(status){
@@ -1015,6 +1189,26 @@ async function savePurchaseInvoice(status){
   if(!calc.items.length) return toast("Add at least one product line");
   const piId = document.getElementById("piId").value;
   const existing = piId ? purchaseInvoices.find(x=> x.id === piId) : null;
+  const paid = num(existing?.paid);
+  const credited = num(existing?.credited);
+  if(status === "Draft" && (paid > 0.009 || credited > 0.009)){
+    return toast("Cannot save as Draft — void Vendor Payment(s) / Purchase Return(s) first");
+  }
+  if(calc.grand + 0.02 < paid + credited){
+    return toast(
+      `Net amount ${money(calc.grand)} cannot be less than paid ${money(paid)} + credited ${money(credited)}. ` +
+      `Void payments/returns first or increase the total.`
+    );
+  }
+  const unmatched = calc.items.filter(l=> !findProductForLine(l));
+  if(status === "Posted" && unmatched.length){
+    const names = unmatched.slice(0, 3).map(l=> l.name || l.code || "?").join(", ");
+    const more = unmatched.length > 3 ? ` (+${unmatched.length - 3} more)` : "";
+    if(!confirm(
+      `${unmatched.length} line(s) are not in Product Master (${names}${more}).\n` +
+      `Those lines will NOT update stock. Continue?`
+    )) return;
+  }
   const supplierInvNo = document.getElementById("piSupInvNo").value.trim();
   const supplierInvDate = document.getElementById("piSupInvDate").value;
   const docDate = document.getElementById("piDate").value;
@@ -1022,6 +1216,8 @@ async function savePurchaseInvoice(status){
   if(supplierInvNo && dupDate){
     const dupPi = purchaseInvoices.find(pi=>{
       if(piId && pi.id === piId) return false;
+      const st = String(pi.status || "").toLowerCase();
+      if(st === "cancelled" || st === "voided") return false;
       if(String(pi.supplier || "").trim().toLowerCase() !== supplier.trim().toLowerCase()) return false;
       const piDate = String(pi.supplierInvDate || pi.invDate || pi.docDate || "").slice(0, 10);
       if(piDate !== dupDate) return false;
@@ -1034,14 +1230,24 @@ async function savePurchaseInvoice(status){
       );
     }
   }
+  const grnId = document.getElementById("piGrnRef")?.value || "";
+  const prevGrnId = existing?.grnId || "";
+  if(grnId && status === "Posted"){
+    const grn = (ctx.getGoodsReceipts?.() || []).find(g=> g.id === grnId);
+    if(!grn) return toast("Selected GRN not found");
+    const gst = String(grn.status || "Posted").toLowerCase();
+    if(gst === "cancelled" || gst === "voided") return toast("Cannot link a voided/cancelled GRN");
+    if(grn.piId && grn.piId !== piId){
+      return toast(`GRN ${grn.grnNo} is already linked to ${grn.piNo || "another purchase"}`);
+    }
+  }
   if(!piId){
     const serial = await allocateDocSerial("purchase_invoice", shop().piPrefix || "PI-", {
       list: purchaseInvoices, field: "piNo", draftValue: document.getElementById("piNo")?.value, preferCounter: true
     });
     document.getElementById("piNo").value = serial.value;
   }
-  const grnId = document.getElementById("piGrnRef")?.value || "";
-  const skipStock = !!grnId;
+  const skipStock = !!grnId && status === "Posted";
   const data = {
     piNo: document.getElementById("piNo").value.trim(),
     refNo: document.getElementById("piRef").value.trim(),
@@ -1069,27 +1275,28 @@ async function savePurchaseInvoice(status){
     total: calc.grand,
     grnId: grnId || "",
     grnNo: grnId ? ((ctx.getGoodsReceipts?.() || []).find(g=> g.id === grnId)?.grnNo || existing?.grnNo || "") : "",
-    paid: num(existing?.paid),
+    paid,
     paidDate: existing?.paidDate || "",
-    credited: num(existing?.credited),
+    credited,
+    branchId: getCurrentBranchId() || existing?.branchId || "",
     status,
     updatedAt: Date.now(),
     updatedBy: who(),
   };
   try{
     _purchaseSaving = true;
-    const needsStock = !skipStock && (status === "Posted" || existing?.status === "Posted");
     const stockLoc = data.stockLocation || "Main";
+    const stockArgs = { existing, status, calcItems: calc.items, stockLocation: stockLoc, prevGrnId, nextGrnId: grnId };
     if(piId){
-      if(needsStock) await applyPurchaseStockMoves(existing, status, calc.items, stockLoc);
+      await reconcilePiStock(stockArgs);
       try{
         await updateDoc(doc(db(), "purchaseInvoices", piId), data);
       }catch(docErr){
-        if(needsStock) await rollbackPurchaseStockMoves(existing, status, calc.items, stockLoc);
+        await rollbackPiStock(stockArgs);
         throw docErr;
       }
     }else{
-      if(status === "Posted") await applyPurchaseStockMoves(null, status, calc.items, stockLoc);
+      await reconcilePiStock(stockArgs);
       try{
         data.createdAt = Date.now();
         data.createdBy = who();
@@ -1099,16 +1306,20 @@ async function savePurchaseInvoice(status){
         const ref = await addDoc(col("purchaseInvoices"), data);
         document.getElementById("piId").value = ref.id;
       }catch(docErr){
-        if(status === "Posted") await rollbackPurchaseStockMoves(null, status, calc.items, stockLoc);
+        await rollbackPiStock(stockArgs);
         throw docErr;
       }
     }
     const savedId = document.getElementById("piId").value;
+    // Release GRN lock when changed, cleared, or saving Draft (only Posted locks GRN)
+    if(prevGrnId && (prevGrnId !== grnId || status !== "Posted")){
+      await ctx.unlinkGrnFromPurchase?.(prevGrnId);
+    }
     if(grnId && status === "Posted" && savedId){
       await ctx.linkGrnToPurchase?.(grnId, savedId, data.piNo);
     }
     await logActivity({
-      action: status === "Draft" ? "draft" : "add",
+      action: status === "Draft" ? "draft" : (existing ? "edit" : "add"),
       staffName: who(),
       module: "Purchase Invoice",
       record: data.piNo,
@@ -1118,7 +1329,7 @@ async function savePurchaseInvoice(status){
     leaveFormAfterSave("purchaseModal");
     const stockNote = skipStock && status === "Posted"
       ? " — linked to GRN (stock already received)"
-      : (status === "Posted" && purchaseStockWillMove(existing, status, calc.items) ? " — stock updated" : "");
+      : (status === "Posted" && purchaseStockWillMove(existing, status, calc.items, skipStock) ? " — stock updated" : "");
     toast(status === "Draft" ? "Purchase draft saved" : "Purchase invoice posted" + stockNote);
   }catch(e){
     toast(friendlyFirestoreError(e));
@@ -1268,7 +1479,21 @@ export function wirePurchaseUi(){
   document.getElementById("supplierSearch")?.addEventListener("input", renderSuppliers);
   document.getElementById("purchaseSearch")?.addEventListener("input", renderPurchaseInvoices);
   document.getElementById("addPiItemBtn")?.addEventListener("click", commitPiEntryLine);
+  document.getElementById("addPiItemBtnMobile")?.addEventListener("click", commitPiEntryLine);
   document.getElementById("savePurchaseBtn")?.addEventListener("click", ()=> savePurchaseInvoice("Posted"));
+  document.getElementById("draftPurchaseBtn")?.addEventListener("click", ()=> savePurchaseInvoice("Draft"));
+  document.getElementById("piSupplier")?.addEventListener("change", ()=>{
+    const sup = document.getElementById("piSupplier")?.value || "";
+    const curGrn = document.getElementById("piGrnRef")?.value || "";
+    refreshPiGrnSelect(sup, curGrn);
+  });
+  document.getElementById("piGrnRef")?.addEventListener("change", onPiGrnRefChange);
+  ["piVatAfterAdj","piVatOnMrp"].forEach(id=>{
+    document.getElementById(id)?.addEventListener("change", ()=>{
+      renderPiItemList();
+      calcPurchaseInvoice();
+    });
+  });
   document.getElementById("piStartFreshBtn")?.addEventListener("click", ()=>{
     if(confirm("Clear this purchase and start fresh?")) openNewPurchaseInvoice();
   });
@@ -1295,6 +1520,16 @@ export function wirePurchaseUi(){
   });
   document.addEventListener("keydown", handlePiF8);
   document.addEventListener("keydown", handlePiF10);
+  document.addEventListener("keydown", e=>{
+    if(!e.altKey || (e.key !== "z" && e.key !== "Z")) return;
+    const modal = document.getElementById("purchaseModal");
+    if(!modal?.classList.contains("open")) return;
+    e.preventDefault();
+    const cb = document.getElementById("piVatOnMrp");
+    if(!cb) return;
+    cb.checked = !cb.checked;
+    cb.dispatchEvent(new Event("change"));
+  });
   ["piSelName","piSelCode","piSelMrp","piSelRate"].forEach(id=>{
     document.getElementById(id)?.addEventListener("input", renderPiSelectProductList);
   });
@@ -1325,6 +1560,7 @@ export function wirePurchaseUi(){
   ["piAdjustments","piRoundOff"].forEach(id=>{
     document.getElementById(id)?.addEventListener("input", calcPurchaseInvoice);
   });
+  document.getElementById("piEntryVat")?.addEventListener("input", updatePiEntryPreview);
   ["piEntryName","piEntryCode","piEntryQty","piEntryUnit","piEntryPrice","piEntryMrp","piEntryDisc","piEntryDiscPct"].forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;

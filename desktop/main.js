@@ -250,10 +250,10 @@ ipcMain.handle("s4:ask-close-backup", async () => {
   const win = BrowserWindow.getFocusedWindow() || mainWindow;
   const result = await dialog.showMessageBox(win || undefined, {
     type: "question",
-    buttons: ["Yes (Backup)", "No", "Cancel"],
-    defaultId: 0,
+    buttons: ["Backup then close", "Close without backup", "Stay open"],
+    defaultId: 2,
     cancelId: 2,
-    title: "Data backup",
+    title: "Close S4 Invoice Tracker",
     message: "Backup all data before closing? (Local + Google Drive)"
   });
   if(result.response === 0) return "yes";
@@ -360,6 +360,45 @@ async function loadFrontend(win){
   await win.loadURL(loadUrl);
 }
 
+async function isMainAppVisible(win){
+  if(!win || win.isDestroyed()) return false;
+  try{
+    return await win.webContents.executeJavaScript(
+      "document.getElementById('app')?.classList.contains('visible') === true",
+      true
+    );
+  }catch(err){
+    log.warn("app visible check failed", err?.message || err);
+    return false;
+  }
+}
+
+async function promptCloseLoginScreen(win){
+  const { dialog } = require("electron");
+  const result = await dialog.showMessageBox(win, {
+    type: "question",
+    buttons: ["Close app", "Stay open"],
+    defaultId: 1,
+    cancelId: 1,
+    title: "Close S4 Invoice Tracker",
+    message: "Close the application?"
+  });
+  return result.response === 0;
+}
+
+async function handleWindowCloseRequest(){
+  if(allowWindowClose || !mainWindow || mainWindow.isDestroyed()) return;
+  const appVisible = await isMainAppVisible(mainWindow);
+  if(!appVisible){
+    if(await promptCloseLoginScreen(mainWindow)){
+      allowWindowClose = true;
+      mainWindow.close();
+    }
+    return;
+  }
+  mainWindow.webContents.send("s4:request-close-backup");
+}
+
 function createWindow(){
   mainWindow = new BrowserWindow({
     width: 960,
@@ -383,9 +422,7 @@ function createWindow(){
   mainWindow.on("close", (e) => {
     if(allowWindowClose) return;
     e.preventDefault();
-    if(mainWindow && !mainWindow.isDestroyed()){
-      mainWindow.webContents.send("s4:request-close-backup");
-    }
+    handleWindowCloseRequest().catch(err => log.error("close request failed", err));
   });
 
   // Always open external URLs in the system browser (never in-app).

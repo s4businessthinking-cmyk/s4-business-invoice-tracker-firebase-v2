@@ -329,6 +329,55 @@ button,input,select,textarea{font:inherit;color:var(--text)} button{cursor:point
   background:var(--surface);border-top:1px solid var(--border);
 }
 #purchaseModal .pi-actions .btn{min-width:0;min-height:28px;padding:4px 10px;font-size:12px;flex:0 1 auto}
+#purchaseModal .pi-mobile-add-bar{display:none}
+#purchaseModal .pi-ec-vat input{min-width:48px}
+
+/* Purchase Invoice — dark theme (PWA readability) */
+[data-theme="dark"] #purchaseModal .pi-body.erp-legacy-body,
+[data-theme="dark"] #purchaseModal .modal-body.pi-body{
+  background:var(--surface2);
+  color:var(--text);
+}
+[data-theme="dark"] #purchaseModal .pi-grid-wrap{
+  background:var(--surface);
+  border-color:var(--border);
+}
+[data-theme="dark"] #purchaseModal .pi-grid tbody td{background:var(--surface);color:var(--text)}
+[data-theme="dark"] #purchaseModal .pi-grid tbody tr:nth-child(even) td{background:var(--surface2)}
+[data-theme="dark"] #purchaseModal .pi-col-head th{
+  background:linear-gradient(180deg,#1e3a5f,#0f2744);
+  color:#e8edf5;
+}
+[data-theme="dark"] #purchaseModal .pi-entry-head td,
+[data-theme="dark"] #purchaseModal .pi-ec-empty{
+  background:var(--surface3);
+  border-color:var(--border);
+  color:var(--text);
+}
+[data-theme="dark"] #purchaseModal .pi-ec input,
+[data-theme="dark"] #purchaseModal .pi-ec select,
+[data-theme="dark"] #purchaseModal .field input,
+[data-theme="dark"] #purchaseModal .field select,
+[data-theme="dark"] #purchaseModal .cust-combo-input{
+  background:var(--input-bg);
+  color:var(--text);
+  border-color:var(--border);
+}
+[data-theme="dark"] #purchaseModal .pi-box,
+[data-theme="dark"] #purchaseModal .pi-net-box{
+  background:var(--surface);
+  border-color:var(--border);
+  color:var(--text);
+}
+[data-theme="dark"] #purchaseModal .pi-total-row th{
+  background:var(--surface3);
+  color:var(--text);
+}
+[data-theme="dark"] #purchaseModal .pi-check{color:var(--text)}
+[data-theme="dark"] #purchaseModal .pi-hint,
+[data-theme="dark"] #purchaseModal .pi-hint-inline{color:var(--muted)}
+[data-theme="dark"] #purchaseModal .empty{color:var(--muted)}
+
 #productMasterModal.drawer--pane.open{z-index:6200}
 #piHistoryModal.drawer--pane.open{z-index:6300}
 #piHistoryModal.drawer--pane.open .modal{padding:0;border-radius:0;background:#fff;max-width:min(1100px,96vw)}
@@ -746,7 +795,7 @@ h1{font-size:25px;margin:0 0 5px}h2{font-size:17px;margin:0}.muted{color:var(--m
 .drawer.rv-legacy-modal .rv-balance-ledger{color:#1d4ed8}
 .drawer.rv-legacy-modal .rv-legacy-entry{
   display:grid;
-  grid-template-columns:minmax(100px,1.1fr) minmax(120px,1.3fr) 78px 68px 78px 64px 78px;
+  grid-template-columns:minmax(100px,1.1fr) minmax(120px,1.3fr) 78px 68px 78px 64px 78px minmax(72px,auto);
   gap:6px 8px;
   padding:8px;
   background:#dce8f5;
@@ -809,9 +858,31 @@ h1{font-size:25px;margin:0 0 5px}h2{font-size:17px;margin:0}.muted{color:var(--m
 #receiptModal #rvDiscHint{margin:0;font-size:11px;flex:1 1 180px}
 .drawer.rv-legacy-modal .rv-legacy-pay{
   display:grid;
-  grid-template-columns:130px 1fr;
+  grid-template-columns:130px 110px 1fr;
   gap:10px;
   margin:10px 0;
+}
+.drawer.rv-legacy-modal .rv-status-group,
+.drawer.rv-legacy-modal .rv-status-select{
+  margin:0;
+  padding:8px 10px;
+  border:1px solid #94a3b8;
+  border-radius:4px;
+  background:#fff;
+}
+.drawer.rv-legacy-modal .rv-status-group legend{
+  font-size:11px;
+  font-weight:600;
+  padding:0 4px;
+}
+.drawer.rv-legacy-modal .rv-status-select{
+  width:100%;
+  min-height:28px !important;
+  height:28px !important;
+  font-size:12px !important;
+  padding:2px 6px !important;
+  border-radius:4px;
+  border:1px solid var(--border,#cbd5e1);
 }
 .drawer.rv-legacy-modal .rv-mode-group,
 .drawer.rv-legacy-modal .rv-cheque-group{
@@ -837,6 +908,8 @@ h1{font-size:25px;margin:0 0 5px}h2{font-size:17px;margin:0}.muted{color:var(--m
   border:1px solid var(--border,#cbd5e1);
   background:#fff;
 }
+.drawer.rv-legacy-modal .rv-add-bill-cell .rv-add-bill-spacer{visibility:hidden}
+.drawer.rv-legacy-modal .rv-add-bill-cell .btn{white-space:nowrap;min-height:28px;height:28px;padding:2px 10px;font-size:11px}
 .drawer.rv-legacy-modal .rv-bill-search-cell input{font-weight:600}
 .drawer.rv-legacy-modal .rv-cheque-fields{
   display:grid;
@@ -889,11 +962,75 @@ h1{font-size:25px;margin:0 0 5px}h2{font-size:17px;margin:0}.muted{color:var(--m
   .drawer.rv-legacy-modal .rv-legacy-balances{grid-template-columns:1fr}
   .drawer.rv-legacy-modal .rv-legacy-pay{grid-template-columns:1fr}
   .drawer.rv-legacy-modal .rv-cheque-fields{grid-template-columns:1fr 1fr}
-  .drawer.rv-legacy-modal .rv-legacy-narration{max-width:none}
 }
 @media(max-width:560px){
   .drawer.rv-legacy-modal .rv-legacy-entry{grid-template-columns:1fr 1fr}
+  .drawer.rv-legacy-modal .rv-add-bill-cell{grid-column:1/-1}
+  .drawer.rv-legacy-modal .rv-add-bill-cell .btn{width:100%}
 }
+
+/* Receipt / VP legacy modal — dark theme (PWA: light text on light panels was invisible) */
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-legacy-body,
+[data-theme="dark"] .drawer.drawer--erp .modal-body.rv-legacy-body{
+  background:var(--surface2);
+  color:var(--text);
+}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-legacy-title{color:var(--text)}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-balance-box{
+  background:var(--input-bg);
+  border-color:var(--border);
+  color:var(--text);
+}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-balance-pending{color:#fca5a5}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-balance-ledger{color:#93c5fd}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-legacy-entry{
+  background:var(--surface3);
+  border-color:var(--border);
+}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-legacy-grid-wrap{
+  background:var(--surface);
+  border-color:var(--border);
+}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-legacy-grid tbody td{color:var(--text)}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-legacy-grid tbody tr:nth-child(even){background:var(--surface2)}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-legacy-grid tfoot td{
+  background:var(--surface3);
+  color:var(--text);
+}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-legacy-grid .empty{color:var(--muted)}
+[data-theme="dark"] .drawer.rv-legacy-modal #rvAllocRows input[type=number],
+[data-theme="dark"] .drawer.rv-legacy-modal #vpAllocRows input[type=number]{
+  background:var(--input-bg);
+  color:var(--text);
+  border-color:var(--border);
+}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-legacy-discount{
+  background:rgba(217,119,6,.12);
+  border-color:#b45309;
+  color:var(--text);
+}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-mode-group,
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-cheque-group,
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-status-group,
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-legacy-print-opts{
+  background:var(--surface);
+  border-color:var(--border);
+  color:var(--text);
+}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-method-select,
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-status-select,
+[data-theme="dark"] .drawer.rv-legacy-modal .modal-body .field input,
+[data-theme="dark"] .drawer.rv-legacy-modal .modal-body .field select,
+[data-theme="dark"] .drawer.rv-legacy-modal .modal-body .cust-combo-input{
+  background:var(--input-bg);
+  color:var(--text);
+  border-color:var(--border);
+}
+[data-theme="dark"] .drawer.rv-legacy-modal .rv-check{color:var(--text)}
+[data-theme="dark"] #receiptModal #rvDiscHint,
+[data-theme="dark"] #receiptModal .muted{color:var(--muted)}
+[data-theme="dark"] #rvFindModal .rv-find-grid,
+[data-theme="dark"] #vpFindModal .rv-find-grid{border-color:var(--border)}
 
 /* Shared ERP legacy shell — all drawer--erp modals (masters, stock, CN/DN, etc.) */
 .drawer.drawer--erp .modal-body.erp-legacy-body,
@@ -1411,12 +1548,43 @@ h1{font-size:25px;margin:0 0 5px}h2{font-size:17px;margin:0}.muted{color:var(--m
  #purchaseModal .field input,
  #purchaseModal .field select{min-height:40px;height:40px;font-size:16px}
  #purchaseModal .cust-combo-input{min-height:40px;height:40px;font-size:16px}
+ #purchaseModal .pi-ec input,
+ #purchaseModal .pi-ec select{
+   min-height:40px;height:40px;font-size:16px;padding:6px 8px;
+ }
+ #purchaseModal .pi-ec label{font-size:11px;white-space:normal}
+ #purchaseModal .pi-hint,
+ #purchaseModal .pi-hint-inline{display:none}
  #purchaseModal .pi-grid-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
- #purchaseModal .pi-grid{min-width:920px}
- #purchaseModal .pi-grid tbody tr{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:8px}
+ #purchaseModal .pi-grid{min-width:0;width:100%}
+ #purchaseModal .pi-grid thead .pi-col-head{display:none}
+ #purchaseModal .pi-grid thead .pi-entry-head{display:block}
+ #purchaseModal .pi-grid thead .pi-entry-head td{
+   display:block;width:100%;box-sizing:border-box;padding:6px 8px;
+ }
+ /* One Add control on phone — use sticky bar, hide tiny inline Add */
+ #purchaseModal .pi-grid thead .pi-entry-head .pi-ec-add{display:none}
+ #purchaseModal .pi-add-btn{
+   width:100%;max-width:none;min-height:44px;height:44px;font-size:15px;
+ }
+ #purchaseModal .pi-mobile-add-bar{
+   display:block;padding:10px 12px;border-top:1px solid var(--border);background:var(--surface);
+   position:sticky;bottom:0;z-index:3;
+ }
+ #purchaseModal .pi-mobile-add-bar .btn{width:100%;min-height:48px;font-size:16px}
+ #purchaseModal .pi-grid tbody tr{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
  #purchaseModal .pi-grid tbody td{display:block;border:0;white-space:normal}
  #purchaseModal .pi-grid tbody td::before{content:attr(data-label);display:block;font-size:10px;font-weight:700;color:var(--muted);margin-bottom:2px}
- #purchaseModal .pi-total-row{display:table-row}
+ #purchaseModal .pi-grid tbody td.inv-name-cell{grid-column:1 / -1}
+ /* Totals shown in NET AMOUNT box — table footer breaks card layout on phone */
+ #purchaseModal .pi-grid tfoot{display:none}
+ #purchaseModal .pi-actions{gap:8px;padding:8px}
+ #purchaseModal .pi-actions .btn{min-height:44px;flex:1 1 calc(50% - 6px);font-size:13px}
+ #purchaseModal .pi-net-box b{font-size:22px}
+ [data-theme="dark"] #purchaseModal .pi-ec label{color:var(--text)}
+ [data-theme="dark"] #purchaseModal .pi-grid tbody tr{background:var(--surface2);border-color:var(--border)}
+ #purchase-invoices .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+ #purchase-invoices .table{min-width:720px}
  .drawer.drawer--erp .modal-body .field input,
  .drawer.drawer--erp .modal-body .field select,
  .drawer.drawer--erp .modal-body .cust-combo-input,

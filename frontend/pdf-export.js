@@ -391,7 +391,7 @@ export async function buildReceiptPdfBlob(r, shop = {}, { billRows = [] } = {}){
     y += 6;
   });
   const rows = (billRows || []).map(b=> [
-    b.invNo || "",
+    b.invNoLabel || b.invNo || "",
     b.invDate || "",
     moneyFmt(cur, b.billAmount),
     moneyFmt(cur, b.received)

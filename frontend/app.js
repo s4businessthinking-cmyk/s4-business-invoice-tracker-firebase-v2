@@ -1,4 +1,4 @@
-ï»¿import {
+import {
   collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query,
   setDoc, getDoc, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -36,11 +36,11 @@ import {
   renderSuppliers, renderPurchaseInvoices, refreshSupplierSelects,
   filterSuppliersForCombo, pickSupplierCombo, getSuppliers, resetSupplier as resetSupplierForm,
   syncPurchaseStockLocations, findProductForLine, formatStockLocation
-} from "./purchase.js?v=161";
+} from "./purchase.js?v=177";
 import {
   initGrn, wireGrnUi, prepareGrnModal, onGoodsReceiptsLoaded, renderGoodsReceipts,
-  refreshGrnSupplierSelect, syncGrnStockLocations, getGoodsReceipts, linkGrnToPurchase
-} from "./grn.js?v=139";
+  refreshGrnSupplierSelect, syncGrnStockLocations, getGoodsReceipts, linkGrnToPurchase, unlinkGrnFromPurchase
+} from "./grn.js?v=177";
 import {
   initPo, wirePoUi, preparePoModal, preparePoFromPrq, onPurchaseOrdersLoaded, renderPurchaseOrders,
   refreshPoSupplierSelect
@@ -52,7 +52,7 @@ import {
 import {
   initVendorPayment, wireVendorPaymentUi, prepareVendorPaymentModal,
   onVendorPaymentsLoaded, renderVendorPayments, refreshVpSupplierSelect
-} from "./vendor-payment.js?v=144";
+} from "./vendor-payment.js?v=177";
 import {
   initPurchaseReturn, wirePurchaseReturnUi, preparePurchaseReturnModal,
   onPurchaseReturnsLoaded, renderPurchaseReturns, refreshPrtSupplierSelect, syncPrtStockLocations
@@ -256,12 +256,12 @@ function customerPeriodLabel(bounds, kind = "ledger"){
     const bits = [];
     if(bounds.from) bits.push("From " + bounds.from);
     if(bounds.asOf) bits.push("As of " + bounds.asOf);
-    return bits.join(" â€” ") || "All dates";
+    return bits.join(" — ") || "All dates";
   }
   const bits = [];
   if(bounds.from) bits.push("From " + bounds.from);
   if(bounds.to) bits.push("To " + bounds.to);
-  return bits.join(" â€” ") || "All dates";
+  return bits.join(" — ") || "All dates";
 }
 function num(v){ return Number(v) || 0; }
 function esc(s){ return String(s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m])); }
@@ -960,7 +960,7 @@ function nextNo(prefix, list, field){
   return `${prefix}${year}-${String(max+1).padStart(4,"0")}`;
 }
 
-/** Foundation Â§1 â€” branch-scoped atomic serial (Firestore counters). Falls back to local nextNo offline. */
+/** Foundation §1 — branch-scoped atomic serial (Firestore counters). Falls back to local nextNo offline. */
 async function allocateDocSerial(docKey, prefix, { list = [], field = "", draftValue = "", excludeId = "", preferCounter = false } = {}){
   const draft = String(draftValue || "").trim();
   if(!preferCounter && draft){
@@ -1031,7 +1031,7 @@ function invoiceDueBucket(inv){
   return "d90p";
 }
 
-/** Per-customer aging â€” capped at ledger outstanding (matches Statement closing). */
+/** Per-customer aging — capped at ledger outstanding (matches Statement closing). */
 function customerAgingBuckets(name){
   const buckets = { current:0, d30:0, d60:0, d90:0, d90p:0 };
   let remaining = roundMoney(customerOutstanding(name));
@@ -1257,8 +1257,8 @@ function customerSubAccounts(customerName){
     .filter(s=> s.name);
 }
 
-/** Fill sub-account select. includeAll=true â†’ Ledger/Statement (blank = ALL). */
-function fillSubAccountSelect(selectEl, customerName, selected, { includeAll = false, noneLabel = "â€” None â€”" } = {}){
+/** Fill sub-account select. includeAll=true ? Ledger/Statement (blank = ALL). */
+function fillSubAccountSelect(selectEl, customerName, selected, { includeAll = false, noneLabel = "— None —" } = {}){
   if(!selectEl) return [];
   const subs = customerSubAccounts(customerName);
   const sel = String(selected || "").trim();
@@ -1286,7 +1286,7 @@ function syncReceiptSubAccountField(selected){
   const sel = document.getElementById("rvSubAccount");
   const wrap = document.getElementById("rvSubAccountField");
   const name = document.getElementById("rvCustomer")?.value || "";
-  const subs = fillSubAccountSelect(sel, name, selected, { noneLabel: "â€” None / ALL bills â€”" });
+  const subs = fillSubAccountSelect(sel, name, selected, { noneLabel: "— None / ALL bills —" });
   if(wrap) wrap.hidden = !subs.length;
 }
 
@@ -1294,7 +1294,7 @@ function syncNoteSubAccountField(prefix, customerName, selected){
   const sel = document.getElementById(`${prefix}SubAccount`);
   const wrap = document.getElementById(`${prefix}SubAccountField`);
   if(!sel) return [];
-  const subs = fillSubAccountSelect(sel, customerName, selected, { noneLabel: "â€” None â€”" });
+  const subs = fillSubAccountSelect(sel, customerName, selected, { noneLabel: "— None —" });
   if(wrap) wrap.hidden = !subs.length;
   return subs;
 }
@@ -1348,7 +1348,7 @@ function renderCustomerSubRows(){
   }
   tbody.innerHTML = _customerSubAccounts.map((s, idx)=> `<tr>
     <td>${esc(s.name)}</td>
-    <td><button class="btn small danger" type="button" data-rm-csub="${idx}">Ã—</button></td>
+    <td><button class="btn small danger" type="button" data-rm-csub="${idx}">×</button></td>
   </tr>`).join("");
   tbody.querySelectorAll("[data-rm-csub]").forEach(btn=>{
     btn.addEventListener("click", ()=>{
@@ -1471,7 +1471,7 @@ function comboScrollInsideList(target){
   return !!(target && target.closest && target.closest(".cust-combo-list, .inv-combo-list, .catalog-suggest-list"));
 }
 
-/** Shared â†‘/â†“ highlight for cust-combo, inv-combo, catalog suggest â€” keep focus on the input. */
+/** Shared ?/? highlight for cust-combo, inv-combo, catalog suggest — keep focus on the input. */
 function comboOptionItems(list, attr){
   if(!list) return [];
   return [...list.querySelectorAll(`li[${attr}]`)];
@@ -1666,7 +1666,7 @@ function wireCustomerCombos(){
     if(list) bindComboListPick(list, wrap, "data-name", pickCustomerCombo);
   });
 
-  // Delegation so future .cust-combo fields get the same â†‘/â†“ / Enter behavior
+  // Delegation so future .cust-combo fields get the same ?/? / Enter behavior
   document.addEventListener("focusin", e=>{
     const input = e.target.closest?.(".cust-combo-input");
     if(!input) return;
@@ -2162,6 +2162,7 @@ export function startTracker(opts){
     openProductSearchDrawer,
     getGoodsReceipts,
     linkGrnToPurchase,
+    unlinkGrnFromPurchase,
   });
   wirePurchaseUi();
   initGrn({
@@ -3474,7 +3475,7 @@ async function saveCustomer(){
       if(used && !confirm(
         `Sub-account "${subName}" is used on existing invoices/receipts.\n` +
         `Remove it from the master anyway?\n\n` +
-        `(Old documents keep the name â€” filter will still work.)`
+        `(Old documents keep the name — filter will still work.)`
       )) return;
     }
   }
@@ -6041,7 +6042,7 @@ function warehouseFromJob(job){
   return job.warehouseId || "Main";
 }
 
-/** Â§15 Workshop Sale: Job â†’ Invoice. Issued parts do not stock-out again. */
+/** §15 Workshop Sale: Job ? Invoice. Issued parts do not stock-out again. */
 function openInvoiceFromJob(jobId){
   if(!requireModule("invoices")) return;
   const job = (getJobCards() || []).find(j=> j.id === jobId);
@@ -6076,7 +6077,7 @@ function openInvoiceFromJob(jobId){
   setInvoiceLineItems(lines);
   calcInvoice();
   const unissued = lines.some(it=> it.lineType !== "labour" && num(it.qty) > num(it.jobIssuedQty) + 0.0001);
-  setInvoiceModalSub(unissued ? `${job.jobNo} â†’ invoice (unissued parts will stock-out on Post)` : `${job.jobNo} â†’ invoice`);
+  setInvoiceModalSub(unissued ? `${job.jobNo} ? invoice (unissued parts will stock-out on Post)` : `${job.jobNo} ? invoice`);
   openFormModal("invoiceModal", { skipPrepare: true });
 }
 
@@ -6105,7 +6106,7 @@ async function saveInvoice(status){
       list: invoices, field: "invNo", draftValue: invNo.value, preferCounter: true
     });
     if(invNo) invNo.value = serial.value;
-    if(serial.bumped && hadNo) toast("Invoice No. assigned â€” posting as " + serial.value);
+    if(serial.bumped && hadNo) toast("Invoice No. assigned — posting as " + serial.value);
   }
   // Preserve linked debit-note charges when re-saving line items
   const dnLinked = linkedDebitTotalForInvoice(invNo.value, customer);
@@ -6249,16 +6250,23 @@ function openRvFindModal(){
 function receiptBillRowsForPrint(r){
   const fromReceipt = (r?.allocations || []).map(a=>{
     const inv = invoices.find(x=> x.id === a.invoiceId);
-    return {
+    const row = {
       invNo: inv?.invNo || "",
+      manualNo: inv?.manualNo || "",
+      computerNo: inv?.computerNo || "",
       invDate: inv?.invDate || "",
       billAmount: inv ? roundMoney(inv.total) : 0,
       received: roundMoney(num(a.amount))
     };
+    row.invNoLabel = rvBillNoPlainLabel(row);
+    return row;
   }).filter(x=> x.received > 0.009);
   if(fromReceipt.length) return fromReceipt;
   return _rvBillLines.map(l=> ({
     invNo: l.invNo,
+    manualNo: l.manualNo || "",
+    computerNo: l.computerNo || "",
+    invNoLabel: rvBillNoPlainLabel(l),
     invDate: l.invDate,
     billAmount: l.billAmount,
     received: l.received
@@ -6338,7 +6346,7 @@ function buildReceiptBillTableHtml(r){
   const billRows = receiptBillRowsForPrint(r);
   if(!billRows.length) return "";
   const tr = billRows.map(b=> `<tr>
-    <td>${esc(b.invNo)}</td>
+    <td>${rvBillNoCellHtml(b)}</td>
     <td>${esc(b.invDate)}</td>
     <td class="num">${money(b.billAmount)}</td>
     <td class="num">${money(b.received)}</td>
@@ -6372,9 +6380,9 @@ function buildReceiptPrintBody(r, includeBills = false){
   if(r.ref) narrParts.push(`<span class="lbl">Narration:</span>${esc(r.ref)}`);
   if(r.chequeNo){
     let chq = `<span class="lbl">Cheque:</span>${esc(r.chequeNo)}`;
-    if(r.bank) chq += ` &nbsp;Â·&nbsp; <span class="lbl">Bank:</span>${esc(r.bank)}`;
-    if(r.chequeDate) chq += ` &nbsp;Â·&nbsp; <span class="lbl">Chq Date:</span>${esc(r.chequeDate)}`;
-    if(r.pdcDate) chq += ` &nbsp;Â·&nbsp; <span class="lbl">PDC:</span>${esc(r.pdcDate)}`;
+    if(r.bank) chq += ` &nbsp;·&nbsp; <span class="lbl">Bank:</span>${esc(r.bank)}`;
+    if(r.chequeDate) chq += ` &nbsp;·&nbsp; <span class="lbl">Chq Date:</span>${esc(r.chequeDate)}`;
+    if(r.pdcDate) chq += ` &nbsp;·&nbsp; <span class="lbl">PDC:</span>${esc(r.pdcDate)}`;
     narrParts.push(chq);
   }
   const narrHtml = narrParts.length
@@ -6386,7 +6394,7 @@ function buildReceiptPrintBody(r, includeBills = false){
       <header class="rv-print-head">
         <div>
           <div class="rv-print-co">${esc(shop.name || "S4 Workshop")}</div>
-          ${shopLines.length ? `<div class="rv-print-sub">${esc(shopLines.join(" Â· "))}</div>` : ""}
+          ${shopLines.length ? `<div class="rv-print-sub">${esc(shopLines.join(" · "))}</div>` : ""}
         </div>
         <div class="rv-print-badge">RECEIPT VOUCHER</div>
       </header>
@@ -6441,6 +6449,21 @@ function maybePrintReceiptAfterSave(saved){
   const billDetails = document.getElementById("rvPrintBillDetails")?.checked;
   if(!preview && !billDetails) return;
   printReceiptVoucher(saved, { includeBills: !!billDetails }).catch(err=> toast(String(err?.message || err)));
+}
+
+function afterReceiptSaved(saved, wasEdit){
+  maybePrintReceiptAfterSave(saved);
+  const isCheque = String(saved?.method || "").includes("Cheque");
+  if(isCheque && !saved?.applied){
+    toast("Cheque saved as Pending — open Cheque / PDC page and Clear to update invoice paid.");
+  }
+  if(!wasEdit && !document.getElementById("rvPrintPreview")?.checked){
+    setTimeout(()=>{
+      if(confirm(`Receipt ${saved.rvNo} saved.\n\nDownload / share PDF now?`)){
+        exportReceiptPdfById(saved.id).catch(err=> toast(String(err?.message || err)));
+      }
+    }, 350);
+  }
 }
 
 function bindTableDblOpen(tbodyId, onOpen){
@@ -6515,10 +6538,60 @@ function renderReceipts(){
   });
 }
 
-function syncRvMethodUi({ setDefaultStatus = false } = {}){
+function rvBillNoCellHtml(l){
+  const manual = l.manualNo ? `<br><span class="inv-meta">Manual ${esc(l.manualNo)}</span>` : "";
+  const comp = l.computerNo ? `<br><span class="inv-meta">Comp ${esc(l.computerNo)}</span>` : "";
+  return `<b>${esc(l.invNo || "")}</b>${manual}${comp}`;
+}
+
+function rvBillNoPlainLabel(l){
+  const bits = [l.invNo || ""];
+  if(l.manualNo) bits.push(`Manual ${l.manualNo}`);
+  if(l.computerNo) bits.push(`Comp ${l.computerNo}`);
+  return bits.filter(Boolean).join("\n");
+}
+
+function rvBillLineFromInv(inv, balance, received){
+  return {
+    invoiceId: inv.id,
+    invNo: inv.invNo,
+    manualNo: inv.manualNo || "",
+    computerNo: inv.computerNo || "",
+    invDate: inv.invDate || "",
+    billAmount: roundMoney(inv.total),
+    balance,
+    received: roundMoney(received)
+  };
+}
+
+const RV_STATUS_CASH = new Set(["Posted", "Cancelled"]);
+const RV_STATUS_CHEQUE = new Set(["Pending", "Deposited", "Cleared", "Bounced", "Cancelled"]);
+
+function syncRvStatusUi({ isCheque, setDefaultStatus = false, forceValue = null } = {}){
+  const rvStatus = document.getElementById("rvStatus");
+  const note = document.getElementById("rvStatusNote");
+  const allowed = isCheque ? RV_STATUS_CHEQUE : RV_STATUS_CASH;
+  if(rvStatus){
+    [...rvStatus.options].forEach(opt=>{
+      const ok = allowed.has(opt.value);
+      opt.hidden = !ok;
+      opt.disabled = !ok;
+    });
+    if(forceValue && allowed.has(forceValue)) rvStatus.value = forceValue;
+    else if(setDefaultStatus || !allowed.has(rvStatus.value)){
+      rvStatus.value = isCheque ? "Pending" : "Posted";
+    }
+    rvStatus.disabled = true;
+  }
+  if(note){
+    note.style.display = isCheque ? "none" : "";
+    if(!isCheque) note.textContent = "Cash / transfer posts immediately to bill(s) in the grid.";
+  }
+}
+
+function syncRvMethodUi({ setDefaultStatus = false, statusValue = null } = {}){
   const modal = document.getElementById("receiptModal");
   const rvMethod = document.getElementById("rvMethod");
-  const rvStatus = document.getElementById("rvStatus");
   const m = rvMethod?.value || "Cash";
   const isCheque = m.includes("Cheque");
   const isPdc = m === "PDC Cheque";
@@ -6533,7 +6606,7 @@ function syncRvMethodUi({ setDefaultStatus = false } = {}){
   }
   const hint = document.getElementById("rvChequeHint");
   if(hint) hint.style.display = isCheque ? "" : "none";
-  if(rvStatus && setDefaultStatus) rvStatus.value = isCheque ? "Pending" : "Posted";
+  syncRvStatusUi({ isCheque, setDefaultStatus, forceValue: statusValue });
 }
 
 function updateRvCustomerSummary(){
@@ -6544,8 +6617,8 @@ function updateRvCustomerSummary(){
   const prevAllocMap = {};
   (editing?.allocations || []).forEach(a=> { prevAllocMap[a.invoiceId] = num(a.amount); });
   if(!customer){
-    if(balEl) balEl.textContent = "Balance : â€”";
-    if(ledEl) ledEl.textContent = "Current Ledger Balance: â€”";
+    if(balEl) balEl.textContent = "Balance : —";
+    if(ledEl) ledEl.textContent = "Current Ledger Balance: —";
     return;
   }
   const open = openInvoicesForReceipt(customer, prevAllocMap);
@@ -6688,7 +6761,7 @@ function onRvBillSearchCommit(){
   if(!customer){ toast("Select customer first"); return false; }
   const { inv, matches } = findRvBillBySearch(q);
   if(!inv){
-    if(matches.length > 1) toast(`${matches.length} bills match â€” pick Bill No from list`);
+    if(matches.length > 1) toast(`${matches.length} bills match — pick Bill No from list`);
     else toast("No open bill matches that number");
     return false;
   }
@@ -6759,10 +6832,10 @@ function renderRvBillGrid(){
   const tbody = document.getElementById("rvAllocRows");
   if(!tbody) return;
   if(!_rvBillLines.length){
-    tbody.innerHTML = `<tr><td colspan="4" class="empty">Type Manual/Comp/Bill no or select Bill No, enter Current Receipt, press Enter</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">Select bill ? enter amount (partial OK) ? Add bill ? then Save</td></tr>`;
   }else{
     tbody.innerHTML = _rvBillLines.map((l, i)=> `<tr data-rv-line="${i}" title="Double-click row to remove">
-      <td><b>${esc(l.invNo)}</b></td>
+      <td>${rvBillNoCellHtml(l)}</td>
       <td>${esc(l.invDate)}</td>
       <td class="num">${money(l.billAmount)}</td>
       <td><input type="number" min="0" step="0.01" data-rv-received="${i}" data-max="${l.balance}" value="${l.received}"></td>
@@ -6772,6 +6845,21 @@ function renderRvBillGrid(){
   fillRvBillPick();
   updateRvDiscHint();
   updateRvCustomerSummary();
+}
+
+/** If user typed bill + amount but did not tap Add / Enter, commit before Save (common on mobile PWA). */
+function flushPendingRvBillLine(){
+  const customer = document.getElementById("rvCustomer")?.value || "";
+  if(!customer) return;
+  let invId = document.getElementById("rvBillPick")?.value || "";
+  if(!invId && document.getElementById("rvBillSearch")?.value?.trim()){
+    onRvBillSearchCommit();
+    invId = document.getElementById("rvBillPick")?.value || "";
+  }
+  const received = num(document.getElementById("rvBillReceive")?.value);
+  if(!invId || received <= 0.009) return;
+  if(_rvBillLines.some(l=> l.invoiceId === invId)) return;
+  addRvBillLine();
 }
 
 function addRvBillLine(){
@@ -6791,14 +6879,7 @@ function addRvBillLine(){
   const balance = rvBillBalance(inv, editing);
   if(received > balance + 0.01) return toast(`Received ${money(received)} exceeds balance ${money(balance)}`);
   if(_rvBillLines.some(l=> l.invoiceId === invIdFinal)) return toast("Bill already in list");
-  _rvBillLines.push({
-    invoiceId: inv.id,
-    invNo: inv.invNo,
-    invDate: inv.invDate || "",
-    billAmount: roundMoney(inv.total),
-    balance,
-    received: roundMoney(Math.min(received, balance))
-  });
+  _rvBillLines.push(rvBillLineFromInv(inv, balance, Math.min(received, balance)));
   renderRvBillGrid();
   const rvBillReceive = document.getElementById("rvBillReceive");
   if(rvBillReceive){ rvBillReceive.value = ""; rvBillReceive.focus(); }
@@ -6819,14 +6900,7 @@ function loadRvBillLinesFromReceipt(r){
     if(!inv) return;
     const received = roundMoney(num(a.amount));
     if(received <= 0.009) return;
-    _rvBillLines.push({
-      invoiceId: inv.id,
-      invNo: inv.invNo,
-      invDate: inv.invDate || "",
-      billAmount: roundMoney(inv.total),
-      balance: rvBillBalance(inv, r),
-      received
-    });
+    _rvBillLines.push(rvBillLineFromInv(inv, rvBillBalance(inv, r), received));
   });
 }
 
@@ -6841,7 +6915,7 @@ function applyRvDiscountToGrid({ silent = false } = {}){
     _rvBillLines.forEach(l=> { l.received = l.balance; });
     renderRvBillGrid();
     updateRvDiscHint();
-    if(!silent) toast("Discount cleared â€” received reset to full balance");
+    if(!silent) toast("Discount cleared — received reset to full balance");
     return true;
   }
   if(discTotal > totalBal + 0.01){
@@ -6875,13 +6949,13 @@ function updateRvDiscHint(){
   const cash = roundMoney(_rvBillLines.reduce((s,l)=> s + l.received, 0));
   const bal = roundMoney(_rvBillLines.reduce((s,l)=> s + l.balance, 0));
   if(!_rvBillLines.length){
-    hint.textContent = "Add bills at full balance, enter discount, then Apply discount. Cash received will reduce; settlement = cash + discount.";
+    hint.textContent = "Add bill(s) first. Discount optional — Apply or Save applies it automatically.";
     return;
   }
   if(discTotal > 0.009){
-    hint.textContent = `Settlement: ${money(cash)} cash + ${money(discTotal)} discount = ${money(roundMoney(cash + discTotal))} (bill total ${money(bal)}) â€” saves automatically on Save`;
+    hint.textContent = `Settlement: ${money(cash)} cash + ${money(discTotal)} discount = ${money(roundMoney(cash + discTotal))} (bill total ${money(bal)}) — Save applies discount automatically`;
   }else{
-    hint.textContent = `Bill total ${money(bal)} â€” enter discount (Apply optional; Save applies it automatically).`;
+    hint.textContent = `Bill total ${money(bal)} — partial amount OK before Add bill. Discount optional on Save.`;
   }
 }
 
@@ -6974,7 +7048,6 @@ function resetReceipt(){
   if(rvBank) rvBank.value = "";
   const rvPdcDate = document.getElementById("rvPdcDate");
   const rvDisc = document.getElementById("rvDisc");
-  const rvStatus = document.getElementById("rvStatus");
   const rvChqDate = document.getElementById("rvChqDate");
   if(rvPdcDate) rvPdcDate.value = "";
   if(rvChqDate) rvChqDate.value = "";
@@ -7026,7 +7099,7 @@ function editReceipt(id){
   const rvCollectedBy = document.getElementById("rvCollectedBy");
   if(rvCollectedBy) rvCollectedBy.value = r.collectedBy || r.createdBy || who();
   setReceiptCustomerLocked(true);
-  syncRvMethodUi();
+  syncRvMethodUi({ statusValue: st });
   loadRvBillLinesFromReceipt(r);
   renderRvBillGrid();
   fillRvBillPick();
@@ -7054,6 +7127,7 @@ async function saveReceipt(){
   const customer = rvCustomer.value;
   const method = rvMethod.value;
   if(!customer) return toast("Select customer first");
+  flushPendingRvBillLine();
   if(!syncRvDiscountBeforeSave()) return;
   const rvIdEl = document.getElementById("rvId");
   const existing = rvIdEl?.value ? receipts.find(x=> x.id === rvIdEl.value) : null;
@@ -7075,7 +7149,7 @@ async function saveReceipt(){
     });
     rvNoTrim = rvSerial.value;
     if(rvNo) rvNo.value = rvNoTrim;
-    if(rvSerial.bumped && rvHadNo) toast("Receipt No. assigned â€” posting as " + rvNoTrim);
+    if(rvSerial.bumped && rvHadNo) toast("Receipt No. assigned — posting as " + rvNoTrim);
   }else if(rvNo) rvNo.value = rvNoTrim;
   let discSharesPreview = allocs.map(a=> roundMoney(num(a.discShare)));
   // Amount = sum of Received Amt in grid (cash only). Discount is separate write-off.
@@ -7235,7 +7309,7 @@ async function saveReceipt(){
     })();
     commitWrite(
       write.then(saved => {
-        maybePrintReceiptAfterSave(saved);
+        afterReceiptSaved(saved, !!existing);
         leaveFormAfterSave("receiptModal");
         return saved;
       }),
@@ -7535,8 +7609,8 @@ function fillLedger(){
     const subCell = l.subAccount ? esc(l.subAccount) : "";
     rows.push(`<tr><td>${esc(l.date)}</td><td>${stmtRefHtml(l)}</td><td>${esc(l.desc)}</td><td>${subCell}</td><td>${ledgerCell(l.debit)}</td><td>${ledgerCell(l.credit)}</td><td>${money(bal)}</td></tr>`);
   });
-  const title = sub ? `${name} â€” ${sub}` : name;
-  const periodBit = bounds.mode === "monthly" ? ` Â· ${customerPeriodLabel(bounds)}` : (from || to ? ` Â· ${customerPeriodLabel(bounds)}` : "");
+  const title = sub ? `${name} — ${sub}` : name;
+  const periodBit = bounds.mode === "monthly" ? ` · ${customerPeriodLabel(bounds)}` : (from || to ? ` · ${customerPeriodLabel(bounds)}` : "");
   document.getElementById("ledgerTitle").textContent = name ? title + periodBit : "Select a customer";
   // Closing must match filtered running balance (last row). Lifetime outstanding only when no date/sub filter.
   document.getElementById("ledgerClose").textContent = (from || to || sub)
@@ -7580,9 +7654,9 @@ function fillStatement(){
   const odFrom = num(document.getElementById("stmtOdFrom")?.value);
   const name = sel?.value || "";
   syncStmtSubAccountField(sub);
-  const titleBit = sub ? `${name} â€” ${sub}` : name;
+  const titleBit = sub ? `${name} — ${sub}` : name;
   const periodBit = customerPeriodLabel(bounds, "stmt");
-  document.getElementById("stmtTitle").textContent = name ? `${titleBit} â€” ${periodBit}` : "Select a customer";
+  document.getElementById("stmtTitle").textContent = name ? `${titleBit} — ${periodBit}` : "Select a customer";
   const closeEl = document.getElementById("stmtClose");
   const sumEl = document.getElementById("stmtSummary");
   const body = document.getElementById("stmtRows");
@@ -7597,7 +7671,7 @@ function fillStatement(){
   const built = buildStatementRows(name, asOf, from, sub, { odFrom });
   if(closeEl){
     closeEl.textContent = (bounds.mode === "custom" && !from)
-      ? `All dates up to ${asOf} â€” set FROM for period total`
+      ? `All dates up to ${asOf} — set FROM for period total`
       : `As of ${asOf}`;
   }
   if(sumEl){
@@ -7614,7 +7688,7 @@ function fillStatement(){
 function statementPartyCardHtml(name, subFilter = ""){
   const c = customers.find(x=> x.name === name);
   const bits = [];
-  bits.push(`<div class="stmt-party-name">${esc(name)}${subFilter ? ` <span class="muted">Â· ${esc(subFilter)}</span>` : ""}</div>`);
+  bits.push(`<div class="stmt-party-name">${esc(name)}${subFilter ? ` <span class="muted">· ${esc(subFilter)}</span>` : ""}</div>`);
   if(c?.code) bits.push(`<div class="stmt-party-meta"><b>Code</b> ${esc(c.code)}</div>`);
   if(c?.contact) bits.push(`<div class="stmt-party-meta"><b>Contact</b> ${esc(c.contact)}</div>`);
   if(c?.mobile) bits.push(`<div class="stmt-party-meta"><b>Mobile</b> ${esc(c.mobile)}</div>`);
@@ -7629,7 +7703,7 @@ function stmtRefHtml(l){
   if(l.computerNo) extras.push(`PC: ${esc(l.computerNo)}`);
   if(l.manualNo) extras.push(`Manual: ${esc(l.manualNo)}`);
   const extra = extras.length
-    ? `<span class="stmt-ref-extra">${extras.join(" Â· ")}</span>`
+    ? `<span class="stmt-ref-extra">${extras.join(" · ")}</span>`
     : "";
   return `${esc(l.ref || "")}${extra}`;
 }
@@ -7639,7 +7713,7 @@ function stmtRefText(l){
   if(l.computerNo) extras.push("PC: " + l.computerNo);
   if(l.manualNo) extras.push("Manual: " + l.manualNo);
   if(!extras.length) return l.ref || "";
-  return `${l.ref || ""}\n${extras.join(" Â· ")}`;
+  return `${l.ref || ""}\n${extras.join(" · ")}`;
 }
 
 function renderStatementPeriodBreakdownHtml(built){
@@ -7649,7 +7723,7 @@ function renderStatementPeriodBreakdownHtml(built){
     const amt = num(l.debit) > 0 ? num(l.debit) : num(l.credit);
     const refBits = [l.ref || "", l.manualNo ? `Manual: ${l.manualNo}` : "", l.computerNo ? `PC: ${l.computerNo}` : ""].filter(Boolean);
     const subBit = l.subAccount ? `<span class="stmt-txn-sub">${esc(l.subAccount)}</span>` : "";
-    return `<div class="stmt-txn-box"><div class="stmt-txn-box-main">${esc(l.date)} Â· ${esc(refBits.join(" Â· "))} Â· ${esc(l.desc)}${subBit ? " Â· " : ""}${subBit}</div><div class="stmt-txn-box-amt"><b>${money(amt)}</b></div></div>`;
+    return `<div class="stmt-txn-box"><div class="stmt-txn-box-main">${esc(l.date)} · ${esc(refBits.join(" · "))} · ${esc(l.desc)}${subBit ? " · " : ""}${subBit}</div><div class="stmt-txn-box-amt"><b>${money(amt)}</b></div></div>`;
   });
   return `<div class="stmt-summary-box stmt-summary-box--txns"><div class="stmt-summary-box-title">Transactions in this period</div><div class="stmt-txn-list">${rows.join("")}</div></div>`;
 }
@@ -7658,7 +7732,7 @@ function renderStatementSubBoxesHtml(built, subFilter){
   if(subFilter || !built.bySub || !Object.keys(built.bySub).length) return "";
   const rows = Object.entries(built.bySub).sort((a,b)=> a[0].localeCompare(b[0])).map(([subName, x])=>
     `<div class="stmt-sub-box"><div class="stmt-sub-box-name">${esc(subName)}</div>` +
-    `<div>In ${money(x.debit)} Â· Out ${money(x.credit)} Â· <b>Net ${money(x.net)}</b></div></div>`
+    `<div>In ${money(x.debit)} · Out ${money(x.credit)} · <b>Net ${money(x.net)}</b></div></div>`
   );
   return `<div class="stmt-summary-box stmt-summary-box--subs"><div class="stmt-summary-box-title">Sub-account summary</div>${rows.join("")}</div>`;
 }
@@ -7680,12 +7754,12 @@ function renderStatementSummaryHtml(built, bounds, subFilter, { showPeriodTxns =
     `<div class="stmt-summary-row"><span class="stmt-summary-sub">Period</span> <b>${esc(periodLabel)}</b></div>`
   ];
   if(bounds.mode === "custom" && !bounds.from){
-    periodBits.push(`<div class="stmt-summary-row stmt-summary-sub">FROM date not set â€” all transactions up to ${esc(bounds.asOf)} are included.</div>`);
+    periodBits.push(`<div class="stmt-summary-row stmt-summary-sub">FROM date not set — all transactions up to ${esc(bounds.asOf)} are included.</div>`);
   }
   periodBits.push(
     `<div class="stmt-summary-row"><span>Invoices / charges:</span> <b>${money(built.periodDebit)}</b>` +
-    `<span> Â· Received / credits:</span> <b>${money(built.periodCredit)}</b>` +
-    `<span> Â· ${netLabel}:</span> <b>${money(built.periodNet)}</b></div>`
+    `<span> · Received / credits:</span> <b>${money(built.periodCredit)}</b>` +
+    `<span> · ${netLabel}:</span> <b>${money(built.periodNet)}</b></div>`
   );
   const parts = [
     `<div class="stmt-summary-box stmt-summary-box--period"><div class="stmt-summary-box-title">Period summary</div>${periodBits.join("")}</div>`
@@ -7964,7 +8038,7 @@ async function saveCn(){
   });
   const cnTrim = cnSerial.value;
   if(cnNo) cnNo.value = cnTrim;
-  if(cnSerial.bumped) toast("Credit Note No. assigned â€” posting as " + cnTrim);
+  if(cnSerial.bumped) toast("Credit Note No. assigned — posting as " + cnTrim);
   try{
     const returnItems = status !== "Draft" ? readCnReturnItems() : [];
     const returnWh = document.getElementById("cnReturnWarehouse")?.value || "Main";
@@ -8039,7 +8113,7 @@ async function saveDn(){
   });
   const dnTrim = dnSerial.value;
   if(dnNo) dnNo.value = dnTrim;
-  if(dnSerial.bumped) toast("Debit Note No. assigned â€” posting as " + dnTrim);
+  if(dnSerial.bumped) toast("Debit Note No. assigned — posting as " + dnTrim);
   try{
     const write = (async ()=>{
       const inv = invNo ? invoices.find(i=> i.invNo === invNo && i.customer === customer) : null;
@@ -8414,7 +8488,7 @@ async function saveCheque(){
   });
   if(dupChq){
     return toast(
-      `Duplicate blocked â€” same Cheque No., customer and date already saved` +
+      `Duplicate blocked — same Cheque No., customer and date already saved` +
       ` (${dupChq.chequeNo}, ${dupChq.customer}, ${dupChq.chequeDate || "-"}).`
     );
   }
@@ -9119,7 +9193,7 @@ function statementTableHtml(name, asOf, from, subFilter = "", summaryHtml = "", 
   const odFrom = num(document.getElementById("stmtOdFrom")?.value);
   const built = builtOverride || buildStatementRows(name, asOf, from || "", subFilter, { odFrom });
   const range = from ? `From ${esc(from)} - ` : "";
-  const subBit = subFilter ? ` â€” ${esc(subFilter)}` : "";
+  const subBit = subFilter ? ` — ${esc(subFilter)}` : "";
   const c = customers.find(x=> x.name === name);
   const partyBits = [
     c?.code ? `Code: ${esc(c.code)}` : "",
@@ -9132,8 +9206,8 @@ function statementTableHtml(name, asOf, from, subFilter = "", summaryHtml = "", 
   const partyBlock = `
     <div style="margin:12px 0 16px;padding:14px 16px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc">
       <div style="font-size:16px;font-weight:700;margin-bottom:8px">${esc(name)}${subBit}</div>
-      <div style="font-size:12px;color:#475569;line-height:1.55">${partyBits.join(" Â· ") || "Customer account statement"}</div>
-      <div style="margin-top:10px;font-size:12px;font-weight:600">${esc(shop.name||"")} â€” ${range}As of ${esc(asOf)}</div>
+      <div style="font-size:12px;color:#475569;line-height:1.55">${partyBits.join(" · ") || "Customer account statement"}</div>
+      <div style="margin-top:10px;font-size:12px;font-weight:600">${esc(shop.name||"")} — ${range}As of ${esc(asOf)}</div>
     </div>`;
   const tableHtml = tableFromRows(
     ["Date","Reference","Description","Sub-account","Debit","Credit","Balance","Overdue"],
@@ -9350,7 +9424,7 @@ function runGlobalSearch(q){
     hits.push({
       type: "Invoice",
       ref: i.invNo,
-      detail: [i.customer, i.subAccount, detailExtra].filter(Boolean).join(" Â· "),
+      detail: [i.customer, i.subAccount, detailExtra].filter(Boolean).join(" · "),
       page: "invoices",
       go: ()=>{ showPage("invoices"); editInvoice(i.id); }
     });
@@ -9359,7 +9433,7 @@ function runGlobalSearch(q){
     if(`${i.invNo} ${i.customer} ${i.subAccount||""} ${i.vehicle} ${i.lpo} ${i.manualNo||""} ${i.computerNo||""}`.toLowerCase().includes(ql))
       pushInvoice(i);
   });
-  // Sub-account name (e.g. Jamal / Naser) â†’ all invoices under that sub
+  // Sub-account name (e.g. Jamal / Naser) ? all invoices under that sub
   customers.forEach(c=>{
     customerSubAccounts(c.name).forEach(sub=>{
       if(!sub.name.toLowerCase().includes(ql)) return;
@@ -9403,7 +9477,7 @@ function runGlobalSearch(q){
   });
   receipts.forEach(r=>{
     if(`${r.rvNo} ${r.customer} ${r.subAccount||""} ${r.chequeNo} ${r.ref}`.toLowerCase().includes(ql))
-      hits.push({ type:"Receipt", ref:r.rvNo, detail:[r.customer, r.subAccount].filter(Boolean).join(" Â· "), page:"receipts", go:()=>{ showPage("receipts"); if(receiptSearch){ receiptSearch.value=q; renderReceipts(); }}});
+      hits.push({ type:"Receipt", ref:r.rvNo, detail:[r.customer, r.subAccount].filter(Boolean).join(" · "), page:"receipts", go:()=>{ showPage("receipts"); if(receiptSearch){ receiptSearch.value=q; renderReceipts(); }}});
   });
   const box = document.getElementById("searchResults");
   const overlay = document.getElementById("searchOverlay");

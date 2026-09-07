@@ -10,7 +10,7 @@ Ensures every `frontend/*.js` module (except `sw.js`) is listed in `frontend/sw.
 
 See GitHub Releases for the current version assets (exe / apk / PWA / complete zip).
 
-**Current:** v1.0.11 — Workshop ERP foundation, statements (period summary, PDF boxes, txn toggle), atomic branch numbering, purchase/inventory/workshop modules.
+**Current:** v1.0.12 — Purchase Invoice hard fixes (GRN/stock/void/draft/VAT), Vendor Payment advance, Receipt mobile save, desktop login-close, mobile+PC PI UX.
 
 
 ## Same account on PC + mobile (100% sync)

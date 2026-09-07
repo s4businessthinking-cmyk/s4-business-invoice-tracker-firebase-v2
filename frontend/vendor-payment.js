@@ -248,7 +248,7 @@ function renderVpBillGrid(){
   const tbody = document.getElementById("vpAllocRows");
   if(!tbody) return;
   if(!_vpBillLines.length){
-    tbody.innerHTML = `<tr><td colspan="4" class="empty">Select PI, enter Current Payment, press Enter</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">Select PI → enter amount → Add PI → Post Payment</td></tr>`;
   }else{
     tbody.innerHTML = _vpBillLines.map((l, i)=> `<tr data-vp-line="${i}" title="Double-click row to remove">
       <td><b>${esc(l.piNo)}</b></td>
@@ -407,6 +407,8 @@ function openNewVendorPayment(){
   _vpBillLines = [];
   renderVpBillGrid();
   fillVpPiPick();
+  const adv = document.getElementById("vpAdvance");
+  if(adv) adv.value = 0;
   setVpModalSub("");
 }
 
@@ -432,6 +434,8 @@ function editVendorPayment(id){
   loadVpBillLinesFromPayment(vp);
   renderVpBillGrid();
   fillVpPiPick();
+  const adv = document.getElementById("vpAdvance");
+  if(adv) adv.value = num(vp.unallocated) || 0;
   setVpModalSub(`${vp.vpNo} - ${vp.status || "Posted"}`);
   ctx.openFormModal?.("vendorPaymentModal", { skipPrepare: true });
 }
@@ -489,13 +493,20 @@ async function saveVendorPayment(){
   if(_vpSaving) return toast("Save already in progress…");
   const supplier = document.getElementById("vpSupplier")?.value || "";
   if(!supplier) return toast("Select vendor");
+  // Mobile: commit pending PI line if user typed amount but did not tap Add
+  const pendingPay = num(document.getElementById("vpPiPay")?.value);
+  const pendingPi = document.getElementById("vpPiPick")?.value || "";
+  if(pendingPi && pendingPay > 0.009 && !_vpBillLines.some(l=> l.purchaseInvoiceId === pendingPi)){
+    addVpBillLine();
+  }
   const vpId = document.getElementById("vpId")?.value || "";
   const existing = vpId ? vendorPayments.find(v=> v.id === vpId) : null;
   if(existing && supplier !== existing.supplier) return toast("Cannot change vendor — void and create new payment");
   const allocs = readVpAllocationsFromGrid();
-  const amount = roundMoney(allocs.reduce((s,a)=> s + a.amount, 0));
-  if(amount <= 0) return toast("Add at least one PI with payment amount");
-  const allocated = amount;
+  const allocated = roundMoney(allocs.reduce((s,a)=> s + a.amount, 0));
+  const advance = Math.max(0, num(document.getElementById("vpAdvance")?.value));
+  const amount = roundMoney(allocated + advance);
+  if(amount <= 0) return toast("Add at least one PI with payment amount, or enter vendor advance");
   const method = document.getElementById("vpMethod")?.value || "Cash";
   const isCheque = method.includes("Cheque");
   if(isCheque && !(document.getElementById("vpChq")?.value || "").trim()){
@@ -514,13 +525,14 @@ async function saveVendorPayment(){
     }
   }
   let due = supplierOutstanding(supplier);
-  if(existing) due = roundMoney(Math.max(0, due - num(existing.amount)));
-  if(amount > due + 0.01){
-    const extra = roundMoney(amount - due);
+  if(existing) due = roundMoney(Math.max(0, due - num(existing.amount) + num(existing.unallocated)));
+  if(allocated > due + 0.01){
+    return toast(`Allocated ${money(allocated)} exceeds vendor outstanding ${money(due)}. Reduce PI amounts.`);
+  }
+  if(advance > 0.009){
     if(!confirm(
-      `Payment exceeds vendor outstanding by ${money(extra)}.\n` +
-      `Outstanding: ${money(due)} · Payment: ${money(amount)}\n\n` +
-      `Continue? Extra will be vendor advance.`
+      `Vendor advance ${money(advance)} will stay unallocated for next payment.\n` +
+      `Allocated to PIs: ${money(allocated)} · Total paid: ${money(amount)}\n\nContinue?`
     )) return;
   }
   const paidBy = existing?.paidBy || document.getElementById("vpPaidBy")?.value?.trim() || who();
@@ -537,7 +549,7 @@ async function saveVendorPayment(){
     method,
     amount,
     allocated,
-    unallocated: 0,
+    unallocated: advance,
     ref: document.getElementById("vpRef")?.value.trim() || "",
     chequeNo: isCheque ? document.getElementById("vpChq")?.value.trim() || "" : "",
     bank: isCheque ? document.getElementById("vpBank")?.value.trim() || "" : "",

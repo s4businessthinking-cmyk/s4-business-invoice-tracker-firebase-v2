@@ -1,4 +1,4 @@
-﻿// Tiny entry - start splash BEFORE heavy Firebase/app modules load.
+// Tiny entry - start splash BEFORE heavy Firebase/app modules load.
 // If CDN/app.js hangs, user still sees progress + failsafe hide.
 import { startSplash, hideSplash, setSplashStatus } from "./splash.js";
 import { initTheme } from "./theme.js";
@@ -20,7 +20,7 @@ const forceHide = setTimeout(() => {
   if(auth) auth.style.display = "flex";
 }, 20000);
 
-import("./boot.js?v=172")
+import("./boot.js?v=177")
   .then(() => {
     clearTimeout(failsafe);
     clearTimeout(forceHide);
