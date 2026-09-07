@@ -36,8 +36,12 @@ export function getCurrentMember(){
   return currentMember;
 }
 
-export function isOwnerRole(){
-  return currentMember?.role === "owner" && currentMember?.status === "active";
+export function isOwnerRole(memberHint){
+  const m = memberHint || currentMember;
+  if(!m) return false;
+  const role = String(m.role || "").trim().toLowerCase();
+  const status = String(m.status || "active").trim().toLowerCase();
+  return role === "owner" && status === "active";
 }
 
 export function isStaffRole(){

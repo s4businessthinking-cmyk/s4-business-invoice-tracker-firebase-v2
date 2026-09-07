@@ -10,7 +10,7 @@ Ensures every `frontend/*.js` module (except `sw.js`) is listed in `frontend/sw.
 
 See GitHub Releases for the current version assets (exe / apk / PWA / complete zip).
 
-**Current:** v1.0.13 — Receipt partial+discount fix, second-open typing overlay fix, UI glyph/encoding restore (v178).
+**Current:** v1.0.14 — Statement customer PDF/print, receipt PDF polish, statement/aging UX (v193).
 
 
 ## Same account on PC + mobile (100% sync)

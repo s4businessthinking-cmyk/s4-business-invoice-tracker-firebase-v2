@@ -5,12 +5,12 @@ import { initTheme } from "./theme.js";
 
 initTheme();
 startSplash("en");
-setSplashStatus("Loading modules-");
+setSplashStatus("Loading modules...");
 
 const failsafe = setTimeout(() => {
   const el = document.getElementById("s4Splash");
   if(el && !el.classList.contains("hidden")){
-    setSplashStatus("Still loading- check internet / Firebase CDN");
+    setSplashStatus("Still loading... check internet / Firebase CDN");
   }
 }, 8000);
 
@@ -20,7 +20,7 @@ const forceHide = setTimeout(() => {
   if(auth) auth.style.display = "flex";
 }, 20000);
 
-import("./boot.js?v=178")
+import("./boot.js?v=193")
   .then(() => {
     clearTimeout(failsafe);
     clearTimeout(forceHide);

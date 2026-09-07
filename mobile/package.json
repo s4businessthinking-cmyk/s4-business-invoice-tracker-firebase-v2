@@ -1,6 +1,6 @@
 {
   "name": "s4-invoice-tracker-mobile",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "private": true,
   "description": "Capacitor Android shell for S4 Invoice Tracker PWA",
   "scripts": {

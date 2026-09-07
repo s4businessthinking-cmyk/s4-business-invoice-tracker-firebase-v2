@@ -357,16 +357,22 @@ function syncVpMethodUi(){
   const isCheque = method.includes("Cheque");
   const isPdc = method === "PDC Cheque";
   if(modal){
+    modal.classList.toggle("is-pdc", isPdc);
     modal.querySelectorAll(".cheque-only").forEach(el=>{
       if(el.id === "vpChequeHint") return;
       el.style.display = isCheque ? "" : "none";
     });
     modal.querySelectorAll(".pdc-only").forEach(el=>{
-      el.style.display = isPdc ? "" : "none";
+      el.style.display = isPdc ? "block" : "none";
     });
   }
   const hint = document.getElementById("vpChequeHint");
   if(hint) hint.style.display = isCheque ? "" : "none";
+  if(isPdc){
+    const chqDate = document.getElementById("vpChqDate")?.value || "";
+    const pdcEl = document.getElementById("vpPdcDate");
+    if(pdcEl && !pdcEl.value && chqDate) pdcEl.value = chqDate;
+  }
 }
 
 async function applyVendorPaymentToInvoices(payment, batch){
@@ -512,8 +518,13 @@ async function saveVendorPayment(){
   if(isCheque && !(document.getElementById("vpChq")?.value || "").trim()){
     return toast(`Enter cheque number for ${method}`);
   }
-  if(method === "PDC Cheque" && !(document.getElementById("vpPdcDate")?.value || "").trim()){
-    return toast("Enter PDC date");
+  if(method === "PDC Cheque"){
+    const pdcEl = document.getElementById("vpPdcDate");
+    const chqDate = document.getElementById("vpChqDate")?.value || "";
+    if(pdcEl && !(pdcEl.value || "").trim() && chqDate) pdcEl.value = chqDate;
+    if(!(pdcEl?.value || "").trim()){
+      return toast("Enter PDC date (shown when Mode = PDC Cheque)");
+    }
   }
   for(let i = 0; i < allocs.length; i++){
     const pi = getPurchaseInvoices().find(x=> x.id === allocs[i].purchaseInvoiceId);

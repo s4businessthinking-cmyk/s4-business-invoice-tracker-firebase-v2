@@ -8,7 +8,7 @@ import {
   isOwnerRole, getCurrentMember, authErrorText,
   resolvePermissions, memberCan, updateStaffPermissions,
   PERMISSION_LABELS, DEFAULT_STAFF_PERMISSIONS
-} from "./auth.js?v=139";
+} from "./auth.js?v=188";
 import {
   backupToDrive, listBackups, isDriveBackupConfigured,
   getDriveClientId, saveDriveClientId, loadBackupHistory, recordBackupHistory, formatBytes
@@ -18,7 +18,7 @@ import { loadSavedFirebaseConfig, buildInviteCode } from "./firebase-config.js";
 import { printHtmlDocument, downloadHtmlDocument, tableFromRows } from "./doc-export.js?v=68";
 import {
   downloadInvoicePdf, downloadStatementPdf, downloadReceiptPdf, downloadReminderPdf, downloadTablePdf
-} from "./pdf-export.js?v=69";
+} from "./pdf-export.js?v=193";
 import { deliverText, openExternalUrl, deliveryToast, isAndroidNative } from "./file-delivery.js?v=67";
 import { buildReportBundle, renderReportHtml, invoicesToCsv, downloadTextFile } from "./reports.js";
 import {
@@ -36,11 +36,11 @@ import {
   renderSuppliers, renderPurchaseInvoices, refreshSupplierSelects,
   filterSuppliersForCombo, pickSupplierCombo, getSuppliers, resetSupplier as resetSupplierForm,
   syncPurchaseStockLocations, findProductForLine, formatStockLocation
-} from "./purchase.js?v=178";
+} from "./purchase.js?v=181";
 import {
   initGrn, wireGrnUi, prepareGrnModal, onGoodsReceiptsLoaded, renderGoodsReceipts,
   refreshGrnSupplierSelect, syncGrnStockLocations, getGoodsReceipts, linkGrnToPurchase, unlinkGrnFromPurchase
-} from "./grn.js?v=178";
+} from "./grn.js?v=181";
 import {
   initPo, wirePoUi, preparePoModal, preparePoFromPrq, onPurchaseOrdersLoaded, renderPurchaseOrders,
   refreshPoSupplierSelect
@@ -52,7 +52,7 @@ import {
 import {
   initVendorPayment, wireVendorPaymentUi, prepareVendorPaymentModal,
   onVendorPaymentsLoaded, renderVendorPayments, refreshVpSupplierSelect
-} from "./vendor-payment.js?v=178";
+} from "./vendor-payment.js?v=181";
 import {
   initPurchaseReturn, wirePurchaseReturnUi, preparePurchaseReturnModal,
   onPurchaseReturnsLoaded, renderPurchaseReturns, refreshPrtSupplierSelect, syncPrtStockLocations
@@ -200,11 +200,13 @@ function initStmtPeriodControls(){
 }
 function syncStmtPeriodUi(){
   const mode = document.getElementById("stmtPeriodMode")?.value || "custom";
+  if(mode === "monthly") initStmtPeriodControls();
+  // Must set real display values — clearing style lets CSS `.stmt-period-monthly{display:none}` hide again.
   document.querySelectorAll(".stmt-period-monthly").forEach(el=>{
-    el.style.display = mode === "monthly" ? "" : "none";
+    el.style.display = mode === "monthly" ? "block" : "none";
   });
   document.querySelectorAll(".stmt-period-custom").forEach(el=>{
-    el.style.display = mode === "custom" ? "" : "none";
+    el.style.display = mode === "custom" ? "contents" : "none";
   });
 }
 function syncLedgerPeriodUi(){
@@ -1257,7 +1259,7 @@ function agingBucket(inv){
 }
 
 function customerOutstanding(name){
-  return ledgerLines(name, "").reduce((bal, l)=> bal + l.debit - l.credit, 0);
+  return ledgerLines(name, "").reduce((bal, l)=> bal + ledgerMovement(l), 0);
 }
 
 function customerSubAccounts(customerName){
@@ -1440,7 +1442,7 @@ function customerOverdue(name){
 function customerOptions(selectEl, selected){
   if(!selectEl) return;
   const sel = selected || "";
-  selectEl.innerHTML = `<option value="">Select-</option>` + customers.map(c=>
+  selectEl.innerHTML = `<option value="">Select...</option>` + customers.map(c=>
     `<option value="${esc(c.name)}" ${c.name===sel?"selected":""}>${esc(c.name)}</option>`
   ).join("");
   if(sel) selectEl.value = sel;
@@ -2466,7 +2468,22 @@ function listen(name, cb){
   const q = query(col(name));
   unsubs.push(onSnapshot(q, snap=>{
     cb(snap.docs.map(d=>({ id:d.id, ...d.data() })));
-  }, err=> toast(friendlyFirestoreError(err) + " [" + name + "]")));
+  }, err=>{
+    const code = String(err?.code || "").replace(/^firestore\//, "");
+    const isPerm = code === "permission-denied" || /insufficient permissions|permission.?denied/i.test(String(err?.message || err || ""));
+    // Workshop collections were added later — if live rules are outdated, don't spam every login.
+    const softCollections = new Set(["partsIssues", "jobCards"]);
+    if(isPerm && softCollections.has(name)){
+      console.warn("Firestore listen denied (soft):", name, err);
+      try{ cb([]); }catch(_){}
+      if(!window._s4SoftPermToast){
+        window._s4SoftPermToast = true;
+        toast("Workshop (partsIssues) blocked — publish latest firestore.rules on THIS shop Firebase project, then logout/login.");
+      }
+      return;
+    }
+    toast(friendlyFirestoreError(err) + " [" + name + "]");
+  }));
 }
 
 // Firestore read rules gate every collection by module (firestore.rules 176-223).
@@ -2731,7 +2748,6 @@ function bindUi(){
   document.getElementById("stmtSubAccount")?.addEventListener("change", fillStatement);
   document.getElementById("stmtAsOf")?.addEventListener("change", fillStatement);
   document.getElementById("stmtOdFrom")?.addEventListener("change", fillStatement);
-  document.getElementById("stmtShowPeriodTxns")?.addEventListener("change", fillStatement);
   document.getElementById("stmtPeriodMode")?.addEventListener("change", e=>{
     if(e.target.value === "custom"){
       initStmtPeriodControls();
@@ -3299,7 +3315,9 @@ function renderDashboard(){
     ["OVERDUE", money(overdueAmt), overdue.length + " invoices"],
     ["CUSTOMERS", customers.length, customers.filter(c=>c.status==="Active").length + " active"],
     ["OPEN INVOICE BAL.", money(open.reduce((s,i)=> s + invBalance(i), 0)), open.length + " invoices - unpaid invoice totals only (excludes advances)"]
-  ].map(([a,b,c])=> `<div class="card"><div class="metric-label">${a}</div><div class="metric">${b}</div><div class="metric-note">${c}</div></div>`).join("");
+  ].map(([a,b,c], i)=>
+    `<div class="card dash-card dash-card--${i + 1}"><div class="metric-label">${a}</div><div class="metric">${b}</div><div class="metric-note">${c}</div></div>`
+  ).join("");
 
   const buckets = agingSums();
   const max = Math.max(1, ...Object.values(buckets));
@@ -3346,7 +3364,7 @@ function renderAging(){
     ["TOTAL", b.current+b.d30+b.d60+b.d90+b.d90p, "aging-card--total"]
   ];
   document.getElementById("agingCards").innerHTML = cardSpecs.map(([l,v,cls])=>
-    `<div class="card ${cls}"><div class="metric-label">${l}</div><div class="metric">${money(v)}</div></div>`
+    `<div class="card aging-card ${cls}"><div class="metric-label">${l}</div><div class="metric">${money(v)}</div></div>`
   ).join("");
 
   const map = {};
@@ -3357,8 +3375,16 @@ function renderAging(){
     const tot = roundMoney(x.current+x.d30+x.d60+x.d90+x.d90p);
     if(tot <= 0.009) return "";
     const overdue = roundMoney(x.d30 + x.d60 + x.d90 + x.d90p);
-    return `<tr><td>${esc(name)}</td><td class="age-cell age-cell--current">${money(x.current)}</td><td class="age-cell age-cell--d30">${money(x.d30)}</td><td class="age-cell age-cell--d60">${money(x.d60)}</td><td class="age-cell age-cell--d90">${money(x.d90)}</td><td class="age-cell age-cell--d90p">${money(x.d90p)}</td><td><b title="Same as Statement closing">${money(tot)}</b>${overdue > 0.009 ? `<br><span class="muted" style="font-size:11px">incl. overdue ${money(overdue)}</span>` : ""}</td>
-      <td><button class="btn small" type="button" data-stmt="${esc(name)}">Statement</button></td></tr>`;
+    return `<tr>
+      <td class="aging-cust" title="${esc(name)}">${esc(name)}</td>
+      <td class="age-cell age-cell--current">${money(x.current)}</td>
+      <td class="age-cell age-cell--d30">${money(x.d30)}</td>
+      <td class="age-cell age-cell--d60">${money(x.d60)}</td>
+      <td class="age-cell age-cell--d90">${money(x.d90)}</td>
+      <td class="age-cell age-cell--d90p">${money(x.d90p)}</td>
+      <td class="age-cell age-cell--total" title="Same as Statement closing${overdue > 0.009 ? ` · overdue ${money(overdue)}` : ""}"><b>${money(tot)}</b></td>
+      <td class="aging-action"><button class="btn small" type="button" data-stmt="${esc(name)}">Statement</button></td>
+    </tr>`;
   }).join("") || `<tr><td colspan="8" class="empty">No receivables</td></tr>`;
   document.querySelectorAll("[data-stmt]").forEach(b=> b.onclick = ()=>{
     showPage("statements");
@@ -3375,11 +3401,15 @@ function renderCustomers(){
     return blob.includes(q);
   });
   document.getElementById("customerRows").innerHTML = rows.length ? rows.map(c=> `<tr>
-    <td>${esc(c.code)}</td><td class="cell-dbl-open" data-dbl-open="${esc(c.id)}" title="Double-click to open">${esc(c.name)}</td><td>${esc(c.contact)}</td><td>${esc(c.mobile)}</td>
-    <td>${money(c.creditLimit)}</td><td>${money(customerOutstanding(c.name))}</td>
-    <td class="${customerOverdue(c.name)?"red":""}">${money(customerOverdue(c.name))}</td>
-    <td>${badge(c.status||"Active")}</td>
-    <td><button class="btn small" type="button" data-edit-c="${c.id}">Open</button></td>
+    <td class="cust-code">${esc(c.code)}</td>
+    <td class="cust-name cell-dbl-open" data-dbl-open="${esc(c.id)}" title="${esc(c.name)}">${esc(c.name)}</td>
+    <td class="cust-contact">${esc(c.contact)}</td>
+    <td class="cust-mobile">${esc(c.mobile)}</td>
+    <td class="cust-num">${money(c.creditLimit)}</td>
+    <td class="cust-num">${money(customerOutstanding(c.name))}</td>
+    <td class="cust-num ${customerOverdue(c.name)?"red":""}">${money(customerOverdue(c.name))}</td>
+    <td class="cust-status">${badge(c.status||"Active")}</td>
+    <td class="cust-action"><button class="btn small" type="button" data-edit-c="${c.id}">Open</button></td>
   </tr>`).join("") : `<tr><td colspan="9" class="empty">No customers - add one</td></tr>`;
   document.querySelectorAll("[data-edit-c]").forEach(b=> b.onclick = ()=> editCustomer(b.dataset.editC));
 }
@@ -3746,7 +3776,7 @@ function setInvoiceEntryMode(mode, { persist = true, formOnly = false } = {}){
 
 async function selectInvoiceEntryMode(mode){
   if(mode !== "simple" && mode !== "detailed") return;
-  if(!isOwnerRole()){
+  if(!(isOwnerRole(member) || isOwnerRole())){
     toast("Only the Owner can change invoice entry mode");
     syncInvoiceModeSettingsUi();
     return;
@@ -3822,7 +3852,7 @@ function wireInvoiceModeSettings(){
 
 function syncInvoiceModeSettingsUi(){
   const mode = getShopInvoiceEntryMode();
-  const owner = isOwnerRole();
+  const owner = isOwnerRole(member) || isOwnerRole();
   document.querySelectorAll("[data-invoice-mode]").forEach(btn=>{
     btn.classList.toggle("active", btn.getAttribute("data-invoice-mode") === mode);
     btn.disabled = !owner;
@@ -3911,7 +3941,7 @@ function syncInvoiceBillingUi(){
 
 async function selectInvoiceBillingStyle(style){
   const s = style === "monthly" ? "monthly" : "date";
-  if(!isOwnerRole()){
+  if(!(isOwnerRole(member) || isOwnerRole())){
     toast("Only the Owner can change invoice billing style");
     syncInvoiceBillingSettingsUi();
     return;
@@ -3930,7 +3960,7 @@ async function selectInvoiceBillingStyle(style){
 
 function syncInvoiceBillingSettingsUi(){
   const style = getShopInvoiceBillingStyle();
-  const owner = isOwnerRole();
+  const owner = isOwnerRole(member) || isOwnerRole();
   document.querySelectorAll("[data-invoice-billing]").forEach(btn=>{
     btn.classList.toggle("active", btn.getAttribute("data-invoice-billing") === style);
     btn.disabled = !owner;
@@ -6287,73 +6317,87 @@ function receiptBillRowsForPrint(r){
   }));
 }
 
+function receiptBalanceSnapshot(r){
+  const name = String(r?.customer || "").trim();
+  const outstandingNow = name ? roundMoney(customerOutstanding(name)) : 0;
+  const applied = !!(r?.applied || receiptAffectsBalance(r));
+  // Full receipt effect on customer balance = cash/cheque received + discount
+  // (advance/unallocated also credits the customer when cleared/posted).
+  const settle = roundMoney(num(r?.amount) + num(r?.discount));
+  const balanceAfter = applied
+    ? outstandingNow
+    : Math.max(0, roundMoney(outstandingNow - settle));
+  const balanceBefore = applied
+    ? roundMoney(outstandingNow + settle)
+    : outstandingNow;
+  return { balanceBefore, balanceAfter, settle, applied, outstandingNow };
+}
+
 function receiptPrintCss(){
   return `
-  body.doc-receipt{padding:16px;background:#f4f6f9}
-  body.doc-receipt .foot{max-width:720px;margin:12px auto 0;text-align:center}
-  .rv-print{max-width:720px;margin:0 auto}
-  .rv-print-sheet{border:2px solid #1a3d66;border-radius:8px;overflow:hidden;background:#fff;box-shadow:0 2px 12px rgba(22,48,82,.08)}
-  .rv-print-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px 20px;background:linear-gradient(180deg,#1e4976 0%,#153a5f 100%);color:#fff}
-  .rv-print-co{font-size:17px;font-weight:700;line-height:1.25;letter-spacing:.02em}
-  .rv-print-sub{font-size:11px;opacity:.92;margin-top:4px}
-  .rv-print-badge{background:#fff;color:#153a5f;font-weight:700;font-size:11px;padding:9px 14px;border-radius:5px;letter-spacing:.1em;white-space:nowrap}
-  .rv-print-meta{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-bottom:1px solid #d5dde8}
-  .rv-print-meta-box{padding:12px 16px;border-right:1px solid #d5dde8;background:#f8fafc}
-  .rv-print-meta-box:last-child{border-right:0}
-  .rv-print-meta-box .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#667085;margin-bottom:4px}
-  .rv-print-meta-box .val{display:block;font-size:14px;font-weight:700;color:#172033}
-  .rv-print-meta-box .val.status{color:#0d6e4f}
-  .rv-print-meta-box .val.status.pending{color:#b45309}
-  .rv-print-meta-box .val.status.dead{color:#b42318}
-  .rv-print-panel{margin:0;padding:0;border-bottom:1px solid #d5dde8}
-  .rv-print-panel-title{padding:8px 16px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:#2d5a8e}
-  .rv-print-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}
-  .rv-print-field{padding:10px 16px;border-bottom:1px solid #e8edf3;border-right:1px solid #e8edf3;min-height:52px}
-  .rv-print-field:nth-child(2n){border-right:0}
-  .rv-print-field.full{grid-column:1/-1;border-right:0}
-  .rv-print-field .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#667085;margin-bottom:3px}
-  .rv-print-field .val{display:block;font-size:13px;font-weight:600;color:#172033;line-height:1.35;word-break:break-word}
-  .rv-print-amount{display:flex;align-items:stretch;border-bottom:1px solid #d5dde8}
-  .rv-print-amount-main{flex:1;padding:16px 20px;background:#eef4fb;border-right:1px solid #d5dde8}
-  .rv-print-amount-main .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#4b6280;margin-bottom:6px}
-  .rv-print-amount-main .val{font-size:26px;font-weight:800;color:#153a5f;letter-spacing:.02em}
-  .rv-print-amount-side{display:flex;flex-direction:column;justify-content:center;min-width:160px;padding:12px 16px;background:#fafbfc}
-  .rv-print-amount-side .row{display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:3px 0}
-  .rv-print-amount-side .row .lbl{color:#667085}
-  .rv-print-amount-side .row .val{font-weight:700;color:#172033}
-  .rv-print-bills{padding:0 0 4px}
-  .rv-print-bills-title{padding:8px 16px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:#2d5a8e}
-  .rv-print-table{width:100%;border-collapse:collapse;margin:0}
+  body.doc-receipt{padding:16px;background:#eef2f7;color:#172033;font-family:Segoe UI,Arial,sans-serif}
+  body.doc-receipt .foot{max-width:760px;margin:12px auto 0;text-align:center;font-size:11px;color:#667085}
+  .rv-print{max-width:760px;margin:0 auto}
+  .rv-print-sheet{border:1px solid #c5d0e0;border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 8px 28px rgba(22,48,82,.12)}
+  .rv-print-head{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 22px;background:linear-gradient(135deg,#0f2744 0%,#1e4976 55%,#2563eb 100%);color:#fff}
+  .rv-print-co{font-size:18px;font-weight:800;line-height:1.25;letter-spacing:.02em}
+  .rv-print-sub{font-size:11px;opacity:.9;margin-top:5px}
+  .rv-print-badge{background:rgba(255,255,255,.95);color:#0f2744;font-weight:800;font-size:11px;padding:10px 14px;border-radius:8px;letter-spacing:.12em;white-space:nowrap}
+  .rv-print-boxes{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 16px;background:#f4f7fb}
+  .rv-box{border-radius:10px;padding:12px 14px;min-height:64px;box-shadow:inset 0 0 0 1px rgba(15,39,68,.06)}
+  .rv-box .lbl{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;opacity:.8;margin-bottom:5px}
+  .rv-box .val{display:block;font-size:14px;font-weight:800;line-height:1.3;word-break:break-word}
+  .rv-box--no{background:#dbeafe;color:#1e3a8a}
+  .rv-box--date{background:#e0e7ff;color:#312e81}
+  .rv-box--status{background:#dcfce7;color:#14532d}
+  .rv-box--status.is-pending{background:#ffedd5;color:#9a3412}
+  .rv-box--status.is-dead{background:#fee2e2;color:#991b1b}
+  .rv-box--cust{background:#ede9fe;color:#5b21b6;grid-column:1/-1}
+  .rv-box--by{background:#ccfbf1;color:#115e59}
+  .rv-box--mode{background:#fce7f3;color:#9d174d}
+  .rv-print-amount{display:grid;grid-template-columns:1.3fr .9fr .9fr;gap:10px;padding:0 16px 14px;background:#f4f7fb}
+  .rv-amt{border-radius:12px;padding:14px 16px;min-height:78px}
+  .rv-amt .lbl{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;opacity:.85;margin-bottom:6px}
+  .rv-amt .val{display:block;font-size:22px;font-weight:800;letter-spacing:.01em}
+  .rv-amt--recv{background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#eff6ff}
+  .rv-amt--before{background:#fef3c7;color:#92400e}
+  .rv-amt--after{background:#bbf7d0;color:#14532d}
+  .rv-amt--after.is-clear{background:#86efac;color:#14532d}
+  .rv-amt-note{font-size:10px;font-weight:600;opacity:.85;margin-top:4px}
+  .rv-print-side{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:0 16px 14px;background:#f4f7fb}
+  .rv-side{border-radius:10px;padding:10px 12px;background:#fff;border:1px solid #e2e8f0}
+  .rv-side .lbl{display:block;font-size:10px;color:#667085;font-weight:700;text-transform:uppercase;margin-bottom:3px}
+  .rv-side .val{font-size:13px;font-weight:800;color:#172033}
+  .rv-print-narr{margin:0 16px 14px;padding:12px 14px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a;font-size:12px;line-height:1.45;color:#78350f}
+  .rv-print-narr .lbl{font-weight:800;margin-right:6px}
+  .rv-print-bills{padding:0 16px 16px}
+  .rv-print-bills-title{padding:9px 12px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:linear-gradient(90deg,#1e3a8a,#2563eb);border-radius:8px 8px 0 0}
+  .rv-print-table{width:100%;border-collapse:collapse;margin:0;border:1px solid #d5dde8;border-top:0}
   .rv-print-table th,.rv-print-table td{border:1px solid #d5dde8;padding:9px 12px;font-size:12px;text-align:left}
-  .rv-print-table th{background:#e8f0fa;color:#1a3d66;font-size:10px;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+  .rv-print-table th{background:#e8f0fa;color:#1a3d66;font-size:10px;text-transform:uppercase;letter-spacing:.05em;font-weight:800}
   .rv-print-table td.num{text-align:right;font-variant-numeric:tabular-nums}
   .rv-print-table tbody tr:nth-child(even){background:#fafbfc}
-  .rv-print-table tfoot td{font-weight:700;background:#f0f5fb;border-top:2px solid #1a3d66}
+  .rv-print-table tfoot td{font-weight:800;background:#eef4fb;border-top:2px solid #1a3d66}
   .rv-print-table tfoot td.num{text-align:right}
-  .rv-print-narr{padding:12px 16px;border-bottom:1px solid #d5dde8;background:#fffbeb;font-size:12px;line-height:1.45}
-  .rv-print-narr .lbl{font-weight:700;color:#92400e;margin-right:6px}
-  .rv-print-sign{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:20px 24px 24px}
-  .rv-print-sign-box{border-top:1px solid #98a6b8;padding-top:8px;font-size:11px;color:#667085;text-align:center}
+  .rv-print-sign{display:grid;grid-template-columns:1fr 1fr;gap:28px;padding:22px 24px 26px}
+  .rv-print-sign-box{border-top:1px solid #94a3b8;padding-top:8px;font-size:11px;color:#667085;text-align:center;font-weight:600}
   @media print{
-    body.doc-receipt{padding:0;background:#fff}
+    body.doc-receipt{padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .rv-print-sheet{box-shadow:none;border-radius:0}
+    .rv-print-boxes,.rv-print-amount,.rv-print-side{background:#fff}
   }
-  @media(max-width:560px){
+  @media(max-width:640px){
     .rv-print-head{flex-direction:column;align-items:flex-start}
-    .rv-print-meta{grid-template-columns:1fr}
-    .rv-print-meta-box{border-right:0;border-bottom:1px solid #d5dde8}
-    .rv-print-grid{grid-template-columns:1fr}
-    .rv-print-field{border-right:0}
-    .rv-print-amount{flex-direction:column}
-    .rv-print-amount-main{border-right:0;border-bottom:1px solid #d5dde8}
+    .rv-print-boxes,.rv-print-amount,.rv-print-side{grid-template-columns:1fr 1fr}
+    .rv-box--cust,.rv-amt--recv{grid-column:1/-1}
   }`;
 }
 
 function receiptStatusClass(status){
   const st = String(status || "Posted");
-  if(/^(Cancelled|Voided|Bounced)$/i.test(st)) return "dead";
-  if(/^Pending$/i.test(st)) return "pending";
-  return "status";
+  if(/^(Cancelled|Voided|Bounced)$/i.test(st)) return "is-dead";
+  if(/^Pending$/i.test(st)) return "is-pending";
+  return "";
 }
 
 function buildReceiptBillTableHtml(r){
@@ -6387,8 +6431,11 @@ function buildReceiptPrintBody(r, includeBills = false){
   const status = r.status || "Posted";
   const collectedBy = r.collectedBy || r.createdBy || r.updatedBy || who();
   const disc = num(r.discount || 0);
-  const allocated = num(r.allocated);
-  const unalloc = Math.max(0, num(r.amount) - allocated);
+  const allocated = Array.isArray(r.allocations) && r.allocations.length
+    ? roundMoney(r.allocations.reduce((s,a)=> s + num(a.amount), 0))
+    : num(r.allocated);
+  const unalloc = Math.max(0, roundMoney(num(r.amount) - allocated));
+  const bal = receiptBalanceSnapshot(r);
   const shopLines = [shop.phone, shop.trn ? `TRN: ${shop.trn}` : ""].filter(Boolean);
   const narrParts = [];
   if(r.ref) narrParts.push(`<span class="lbl">Narration:</span>${esc(r.ref)}`);
@@ -6403,6 +6450,9 @@ function buildReceiptPrintBody(r, includeBills = false){
     ? `<div class="rv-print-narr">${narrParts.join("<br>")}</div>`
     : "";
   const billsHtml = includeBills ? buildReceiptBillTableHtml(r) : "";
+  const afterNote = bal.applied
+    ? "Outstanding after this receipt"
+    : "After cheque/PDC Clear (projected)";
   return `<div class="rv-print">
     <div class="rv-print-sheet">
       <header class="rv-print-head">
@@ -6412,29 +6462,23 @@ function buildReceiptPrintBody(r, includeBills = false){
         </div>
         <div class="rv-print-badge">RECEIPT VOUCHER</div>
       </header>
-      <div class="rv-print-meta">
-        <div class="rv-print-meta-box"><span class="lbl">Receipt No</span><span class="val">${esc(r.rvNo)}</span></div>
-        <div class="rv-print-meta-box"><span class="lbl">Date</span><span class="val">${esc(r.date)}</span></div>
-        <div class="rv-print-meta-box"><span class="lbl">Status</span><span class="val ${receiptStatusClass(status)}">${esc(status)}</span></div>
-      </div>
-      <div class="rv-print-panel">
-        <div class="rv-print-panel-title">Payment Details</div>
-        <div class="rv-print-grid">
-          <div class="rv-print-field full"><span class="lbl">Customer</span><span class="val">${esc(r.customer)}</span></div>
-          <div class="rv-print-field"><span class="lbl">Collected By</span><span class="val">${esc(collectedBy)}</span></div>
-          <div class="rv-print-field"><span class="lbl">Mode of Payment</span><span class="val">${esc(r.method || "Cash")}</span></div>
-        </div>
+      <div class="rv-print-boxes">
+        <div class="rv-box rv-box--no"><span class="lbl">Receipt No</span><span class="val">${esc(r.rvNo)}</span></div>
+        <div class="rv-box rv-box--date"><span class="lbl">Date</span><span class="val">${esc(r.date)}</span></div>
+        <div class="rv-box rv-box--status ${receiptStatusClass(status)}"><span class="lbl">Status</span><span class="val">${esc(status)}</span></div>
+        <div class="rv-box rv-box--cust"><span class="lbl">Customer</span><span class="val">${esc(r.customer)}</span></div>
+        <div class="rv-box rv-box--by"><span class="lbl">Collected By</span><span class="val">${esc(collectedBy)}</span></div>
+        <div class="rv-box rv-box--mode"><span class="lbl">Mode</span><span class="val">${esc(r.method || "Cash")}</span></div>
       </div>
       <div class="rv-print-amount">
-        <div class="rv-print-amount-main">
-          <span class="lbl">Amount Received</span>
-          <span class="val">${money(r.amount)}</span>
-        </div>
-        <div class="rv-print-amount-side">
-          <div class="row"><span class="lbl">Discount</span><span class="val">${money(disc)}</span></div>
-          <div class="row"><span class="lbl">Allocated</span><span class="val">${money(allocated)}</span></div>
-          ${unalloc > 0.009 ? `<div class="row"><span class="lbl">Advance</span><span class="val">${money(unalloc)}</span></div>` : ""}
-        </div>
+        <div class="rv-amt rv-amt--recv"><span class="lbl">Amount Received</span><span class="val">${money(r.amount)}</span></div>
+        <div class="rv-amt rv-amt--before"><span class="lbl">Balance Before</span><span class="val">${money(bal.balanceBefore)}</span></div>
+        <div class="rv-amt rv-amt--after${bal.applied ? " is-clear" : ""}"><span class="lbl">Balance After</span><span class="val">${money(bal.balanceAfter)}</span><div class="rv-amt-note">${esc(afterNote)}</div></div>
+      </div>
+      <div class="rv-print-side">
+        <div class="rv-side"><span class="lbl">Discount</span><span class="val">${money(disc)}</span></div>
+        <div class="rv-side"><span class="lbl">Allocated to Bills</span><span class="val">${money(allocated)}</span></div>
+        <div class="rv-side"><span class="lbl">Advance / Unallocated</span><span class="val">${money(unalloc)}</span></div>
       </div>
       ${narrHtml}
       ${billsHtml}
@@ -6610,16 +6654,29 @@ function syncRvMethodUi({ setDefaultStatus = false, statusValue = null } = {}){
   const isCheque = m.includes("Cheque");
   const isPdc = m === "PDC Cheque";
   if(modal){
+    modal.classList.toggle("is-pdc", isPdc);
     modal.querySelectorAll(".cheque-only").forEach(el=>{
       if(el.id === "rvChequeHint") return;
       el.style.display = isCheque ? "" : "none";
     });
+    // Must set a real display value — CSS keeps .pdc-only { display:none } as default.
     modal.querySelectorAll(".pdc-only").forEach(el=>{
-      el.style.display = isPdc ? "" : "none";
+      el.style.display = isPdc ? "block" : "none";
     });
   }
   const hint = document.getElementById("rvChequeHint");
-  if(hint) hint.style.display = isCheque ? "" : "none";
+  if(hint){
+    hint.style.display = isCheque ? "" : "none";
+    hint.innerHTML = isPdc
+      ? `PDC saves as <b>Pending</b> — fill <b>PDC Date</b> (or Dated). Invoice paid updates only after you <b>Clear</b> on Cheque / PDC page.`
+      : `Cheque saves as <b>Pending</b> — invoice paid updates only after you <b>Clear</b> on Cheque / PDC page.`;
+  }
+  // Convenience: copy Dated → PDC Date when switching to PDC and PDC empty
+  if(isPdc){
+    const chqDate = document.getElementById("rvChqDate")?.value || "";
+    const pdcEl = document.getElementById("rvPdcDate");
+    if(pdcEl && !pdcEl.value && chqDate) pdcEl.value = chqDate;
+  }
   syncRvStatusUi({ isCheque, setDefaultStatus, forceValue: statusValue });
 }
 
@@ -7197,7 +7254,15 @@ async function saveReceipt(){
   }
   const isCheque = method.includes("Cheque");
   if(isCheque && !(rvChq?.value || "").trim()) return toast(`Enter cheque number for ${method}`);
-  if(method === "PDC Cheque" && !(rvPdcDate?.value || "").trim()) return toast("Enter PDC date");
+  if(method === "PDC Cheque"){
+    // If PDC Date still empty, use Dated (cheque date) — field was often invisible due to CSS
+    if(!(rvPdcDate?.value || "").trim() && (rvChqDate?.value || "").trim()){
+      if(rvPdcDate) rvPdcDate.value = rvChqDate.value;
+    }
+    if(!(rvPdcDate?.value || "").trim()){
+      return toast("Enter PDC Date (post-dated deposit date) — shown next to Collection Bank when Mode = PDC Cheque");
+    }
+  }
   if(isCheque && (rvChq?.value || "").trim() && !memberCan(member, "cheques")){
     return toast("Cheque module permission is required to post a cheque receipt.");
   }
@@ -7521,6 +7586,21 @@ async function saveCnAllocation(){
   finally { _cnAllocSaving = false; }
 }
 
+function ledgerLineAffectsBalance(l){
+  return l?.affectsBalance !== false;
+}
+
+function ledgerMovement(l){
+  if(!ledgerLineAffectsBalance(l)) return 0;
+  return num(l.debit) - num(l.credit);
+}
+
+function receiptHeldStatus(r){
+  const st = String(r?.status || "Posted");
+  if(/^(Pending|Deposited)$/i.test(st)) return st;
+  return "";
+}
+
 function ledgerLines(name, subFilter = ""){
   const lines = [];
   const sub = String(subFilter || "").trim();
@@ -7542,15 +7622,41 @@ function ledgerLines(name, subFilter = ""){
       openBal: invBalance(i)
     });
   });
-  receipts.filter(r=> r.customer===name && receiptAffectsBalance(r) && receiptMatchesSubFilter(r, sub)).forEach(r=>{
-    const method = String(r.method || "").trim();
+  receipts.filter(r=> r.customer===name && receiptMatchesSubFilter(r, sub)).forEach(r=>{
+    const st = String(r.status || "Posted");
+    if(/^(Cancelled|Bounced|Voided)$/i.test(st)) return;
+    const method = String(r.method || "").trim() || "Cash";
+    const amt = num(r.amount);
+    if(receiptAffectsBalance(r)){
+      lines.push({
+        kind: "receipt",
+        date: r.date,
+        ref: r.rvNo,
+        desc: `Receipt ${method}${st && st !== "Posted" ? ` (${st})` : ""}`,
+        debit: 0,
+        credit: amt,
+        subAccount: String(r.subAccount || "").trim()
+      });
+      return;
+    }
+    const held = receiptHeldStatus(r);
+    if(!held) return;
+    // Show Pending/Deposited on statement & ledger as memo — does NOT change AR balance
+    // until Clear/Posted (same rule as receiptAffectsBalance / invoice paid).
+    const chqBits = [];
+    if(r.chequeNo) chqBits.push(`Chq ${r.chequeNo}`);
+    if(r.bank) chqBits.push(r.bank);
+    if(r.pdcDate) chqBits.push(`PDC ${r.pdcDate}`);
+    const extra = chqBits.length ? ` · ${chqBits.join(" · ")}` : "";
     lines.push({
-      kind: "receipt",
+      kind: "receipt_held",
       date: r.date,
       ref: r.rvNo,
-      desc: `Receipt ${method}`,
+      desc: `Receipt ${method} (${held}) — not cleared${extra}`,
       debit: 0,
-      credit: num(r.amount),
+      credit: amt,
+      affectsBalance: false,
+      memoAmount: amt,
       subAccount: String(r.subAccount || "").trim()
     });
   });
@@ -7600,17 +7706,34 @@ function ledgerLines(name, subFilter = ""){
       subAccount: String(d.subAccount || "").trim()
     });
   });
-  cheques.filter(c=> c.customer===name && c.status==="Cleared" && !findChequeReceipt(c) && docMatchesSubAccount(c, sub)).forEach(c=>
-    lines.push({
-      kind: "cheque",
-      date: c.pdcDate || c.chequeDate,
-      ref: c.chequeNo,
-      desc: "Cheque cleared",
-      debit: 0,
-      credit: num(c.amount),
-      subAccount: String(c.subAccount || "").trim()
-    })
-  );
+  cheques.filter(c=> c.customer===name && !findChequeReceipt(c) && docMatchesSubAccount(c, sub)).forEach(c=>{
+    const st = String(c.status || "");
+    if(st === "Cleared"){
+      lines.push({
+        kind: "cheque",
+        date: c.pdcDate || c.chequeDate,
+        ref: c.chequeNo,
+        desc: "Cheque cleared",
+        debit: 0,
+        credit: num(c.amount),
+        subAccount: String(c.subAccount || "").trim()
+      });
+      return;
+    }
+    if(st === "Pending" || st === "Deposited"){
+      lines.push({
+        kind: "cheque_held",
+        date: c.pdcDate || c.chequeDate || c.date || "",
+        ref: c.chequeNo,
+        desc: `Cheque (${st}) — not cleared${c.bank ? ` · ${c.bank}` : ""}`,
+        debit: 0,
+        credit: num(c.amount),
+        affectsBalance: false,
+        memoAmount: num(c.amount),
+        subAccount: String(c.subAccount || "").trim()
+      });
+    }
+  });
   return lines.sort((a,b)=> String(a.date).localeCompare(String(b.date)));
 }
 
@@ -7624,15 +7747,16 @@ function fillLedger(){
   const body = document.getElementById("ledgerRows");
   if(!name){ document.getElementById("ledgerTitle").textContent = "Select a customer"; document.getElementById("ledgerClose").textContent = "-"; body.innerHTML = ""; return; }
   const all = ledgerLines(name, sub);
-  let bal = from ? all.filter(l=> l.date < from).reduce((s,l)=> s + l.debit - l.credit, 0) : 0;
+  let bal = from ? all.filter(l=> l.date < from).reduce((s,l)=> s + ledgerMovement(l), 0) : 0;
   const rows = [];
-  if(from && bal){
+  if(from){
     rows.push(`<tr><td>${esc(from)}</td><td>OPENING</td><td>Opening Balance</td><td></td><td>${ledgerCell(bal > 0 ? bal : 0)}</td><td>${ledgerCell(bal < 0 ? -bal : 0)}</td><td>${money(bal)}</td></tr>`);
   }
   all.filter(l=> (!from || l.date >= from) && (!to || l.date <= to)).forEach(l=>{
-    bal += l.debit - l.credit;
+    bal += ledgerMovement(l);
+    const heldCls = ledgerLineAffectsBalance(l) ? "" : " ledger-held";
     const subCell = l.subAccount ? esc(l.subAccount) : "";
-    rows.push(`<tr><td>${esc(l.date)}</td><td>${stmtRefHtml(l)}</td><td>${esc(l.desc)}</td><td>${subCell}</td><td>${ledgerCell(l.debit)}</td><td>${ledgerCell(l.credit)}</td><td>${money(bal)}</td></tr>`);
+    rows.push(`<tr class="${heldCls.trim()}"><td>${esc(l.date)}</td><td>${stmtRefHtml(l)}</td><td>${esc(l.desc)}</td><td>${subCell}</td><td>${ledgerCell(l.debit)}</td><td>${ledgerCell(l.credit)}</td><td>${money(bal)}</td></tr>`);
   });
   const title = sub ? `${name} - ${sub}` : name;
   const periodBit = bounds.mode === "monthly" ? ` · ${customerPeriodLabel(bounds)}` : (from || to ? ` · ${customerPeriodLabel(bounds)}` : "");
@@ -7645,7 +7769,7 @@ function fillLedger(){
 }
 
 function stmtShowPeriodTxns(){
-  return !!document.getElementById("stmtShowPeriodTxns")?.checked;
+  return false;
 }
 
 function clearStatementPage(){
@@ -7655,8 +7779,6 @@ function clearStatementPage(){
     syncCustomerComboInput(sel);
   }
   syncStmtSubAccountField("");
-  const txnCb = document.getElementById("stmtShowPeriodTxns");
-  if(txnCb) txnCb.checked = false;
   const titleEl = document.getElementById("stmtTitle");
   if(titleEl) titleEl.textContent = "Select a customer";
   const closeEl = document.getElementById("stmtClose");
@@ -7695,9 +7817,7 @@ function fillStatement(){
   }
   const built = buildStatementRows(name, asOf, from, sub, { odFrom });
   if(closeEl){
-    closeEl.textContent = (bounds.mode === "custom" && !from)
-      ? `All dates up to ${asOf} - set FROM for period total`
-      : `As of ${asOf}`;
+    closeEl.textContent = `Closing ${money(built.closing)} · As of ${asOf}`;
   }
   if(sumEl){
     sumEl.hidden = false;
@@ -7748,7 +7868,8 @@ function renderStatementPeriodBreakdownHtml(built){
     const amt = num(l.debit) > 0 ? num(l.debit) : num(l.credit);
     const refBits = [l.ref || "", l.manualNo ? `Manual: ${l.manualNo}` : "", l.computerNo ? `PC: ${l.computerNo}` : ""].filter(Boolean);
     const subBit = l.subAccount ? `<span class="stmt-txn-sub">${esc(l.subAccount)}</span>` : "";
-    return `<div class="stmt-txn-box"><div class="stmt-txn-box-main">${esc(l.date)} · ${esc(refBits.join(" · "))} · ${esc(l.desc)}${subBit ? " · " : ""}${subBit}</div><div class="stmt-txn-box-amt"><b>${money(amt)}</b></div></div>`;
+    const heldBit = l.affectsBalance === false ? ` <span class="stmt-txn-held">held</span>` : "";
+    return `<div class="stmt-txn-box"><div class="stmt-txn-box-main">${esc(l.date)} · ${esc(refBits.join(" · "))} · ${esc(l.desc)}${subBit ? " · " : ""}${subBit}${heldBit}</div><div class="stmt-txn-box-amt"><b>${money(amt)}</b></div></div>`;
   });
   return `<div class="stmt-summary-box stmt-summary-box--txns"><div class="stmt-summary-box-title">Transactions in this period</div><div class="stmt-txn-list">${rows.join("")}</div></div>`;
 }
@@ -7763,7 +7884,20 @@ function renderStatementSubBoxesHtml(built, subFilter){
 }
 
 function renderStatementClosingBoxHtml(built, bounds){
-  return `<div class="stmt-summary-box stmt-summary-box--closing"><span>Closing balance (as of ${esc(bounds.asOf)}):</span> <b>${money(built.closing)}</b></div>`;
+  const from = bounds.from || "";
+  const openingRow = from
+    ? `<div class="stmt-summary-row"><span>Opening balance:</span> <b>${money(built.opening)}</b></div>`
+    : `<div class="stmt-summary-row stmt-summary-sub">Set FROM date to show period opening balance.</div>`;
+  const held = num(built.heldAmount);
+  const heldRow = held > 0.009
+    ? `<div class="stmt-summary-row"><span>Held cheques / pending receipts (not in closing):</span> <b>${money(held)}</b></div>`
+    : "";
+  return `<div class="stmt-summary-box stmt-summary-box--closing">
+    <div class="stmt-summary-box-title">Account balance</div>
+    ${openingRow}
+    <div class="stmt-summary-row"><span>Closing balance (as of ${esc(bounds.asOf)}):</span> <b>${money(built.closing)}</b></div>
+    ${heldRow}
+  </div>`;
 }
 
 function stmtSummaryNetLabel(bounds){
@@ -7798,26 +7932,40 @@ function renderStatementSummaryHtml(built, bounds, subFilter, { showPeriodTxns =
 function buildStatementRows(name, asOf, from, subFilter = "", opts = {}){
   const odFrom = opts.odFrom == null ? 30 : num(opts.odFrom);
   const all = ledgerLines(name, subFilter).filter(l=> l.date <= asOf);
-  const opening = from ? all.filter(l=> l.date < from).reduce((s,l)=> s + l.debit - l.credit, 0) : 0;
+  const opening = from ? all.filter(l=> l.date < from).reduce((s,l)=> s + ledgerMovement(l), 0) : 0;
   let bal = opening;
   let periodDebit = 0;
   let periodCredit = 0;
+  let heldAmount = 0;
   const bySub = {};
   const periodLines = [];
   const htmlRows = [];
   const dataRows = [];
   const lineMeta = [];
-  if(from && opening){
+  if(from){
     htmlRows.push(`<tr><td>${esc(from)}</td><td>OPENING</td><td>Opening Balance</td><td></td><td>${ledgerCell(opening > 0 ? opening : 0)}</td><td>${ledgerCell(opening < 0 ? -opening : 0)}</td><td>${money(opening)}</td><td></td></tr>`);
     dataRows.push([from, "OPENING", "Opening Balance", "", opening > 0 ? opening : "", opening < 0 ? -opening : "", opening, ""]);
-    lineMeta.push({ odDays: 0, bucket: null });
+    lineMeta.push({ odDays: 0, bucket: null, held: false });
   }
   const inRange = all.filter(l=> !from || l.date >= from);
   inRange.forEach(l=>{
     const d = num(l.debit);
     const c = num(l.credit);
-    periodDebit += d;
-    periodCredit += c;
+    const affects = ledgerLineAffectsBalance(l);
+    if(affects){
+      periodDebit += d;
+      periodCredit += c;
+      bal += d - c;
+      if(!subFilter){
+        const sk = String(l.subAccount || "").trim() || "Main (no sub)";
+        if(!bySub[sk]) bySub[sk] = { debit: 0, credit: 0, net: 0 };
+        bySub[sk].debit += d;
+        bySub[sk].credit += c;
+        bySub[sk].net += d - c;
+      }
+    }else{
+      heldAmount = roundMoney(heldAmount + Math.max(d, c));
+    }
     periodLines.push({
       kind: l.kind,
       date: l.date,
@@ -7825,19 +7973,12 @@ function buildStatementRows(name, asOf, from, subFilter = "", opts = {}){
       desc: l.desc || "",
       debit: d,
       credit: c,
-      net: d - c,
+      net: affects ? (d - c) : 0,
+      affectsBalance: affects,
       subAccount: String(l.subAccount || "").trim(),
       manualNo: l.manualNo || "",
       computerNo: l.computerNo || ""
     });
-    if(!subFilter){
-      const sk = String(l.subAccount || "").trim() || "Main (no sub)";
-      if(!bySub[sk]) bySub[sk] = { debit: 0, credit: 0, net: 0 };
-      bySub[sk].debit += d;
-      bySub[sk].credit += c;
-      bySub[sk].net += d - c;
-    }
-    bal += d - c;
     let odDays = 0;
     let bucket = null;
     if(l.kind === "invoice" && num(l.openBal) > 0.009 && l.dueDate){
@@ -7845,17 +7986,17 @@ function buildStatementRows(name, asOf, from, subFilter = "", opts = {}){
       if(odFrom > 0 && odDays >= odFrom){
         bucket = overdueBucketFromDays(odDays);
       }else if(odFrom > 0 && odDays > 0 && odDays < odFrom){
-        // Still show days text lightly, but no color until threshold
         bucket = null;
       }
     }
     const odClass = overdueRowClass(bucket, "stmt");
+    const heldCls = affects ? "" : " stmt-held";
     const odCell = odDays > 0
       ? `<span class="stmt-od-days">${odDays}d</span>`
       : "";
     const subCell = l.subAccount ? esc(l.subAccount) : "";
     htmlRows.push(
-      `<tr class="${odClass}">` +
+      `<tr class="${(odClass + heldCls).trim()}">` +
       `<td>${esc(l.date)}</td><td>${stmtRefHtml(l)}</td><td>${esc(l.desc)}</td><td>${subCell}</td>` +
       `<td>${ledgerCell(l.debit)}</td><td>${ledgerCell(l.credit)}</td><td>${money(bal)}</td><td>${odCell}</td></tr>`
     );
@@ -7867,13 +8008,14 @@ function buildStatementRows(name, asOf, from, subFilter = "", opts = {}){
       l.debit || "",
       l.credit || "",
       bal,
-      odDays > 0 ? `${odDays}d` : ""
+      odDays > 0 ? `${odDays}d` : (affects ? "" : "Held")
     ]);
-    lineMeta.push({ odDays, bucket });
+    lineMeta.push({ odDays, bucket, held: !affects });
   });
   return {
     closing: bal,
     opening,
+    heldAmount,
     periodDebit,
     periodCredit,
     periodNet: periodDebit - periodCredit,
@@ -8803,6 +8945,7 @@ function showSettingsView(view){
   if(view === "invoice"){
     wireInvoiceModeSettings();
     syncInvoiceModeSettingsUi();
+    syncInvoiceBillingSettingsUi();
   }
   if(view === "backup") renderBackupPage();
   if(view === "branches") renderBranchSettingsRows();
@@ -9214,6 +9357,15 @@ async function exportAudit(){
   toast(deliveryToast(result, "Audit CSV downloaded"));
 }
 
+function statementCustomerFooterHtml(built, bounds){
+  const asOf = bounds.asOf || "";
+  const from = bounds.from || "";
+  const bits = [];
+  if(from) bits.push(`<span>Opening: <b>${money(built.opening)}</b></span>`);
+  bits.push(`<span>Closing balance (as of ${esc(asOf)}): <b>${money(built.closing)}</b></span>`);
+  return `<div style="margin-top:16px;padding:12px 14px;border:1px solid #1a3d66;border-radius:8px;background:#eef4fb;font-size:13px;line-height:1.55;display:flex;flex-wrap:wrap;gap:8px 18px">${bits.join("")}</div>`;
+}
+
 function statementTableHtml(name, asOf, from, subFilter = "", summaryHtml = "", builtOverride = null){
   const odFrom = num(document.getElementById("stmtOdFrom")?.value);
   const built = builtOverride || buildStatementRows(name, asOf, from || "", subFilter, { odFrom });
@@ -9238,9 +9390,8 @@ function statementTableHtml(name, asOf, from, subFilter = "", summaryHtml = "", 
     ["Date","Reference","Description","Sub-account","Debit","Credit","Balance","Overdue"],
     built.dataRows
   );
-  const footerSummary = summaryHtml
-    ? `<div style="margin-top:16px;padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;font-size:12px;line-height:1.55">${summaryHtml}</div>`
-    : `<div style="margin-top:16px;padding:12px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;font-size:12px;font-weight:600">Closing balance (as of ${esc(asOf)}): ${money(built.closing)}</div>`;
+  // Customer print/PDF: only simple closing (not internal period/sub-account boxes)
+  const footerSummary = summaryHtml || statementCustomerFooterHtml(built, { asOf, from });
   return partyBlock + tableHtml + footerSummary;
 }
 
@@ -9254,17 +9405,19 @@ async function exportStatementPdf(download){
   if(!name) return toast("Select customer");
   const built = buildStatementRows(name, asOf, from, sub, { odFrom });
   fillStatement();
-  const showTxns = stmtShowPeriodTxns();
-  const summaryHtml = renderStatementSummaryHtml(built, bounds, sub, { showPeriodTxns: showTxns });
   const title = sub ? `Statement - ${name} - ${sub}` : `Statement - ${name}`;
-  const body = statementTableHtml(name, asOf, from, sub, summaryHtml, built);
+  // On-screen keeps full internal summary; Print/PDF gets customer-facing footer only.
+  const body = statementTableHtml(name, asOf, from, sub, "", built);
   const customer = customers.find(x=> x.name === name) || { name };
   const periodLabel = customerPeriodLabel(bounds, "stmt");
   const pdfOpts = {
     shop, name, asOf, from, subFilter: sub, customer,
-    lines: built.dataRows, lineMeta: built.lineMeta, closing: built.closing, odFrom,
+    lines: built.dataRows, lineMeta: built.lineMeta, closing: built.closing, opening: built.opening,
+    heldAmount: built.heldAmount, odFrom,
     periodNet: built.periodNet, periodDebit: built.periodDebit, periodCredit: built.periodCredit,
-    bySub: built.bySub, periodLines: built.periodLines, periodLabel, showPeriodTxns: showTxns
+    bySub: built.bySub, periodLines: built.periodLines, periodLabel,
+    showPeriodTxns: false,
+    customerFacing: true
   };
   if(download){
     try{
@@ -9311,7 +9464,8 @@ async function exportReceiptPdf(r){
   if(!r) return toast("No receipt");
   try{
     const billRows = receiptBillRowsForPrint(r);
-    const result = await downloadReceiptPdf(r, shop, { billRows });
+    const balances = receiptBalanceSnapshot(r);
+    const result = await downloadReceiptPdf(r, shop, { billRows, balances });
     toast(deliveryToast(result, "PDF downloaded"));
   }catch(err){
     console.warn("Receipt PDF failed", err);
@@ -9346,13 +9500,13 @@ async function downloadWaPdf(){
 
 function ledgerExportRows(name, sub, from, to){
   const all = ledgerLines(name, sub);
-  let bal = from ? all.filter(l=> l.date < from).reduce((s,l)=> s + l.debit - l.credit, 0) : 0;
+  let bal = from ? all.filter(l=> l.date < from).reduce((s,l)=> s + ledgerMovement(l), 0) : 0;
   const rows = [];
-  if(from && bal){
+  if(from){
     rows.push([from, "OPENING", "Opening Balance", "", bal > 0 ? bal : "", bal < 0 ? -bal : "", bal]);
   }
   all.filter(l=> (!from || l.date >= from) && (!to || l.date <= to)).forEach(l=>{
-    bal += l.debit - l.credit;
+    bal += ledgerMovement(l);
     rows.push([
       l.date,
       stmtRefText(l),
@@ -9458,7 +9612,7 @@ function runGlobalSearch(q){
     if(`${i.invNo} ${i.customer} ${i.subAccount||""} ${i.vehicle} ${i.lpo} ${i.manualNo||""} ${i.computerNo||""}`.toLowerCase().includes(ql))
       pushInvoice(i);
   });
-  // Sub-account name (e.g. Jamal / Naser) ? all invoices under that sub
+  // Sub-account name (e.g. Jamal / Tamim) - all invoices under that sub
   customers.forEach(c=>{
     customerSubAccounts(c.name).forEach(sub=>{
       if(!sub.name.toLowerCase().includes(ql)) return;

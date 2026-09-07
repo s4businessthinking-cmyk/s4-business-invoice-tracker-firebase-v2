@@ -15,10 +15,10 @@ import {
   initAuthModule, tryRestoreSession, ownerSetupShop, loginWithEmail,
   staffAcceptInvite, resendVerificationEmail, logoutUser, sendPasswordReset,
   getCurrentMember, authErrorText
-} from "./auth.js?v=145";
+} from "./auth.js?v=188";
 import { initActivityLog } from "./activity-log.js";
 import { startSplash, hideSplash, setSplashStatus } from "./splash.js";
-import { startTracker, stopTracker } from "./app.js?v=178";
+import { startTracker, stopTracker } from "./app.js?v=193";
 import { getAccessStatus } from "./license.js";
 
 const isDesktopApp = typeof window !== "undefined" && !!window.s4Desktop;
@@ -425,5 +425,5 @@ if(document.readyState === "loading"){
 }
 
 if(!isDesktopApp && "serviceWorker" in navigator){
-  window.addEventListener("load", ()=> navigator.serviceWorker.register("./sw.js?v=178").catch(()=>{}));
+  window.addEventListener("load", ()=> navigator.serviceWorker.register("./sw.js?v=193").catch(()=>{}));
 }

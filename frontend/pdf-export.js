@@ -110,8 +110,9 @@ export async function buildInvoicePdfBlob(inv, shop = {}){
 }
 
 export async function buildStatementPdfBlob({
-  shop = {}, name, asOf, from, lines, closing, customer, subFilter, lineMeta, odFrom,
-  periodNet, periodDebit, periodCredit, bySub, periodLines, periodLabel, showPeriodTxns
+  shop = {}, name, asOf, from, lines, closing, opening, heldAmount, customer, subFilter, lineMeta, odFrom,
+  periodNet, periodDebit, periodCredit, bySub, periodLines, periodLabel, showPeriodTxns,
+  customerFacing = false
 }){
   const jsPDF = await ensureJsPdf();
   const doc = new jsPDF({ unit: "mm", format: "a4" });
@@ -220,118 +221,140 @@ export async function buildStatementPdfBlob({
       const bucket = m?.bucket;
       if(bucket && odColors[bucket]){
         data.cell.styles.fillColor = odColors[bucket];
+      }else if(m?.held){
+        data.cell.styles.fillColor = [255, 247, 237];
       }
     }
   });
 
   // Period totals + invoice breakdown (below table)
-  let sumY = (doc.lastAutoTable?.finalY || y + 16) + 10;
+  // IMPORTANT: draw filled boxes FIRST, then text — drawing FD after text paints over it
+  // (that bug caused empty nested boxes / missing closing balance on multi-page PDFs).
+  let sumY = (doc.lastAutoTable?.finalY || y + 16) + 8;
   const pDebit = num(periodDebit);
   const pCredit = num(periodCredit);
   const pNet = periodNet != null && periodNet !== "" ? num(periodNet) : (pDebit - pCredit);
   const pLines = periodLines || [];
   const subMap = bySub || {};
-  const subKeys = Object.keys(subMap);
+  const subKeys = Object.keys(subMap).sort((a,b)=> a.localeCompare(b));
   const netLabel = from ? "Net this period" : "Net up to AS OF";
   const includeTxns = !!showPeriodTxns;
-  const drawBox = (topY, height)=>{
+  const forCustomer = !!customerFacing;
+  const pageBottom = 285;
+
+  const ensureSpace = (needMm)=>{
+    if(sumY + needMm <= pageBottom) return;
+    doc.addPage();
+    sumY = 16;
+  };
+
+  const measureLines = (items, textWidth)=>{
+    let h = 0;
+    items.forEach(it=>{
+      const wrapped = doc.splitTextToSize(String(it.text || ""), textWidth);
+      h += wrapped.length * 4.2 + (it.bold ? 1 : 0.5);
+    });
+    return h;
+  };
+
+  const drawSectionCard = (title, items)=>{
+    const textW = 170;
+    const titleBlock = 7;
+    const padY = 5;
+    const bodyH = measureLines(items, textW);
+    const h = padY + titleBlock + bodyH + padY;
+    ensureSpace(h + 3);
+    const top = sumY;
     doc.setDrawColor(180, 190, 210);
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(14, topY, 182, height, 2, 2, "FD");
-  };
-  const drawSummaryLine = (text, bold = false, rightAmt = null, indent = 18)=>{
-    if(sumY > 272){
-      doc.addPage();
-      sumY = 20;
-    }
-    doc.setFont("helvetica", bold ? "bold" : "normal");
-    doc.setFontSize(bold ? 9.5 : 8.5);
-    doc.setTextColor(bold ? 0 : 55, bold ? 0 : 65, bold ? 0 : 81);
-    const wrapped = doc.splitTextToSize(String(text || ""), rightAmt == null ? 174 : 130);
-    doc.text(wrapped, indent, sumY);
-    if(rightAmt != null) doc.text(moneyFmt(cur, rightAmt), 188, sumY, { align: "right" });
-    sumY += wrapped.length * 4.2 + (bold ? 1.2 : 0.6);
-  };
-  doc.setDrawColor(180, 190, 210);
-  doc.line(14, sumY - 2, 196, sumY - 2);
-  sumY += 4;
-
-  // Period summary box
-  let boxTop = sumY;
-  sumY += 6;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.setTextColor(100, 100, 100);
-  doc.text("PERIOD SUMMARY", 18, sumY);
-  sumY += 5;
-  if(periodLabel) drawSummaryLine(`Period: ${periodLabel}`);
-  if(!from) drawSummaryLine(`Note: FROM date not set — all transactions up to ${asOf || ""} are included.`);
-  drawSummaryLine(`Invoices / charges: ${moneyFmt(cur, pDebit)}`);
-  drawSummaryLine(`Received / credits: ${moneyFmt(cur, pCredit)}`);
-  drawSummaryLine(`${netLabel}: ${moneyFmt(cur, pNet)}`, true);
-  drawBox(boxTop, sumY - boxTop + 3);
-  sumY += 8;
-
-  // Transactions box (optional) — one box per line
-  if(includeTxns && pLines.length){
-    boxTop = sumY;
-    sumY += 6;
+    doc.roundedRect(14, top, 182, h, 2, 2, "FD");
+    let ty = top + padY + 3.5;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
     doc.setTextColor(100, 100, 100);
-    doc.text("TRANSACTIONS IN THIS PERIOD", 18, sumY);
-    sumY += 5;
-    pLines.forEach(l=>{
+    doc.text(String(title || "").toUpperCase(), 18, ty);
+    ty += titleBlock - 1;
+    items.forEach(it=>{
+      doc.setFont("helvetica", it.bold ? "bold" : "normal");
+      doc.setFontSize(it.bold ? 9.5 : 8.5);
+      doc.setTextColor(it.bold ? 0 : 55, it.bold ? 0 : 65, it.bold ? 0 : 81);
+      const wrapped = doc.splitTextToSize(String(it.text || ""), it.amt != null ? 128 : textW);
+      doc.text(wrapped, 18, ty);
+      if(it.amt != null){
+        doc.text(moneyFmt(cur, it.amt), 188, ty, { align: "right" });
+      }
+      ty += wrapped.length * 4.2 + (it.bold ? 1 : 0.5);
+    });
+    sumY = top + h + 4;
+    doc.setTextColor(0, 0, 0);
+  };
+
+  doc.setDrawColor(180, 190, 210);
+  doc.setLineWidth(0.3);
+  ensureSpace(6);
+  doc.line(14, sumY, 196, sumY);
+  sumY += 5;
+
+  // Customer PDF/Print: only opening (if period) + closing — hide internal period/sub/held boxes.
+  if(forCustomer){
+    const balItems = [];
+    if(from) balItems.push({ text: `Opening balance: ${moneyFmt(cur, opening)}` });
+    balItems.push({ text: `Closing balance (as of ${asOf || ""}): ${moneyFmt(cur, closing)}`, bold: true });
+    drawSectionCard("Account balance", balItems);
+    return doc.output("blob");
+  }
+
+  const periodItems = [];
+  if(periodLabel) periodItems.push({ text: `Period: ${periodLabel}` });
+  if(!from) periodItems.push({ text: `Note: FROM date not set — all transactions up to ${asOf || ""} are included.` });
+  periodItems.push({ text: `Invoices / charges: ${moneyFmt(cur, pDebit)}` });
+  periodItems.push({ text: `Received / credits: ${moneyFmt(cur, pCredit)}` });
+  periodItems.push({ text: `${netLabel}: ${moneyFmt(cur, pNet)}`, bold: true });
+  drawSectionCard("Period summary", periodItems);
+
+  if(includeTxns && pLines.length){
+    // Compact list — no nested per-row boxes (those broke across page breaks)
+    const txnItems = pLines.slice(0, 40).map(l=>{
       const amt = num(l.debit) > 0 ? num(l.debit) : num(l.credit);
       const refBits = [l.ref || "", l.manualNo ? `Manual: ${l.manualNo}` : "", l.computerNo ? `PC: ${l.computerNo}` : ""].filter(Boolean);
+      const held = l.affectsBalance === false ? " [held]" : "";
       const subBit = l.subAccount ? ` · ${l.subAccount}` : "";
-      const txnTop = sumY - 1;
-      drawSummaryLine(`${l.date || ""} · ${refBits.join(" · ")} · ${l.desc || ""}${subBit}`, false, amt, 20);
-      doc.setDrawColor(200, 208, 220);
-      doc.roundedRect(16, txnTop, 178, sumY - txnTop + 1, 1.5, 1.5, "S");
-      sumY += 3;
+      return {
+        text: `${l.date || ""} · ${refBits.join(" · ")} · ${l.desc || ""}${subBit}${held}`,
+        amt
+      };
     });
-    drawBox(boxTop, sumY - boxTop + 2);
-    sumY += 8;
+    if(pLines.length > 40){
+      txnItems.push({ text: `… and ${pLines.length - 40} more transactions (see table above)` });
+    }
+    drawSectionCard("Transactions in this period", txnItems);
   }
 
-  // Sub-account boxes
   if(!subFilter && subKeys.length){
-    boxTop = sumY;
-    sumY += 6;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
-    doc.text("SUB-ACCOUNT SUMMARY", 18, sumY);
-    sumY += 5;
-    subKeys.sort((a,b)=> a.localeCompare(b)).forEach(sk=>{
-      const x = subMap[sk];
-      const subTop = sumY - 1;
-      drawSummaryLine(sk, true, null, 20);
-      drawSummaryLine(`In ${moneyFmt(cur, x.debit)} · Out ${moneyFmt(cur, x.credit)} · Net ${moneyFmt(cur, x.net)}`, false, null, 20);
-      doc.setDrawColor(200, 208, 220);
-      doc.roundedRect(16, subTop, 178, sumY - subTop + 1, 1.5, 1.5, "S");
-      sumY += 3;
+    const subItems = subKeys.map(sk=>{
+      const x = subMap[sk] || { debit: 0, credit: 0, net: 0 };
+      return {
+        text: `${sk}: In ${moneyFmt(cur, x.debit)} · Out ${moneyFmt(cur, x.credit)} · Net ${moneyFmt(cur, x.net)}`
+      };
     });
-    drawBox(boxTop, sumY - boxTop + 2);
-    sumY += 8;
+    drawSectionCard("Sub-account summary", subItems);
   }
 
-  // Closing balance box
-  boxTop = sumY;
-  sumY += 7;
-  drawSummaryLine(`Closing balance (as of ${asOf || ""}): ${moneyFmt(cur, closing)}`, true);
-  drawBox(boxTop, sumY - boxTop + 4);
-  sumY += 10;
-  doc.setTextColor(0, 0, 0);
+  const balItems = [];
+  if(from) balItems.push({ text: `Opening balance: ${moneyFmt(cur, opening)}` });
+  else balItems.push({ text: "Set FROM date to show period opening balance." });
+  balItems.push({ text: `Closing balance (as of ${asOf || ""}): ${moneyFmt(cur, closing)}`, bold: true });
+  if(num(heldAmount) > 0.009){
+    balItems.push({ text: `Held cheques / pending receipts (not in closing): ${moneyFmt(cur, heldAmount)}` });
+  }
+  drawSectionCard("Account balance", balItems);
 
-  // Legend
-  let legY = sumY + 4;
   if(num(odFrom) > 0){
-    doc.setFontSize(8);
+    ensureSpace(10);
+    doc.setFontSize(7.5);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(80);
-    doc.text(`Overdue highlight from ${odFrom}+ days  ·  Yellow 1–30  ·  Orange 31–60  ·  Deep 61–90  ·  Red 90+`, 14, legY);
+    doc.text(`Overdue highlight from ${odFrom}+ days  ·  Yellow 1–30  ·  Orange 31–60  ·  Deep 61–90  ·  Red 90+`, 14, sumY + 2);
     doc.setTextColor(0);
   }
   return doc.output("blob");
@@ -339,57 +362,183 @@ export async function buildStatementPdfBlob({
 
 function num(n){ return Number(n) || 0; }
 
-export async function buildReceiptPdfBlob(r, shop = {}, { billRows = [] } = {}){
+function rvPdfRoundRect(doc, x, y, w, h, r, style){
+  if(typeof doc.roundedRect === "function") doc.roundedRect(x, y, w, h, r, r, style);
+  else doc.rect(x, y, w, h, style);
+}
+
+function rvPdfBox(doc, x, y, w, h, label, value, bg, fg, opts = {}){
+  doc.setFillColor(...bg);
+  rvPdfRoundRect(doc, x, y, w, h, opts.radius ?? 2.2, "F");
+  doc.setTextColor(...fg);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(opts.labelSize ?? 6.5);
+  doc.text(String(label || "").toUpperCase(), x + 3, y + 4.8);
+  doc.setFontSize(opts.valueSize ?? 10);
+  const maxW = w - 6;
+  const lines = doc.splitTextToSize(String(value ?? "—"), maxW);
+  const maxLines = opts.maxLines ?? 2;
+  const shown = lines.slice(0, maxLines);
+  doc.text(shown, x + 3, y + 10.2);
+  if(opts.note){
+    doc.setFontSize(6.5);
+    doc.setFont("helvetica", "normal");
+    doc.text(String(opts.note), x + 3, y + h - 3.2);
+  }
+  doc.setTextColor(0);
+}
+
+export async function buildReceiptPdfBlob(r, shop = {}, { billRows = [], balances = null } = {}){
   const jsPDF = await ensureJsPdf();
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const cur = shop.currency || "AED";
   const status = String(r.status || "Posted");
   const isDead = /^(Cancelled|Voided|Bounced)$/i.test(status);
-  const collectedBy = r.collectedBy || r.createdBy || r.updatedBy || "";
-  addHeader(
-    doc,
-    shop.name,
-    "Receipt Voucher " + (r.rvNo || ""),
-    [r.customer, r.date, r.method].filter(Boolean).join(" · ")
-  );
-  let y = 36;
+  const isPending = /^Pending$/i.test(status);
+  const collectedBy = r.collectedBy || r.createdBy || r.updatedBy || "—";
+  const amount = num(r.amount);
+  const disc = num(r.discount);
+  const allocated = Array.isArray(r.allocations) && r.allocations.length
+    ? r.allocations.reduce((s, a)=> s + num(a.amount), 0)
+    : num(r.allocated);
+  const unalloc = Math.max(0, amount - allocated);
+  const balBefore = balances && Number.isFinite(Number(balances.balanceBefore))
+    ? Number(balances.balanceBefore)
+    : null;
+  const balAfter = balances && Number.isFinite(Number(balances.balanceAfter))
+    ? Number(balances.balanceAfter)
+    : null;
+  const balApplied = !!(balances?.applied);
+  const afterNote = balAfter == null
+    ? ""
+    : (balApplied ? "Outstanding after this receipt" : "After cheque/PDC Clear (projected)");
+
+  const pageW = 210;
+  const margin = 12;
+  const contentW = pageW - margin * 2;
+  let y = 10;
+
+  // Header band (matches print)
+  doc.setFillColor(15, 39, 68);
+  doc.rect(0, 0, pageW, 28, "F");
+  doc.setFillColor(37, 99, 235);
+  doc.rect(0, 24, pageW, 4, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text(String(shop.name || "S4 Workshop"), margin, 12);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  const shopSub = [shop.phone, shop.trn ? `TRN: ${shop.trn}` : ""].filter(Boolean).join(" · ");
+  if(shopSub) doc.text(shopSub, margin, 18);
+  doc.setFillColor(255, 255, 255);
+  rvPdfRoundRect(doc, pageW - margin - 42, 8, 42, 10, 1.8, "F");
+  doc.setTextColor(15, 39, 68);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.text("RECEIPT VOUCHER", pageW - margin - 21, 14.2, { align: "center" });
+  doc.setTextColor(0);
+  y = 34;
+
   if(isDead){
     doc.setFillColor(254, 226, 226);
-    doc.rect(14, y, 182, 12, "F");
-    doc.setTextColor(185, 28, 28);
-    doc.setFontSize(14);
+    rvPdfRoundRect(doc, margin, y, contentW, 10, 2, "F");
+    doc.setTextColor(153, 27, 27);
     doc.setFont("helvetica", "bold");
-    doc.text(status.toUpperCase(), 105, y + 8, { align: "center" });
+    doc.setFontSize(11);
+    doc.text(`${status.toUpperCase()} — not valid for payment`, pageW / 2, y + 6.5, { align: "center" });
     doc.setTextColor(0);
-    y += 18;
+    y += 13;
   }
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "normal");
-  const lines = [
-    `Receipt No: ${r.rvNo || "—"}`,
-    `Date: ${r.date || "—"}`,
-    `Customer: ${r.customer || "—"}`,
-    collectedBy ? `Collected by: ${collectedBy}` : "",
-    `Mode: ${r.method || "Cash"}`,
-    `Amount received: ${moneyFmt(cur, r.amount)}`,
-    `Discount: ${moneyFmt(cur, r.discount || 0)}`,
-    `Allocated: ${moneyFmt(cur, r.allocated)}`,
-    `Unallocated / advance: ${moneyFmt(cur, r.unallocated)}`,
-    `Status: ${status}`
-  ].filter(Boolean);
-  if(r.ref) lines.push(`Narration: ${r.ref}`);
+
+  const gap = 3;
+  const col3 = (contentW - gap * 2) / 3;
+  const row1Y = y;
+  const boxH = 16;
+  rvPdfBox(doc, margin, row1Y, col3, boxH, "Receipt No", r.rvNo || "—", [219, 234, 254], [30, 58, 138]);
+  rvPdfBox(doc, margin + col3 + gap, row1Y, col3, boxH, "Date", r.date || "—", [224, 231, 255], [49, 46, 129]);
+  const statusBg = isDead ? [254, 226, 226] : (isPending ? [255, 237, 213] : [220, 252, 231]);
+  const statusFg = isDead ? [153, 27, 27] : (isPending ? [154, 52, 18] : [20, 83, 45]);
+  rvPdfBox(doc, margin + (col3 + gap) * 2, row1Y, col3, boxH, "Status", status, statusBg, statusFg);
+  y = row1Y + boxH + gap;
+
+  rvPdfBox(doc, margin, y, contentW, 18, "Customer", r.customer || "—", [237, 233, 254], [91, 33, 182], { valueSize: 11, maxLines: 2 });
+  y += 18 + gap;
+
+  const half = (contentW - gap) / 2;
+  rvPdfBox(doc, margin, y, half, boxH, "Collected By", collectedBy, [204, 251, 241], [17, 94, 89]);
+  rvPdfBox(doc, margin + half + gap, y, half, boxH, "Mode", r.method || "Cash", [252, 231, 243], [157, 23, 77]);
+  y += boxH + gap + 1;
+
+  // Amount + balance row
+  const amtW = contentW * 0.38;
+  const balW = (contentW - amtW - gap * 2) / 2;
+  const amtH = 22;
+  rvPdfBox(doc, margin, y, amtW, amtH, "Amount Received", moneyFmt(cur, amount), [29, 78, 216], [239, 246, 255], { valueSize: 14 });
+  rvPdfBox(
+    doc,
+    margin + amtW + gap,
+    y,
+    balW,
+    amtH,
+    "Balance Before",
+    balBefore == null ? "—" : moneyFmt(cur, balBefore),
+    [254, 243, 199],
+    [146, 64, 14],
+    { valueSize: 12 }
+  );
+  rvPdfBox(
+    doc,
+    margin + amtW + gap + balW + gap,
+    y,
+    balW,
+    amtH,
+    "Balance After",
+    balAfter == null ? "—" : moneyFmt(cur, balAfter),
+    balApplied ? [134, 239, 172] : [187, 247, 208],
+    [20, 83, 45],
+    { valueSize: 12, note: afterNote }
+  );
+  y += amtH + gap + 1;
+
+  // Side totals
+  const sideH = 14;
+  rvPdfBox(doc, margin, y, col3, sideH, "Discount", moneyFmt(cur, disc), [255, 255, 255], [23, 32, 51], { valueSize: 9 });
+  doc.setDrawColor(226, 232, 240);
+  rvPdfRoundRect(doc, margin, y, col3, sideH, 2.2, "S");
+  rvPdfBox(doc, margin + col3 + gap, y, col3, sideH, "Allocated to Bills", moneyFmt(cur, allocated), [255, 255, 255], [23, 32, 51], { valueSize: 9 });
+  rvPdfRoundRect(doc, margin + col3 + gap, y, col3, sideH, 2.2, "S");
+  rvPdfBox(doc, margin + (col3 + gap) * 2, y, col3, sideH, "Advance / Unallocated", moneyFmt(cur, unalloc), [255, 255, 255], [23, 32, 51], { valueSize: 9 });
+  rvPdfRoundRect(doc, margin + (col3 + gap) * 2, y, col3, sideH, 2.2, "S");
+  y += sideH + gap + 2;
+
+  // Narration / cheque
+  const narrBits = [];
+  if(r.ref) narrBits.push(`Narration: ${r.ref}`);
   if(r.chequeNo){
     let chq = `Cheque: ${r.chequeNo}`;
     if(r.bank) chq += ` · Bank: ${r.bank}`;
-    if(r.chequeDate) chq += ` · Dated: ${r.chequeDate}`;
+    if(r.chequeDate) chq += ` · Chq Date: ${r.chequeDate}`;
     if(r.pdcDate) chq += ` · PDC: ${r.pdcDate}`;
-    lines.push(chq);
+    narrBits.push(chq);
   }
-  if(isDead) lines.push("This receipt is not valid for payment / allocation.");
-  lines.forEach(line => {
-    doc.text(line, 14, y);
-    y += 6;
-  });
+  if(isDead) narrBits.push("This receipt is not valid for payment / allocation.");
+  if(narrBits.length){
+    const narrText = narrBits.join("\n");
+    const narrLines = doc.splitTextToSize(narrText, contentW - 8);
+    const narrH = Math.max(12, 6 + narrLines.length * 4.2);
+    doc.setFillColor(255, 251, 235);
+    rvPdfRoundRect(doc, margin, y, contentW, narrH, 2.2, "F");
+    doc.setDrawColor(253, 230, 138);
+    rvPdfRoundRect(doc, margin, y, contentW, narrH, 2.2, "S");
+    doc.setTextColor(120, 53, 15);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(narrLines, margin + 4, y + 5);
+    doc.setTextColor(0);
+    y += narrH + 4;
+  }
+
   const rows = (billRows || []).map(b=> [
     b.invNoLabel || b.invNo || "",
     b.invDate || "",
@@ -399,21 +548,45 @@ export async function buildReceiptPdfBlob(r, shop = {}, { billRows = [] } = {}){
   const totalBill = (billRows || []).reduce((s, b)=> s + (Number(b.billAmount) || 0), 0);
   const totalRecv = (billRows || []).reduce((s, b)=> s + (Number(b.received) || 0), 0);
   if(rows.length){
-    y += 4;
+    doc.setFillColor(30, 58, 138);
+    rvPdfRoundRect(doc, margin, y, contentW, 8, 1.5, "F");
+    doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text("Bills Received Against", 14, y);
-    y += 2;
+    doc.setFontSize(8);
+    doc.text("BILLS RECEIVED AGAINST", margin + 3, y + 5.4);
+    doc.setTextColor(0);
     doc.autoTable({
-      startY: y + 2,
+      startY: y + 8,
+      margin: { left: margin, right: margin },
       head: [["Bill No", "Bill Date", "Bill Amount", "Received Amt"]],
       body: rows,
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [45, 90, 142] },
+      styles: { fontSize: 8, cellPadding: 2.2 },
+      headStyles: { fillColor: [232, 240, 250], textColor: [26, 61, 102], fontStyle: "bold" },
       foot: [["Total", "", moneyFmt(cur, totalBill), moneyFmt(cur, totalRecv)]],
-      footStyles: { fillColor: [220, 232, 245], textColor: [23, 32, 51], fontStyle: "bold" }
+      footStyles: { fillColor: [238, 244, 251], textColor: [23, 32, 51], fontStyle: "bold" },
+      columnStyles: {
+        2: { halign: "right" },
+        3: { halign: "right" }
+      }
     });
+    y = (doc.lastAutoTable?.finalY || y) + 10;
+  }else{
+    y += 8;
   }
+
+  // Signature lines
+  const sigY = Math.min(Math.max(y + 8, 250), 275);
+  doc.setDrawColor(148, 163, 184);
+  doc.setLineWidth(0.3);
+  doc.line(margin + 4, sigY, margin + 70, sigY);
+  doc.line(pageW - margin - 70, sigY, pageW - margin - 4, sigY);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(102, 112, 133);
+  doc.text("Customer Signature", margin + 37, sigY + 5, { align: "center" });
+  doc.text("Authorized Signatory", pageW - margin - 37, sigY + 5, { align: "center" });
+  doc.setTextColor(0);
+
   return doc.output("blob");
 }
 
